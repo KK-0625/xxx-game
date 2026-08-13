@@ -1,3 +1,4 @@
+const http = require('http');
 const WebSocket = require('ws');
 const { Pool } = require('pg');
 const bcrypt = require('bcryptjs');
@@ -10,7 +11,20 @@ const pool = new Pool({
   ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false
 });
 
-// 1. 初始化資料庫
+// 🏆 1. 段位計算邏輯 (8 大段位)
+function getRankInfo(points) {
+  const pts = points || 0;
+  if (pts >= 3500) return { name: '璀璨之星', icon: '👑', color: '#ff1744' };
+  if (pts >= 2700) return { name: '戰場傳說', icon: '⚔️', color: '#ff9100' };
+  if (pts >= 2000) return { name: '星耀', icon: '🌟', color: '#e040fb' };
+  if (pts >= 1400) return { name: '鑽石', icon: '🔷', color: '#00e5ff' };
+  if (pts >= 900)  return { name: '鉑金', icon: '💎', color: '#00e676' };
+  if (pts >= 500)  return { name: '黃金', icon: '🥇', color: '#ffd600' };
+  if (pts >= 200)  return { name: '白銀', icon: '🥈', color: '#cfd8dc' };
+  return { name: '青銅', icon: '🥉', color: '#a1887f' };
+}
+
+// 🗄️ 2. 初始化資料庫
 async function initDB() {
   try {
     await pool.query(`
@@ -22,22 +36,40 @@ async function initDB() {
         hp_potion INT DEFAULT 5,
         mp_potion INT DEFAULT 5,
         exp_scroll INT DEFAULT 1,
+        rank_points INT DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
-    console.log("🟢 資料庫連線並初始化成功！");
+    
+    // 自動修復：為舊資料庫加入 rank_points 欄位
+    await pool.query(`
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS rank_points INT DEFAULT 0;
+    `);
+
+    console.log("🟢 資料庫連線並初始化成功 (含段位機制)！");
   } catch (err) {
     console.error("🔴 資料庫初始化失敗：", err);
   }
 }
 initDB();
 
-// 2. 全域變數管理
-const wss = new WebSocket.Server({ port: PORT });
-const rooms = {}; // 儲存所有房間資料
-let matchQueue = []; // 1v1 配對佇列
+// 🌐 3. 建立 HTTP 伺服器 (防止 Render 睡眠)
+const server = http.createServer((req, res) => {
+  if (req.url === '/ping' || req.url === '/') {
+    res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Pong! RPG 遊戲伺服器運行中 🚀');
+  } else {
+    res.writeHead(404);
+    res.end();
+  }
+});
 
-// 職業基礎屬性定義
+// ⚡ 4. WebSocket 伺服器設定
+const wss = new WebSocket.Server({ server });
+const rooms = {};
+let matchQueue = [];
+
+// 職業基礎屬性
 const ROLE_STATS = {
   warrior: { hp: 16000, mp: 2000 },
   mage:    { hp: 9000,  mp: 5000 },
@@ -47,7 +79,7 @@ const ROLE_STATS = {
   archer:  { hp: 10500, mp: 3200 }
 };
 
-// 廣播給房間內所有玩家
+// 廣播房間狀態
 function broadcastRoomState(roomId) {
   const room = rooms[roomId];
   if (!room) return;
@@ -65,7 +97,9 @@ function broadcastRoomState(roomId) {
       maxHp: p.maxHp,
       mp: p.mp,
       maxMp: p.maxMp,
-      inventory: p.inventory
+      inventory: p.inventory,
+      rankPoints: p.rankPoints || 0,
+      rankInfo: getRankInfo(p.rankPoints || 0)
     }))
   });
 
@@ -76,7 +110,7 @@ function broadcastRoomState(roomId) {
   });
 }
 
-// 廣播戰鬥日誌
+// 廣播日誌
 function broadcastBattleLog(roomId, message) {
   const room = rooms[roomId];
   if (!room) return;
@@ -88,7 +122,20 @@ function broadcastBattleLog(roomId, message) {
   });
 }
 
-// 自動掛機獎勵計時器 (每 10 秒發送)
+// 💓 心跳保活 (每 30 秒 Ping 一次防止 TCP 中斷)
+const heartbeatInterval = setInterval(() => {
+  wss.clients.forEach((ws) => {
+    if (ws.isAlive === false) return ws.terminate();
+    ws.isAlive = false;
+    ws.ping();
+  });
+}, 30000);
+
+wss.on('close', () => {
+  clearInterval(heartbeatInterval);
+});
+
+// 🧘 掛機獎勵計時器 (每 10 秒發送)
 setInterval(async () => {
   for (let client of wss.clients) {
     if (client.readyState === WebSocket.OPEN && client.user && client.isIdle) {
@@ -98,7 +145,7 @@ setInterval(async () => {
 
       try {
         const res = await pool.query(
-          `UPDATE users SET ${col} = ${col} + 1 WHERE id = $1 RETURNING hp_potion, mp_potion, exp_scroll`,
+          `UPDATE users SET ${col} = ${col} + 1 WHERE id = $1 RETURNING hp_potion, mp_potion, exp_scroll, rank_points`,
           [client.user.id]
         );
         const inv = res.rows[0];
@@ -107,10 +154,14 @@ setInterval(async () => {
           mpPotion: inv.mp_potion,
           expScroll: inv.exp_scroll
         };
+        client.user.rankPoints = inv.rank_points;
+
         client.send(JSON.stringify({
           type: 'idle_reward',
-          message: `🧘 修練中... 獲得了 🧪 ${itemText}！(已保存至資料庫)`,
-          inventory: client.user.inventory
+          message: `🧘 修練中... 獲得了 🧪 ${itemText}！`,
+          inventory: client.user.inventory,
+          rankPoints: client.user.rankPoints,
+          rankInfo: getRankInfo(client.user.rankPoints)
         }));
       } catch (err) {
         console.error("掛機獎勵更新失敗:", err);
@@ -119,47 +170,50 @@ setInterval(async () => {
   }
 }, 10000);
 
-// 3. WebSocket 核心邏輯
+// 🎮 5. WebSocket 訊息對接
 wss.on('connection', (ws) => {
   ws.id = 'PLAYER_' + Math.random().toString(36).substr(2, 9);
   ws.isIdle = false;
+  ws.isAlive = true;
+
+  ws.on('pong', () => {
+    ws.isAlive = true;
+  });
 
   ws.on('message', async (message) => {
     try {
       const data = JSON.parse(message);
 
-      // --- 註冊 ---
+      // --- 帳號註冊 ---
       if (data.type === 'register') {
         const { username, password } = data;
         const hash = await bcrypt.hash(password, 10);
         try {
           await pool.query(
-            'INSERT INTO users (username, password_hash) VALUES ($1, $2)',
+            'INSERT INTO users (username, password_hash, rank_points) VALUES ($1, $2, 0)',
             [username, hash]
           );
-          ws.send(JSON.stringify({ type: 'register_success', message: '🎉 註冊成功！請直接登入。' }));
+          ws.send(JSON.stringify({ type: 'register_success', message: '🎉 註冊成功！預設段位為【🥉 青銅】。' }));
         } catch (e) {
           ws.send(JSON.stringify({ type: 'error', message: '⚠️ 帳號名稱已被使用！' }));
         }
       }
 
-      // --- 登入 ---
+      // --- 帳號登入 ---
       else if (data.type === 'login') {
         const { username, password } = data;
         const res = await pool.query('SELECT * FROM users WHERE username = $1', [username]);
-        if (res.rows.length === 0) {
-          return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 帳號或密碼錯誤！' }));
-        }
+        if (res.rows.length === 0) return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 帳號或密碼錯誤！' }));
         const user = res.rows[0];
         const valid = await bcrypt.compare(password, user.password_hash);
-        if (!valid) {
-          return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 帳號或密碼錯誤！' }));
-        }
+        if (!valid) return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 帳號或密碼錯誤！' }));
 
         ws.user = {
           id: user.id,
           name: user.username,
           role: user.role,
+          rankPoints: user.rank_points || 0,
+          rankInfo: getRankInfo(user.rank_points || 0),
           inventory: {
             hpPotion: user.hp_potion,
             mpPotion: user.mp_potion,
@@ -176,17 +230,16 @@ wss.on('connection', (ws) => {
 
       // --- 1v1 隨機匹配 ---
       else if (data.type === 'join_queue') {
-        // 從舊佇列中清理掉無效連線或重複請求
         matchQueue = matchQueue.filter(p => p.ws.readyState === WebSocket.OPEN && p.ws !== ws);
 
         const role = data.role || (ws.user ? ws.user.role : 'warrior');
         const name = data.name || (ws.user ? ws.user.name : '勇者');
+        const rankPts = ws.user ? ws.user.rankPoints : 0;
 
-        matchQueue.push({ ws, id: ws.id, name, role, user: ws.user });
+        matchQueue.push({ ws, id: ws.id, name, role, rankPoints: rankPts, user: ws.user });
         ws.isIdle = false;
         ws.send(JSON.stringify({ type: 'queue_joined' }));
 
-        // 滿 2 人自動配對
         if (matchQueue.length >= 2) {
           const p1 = matchQueue.shift();
           const p2 = matchQueue.shift();
@@ -202,11 +255,13 @@ wss.on('connection', (ws) => {
               {
                 id: p1.id, ws: p1.ws, name: p1.name, role: p1.role, team: 'A',
                 hp: stats1.hp, maxHp: stats1.hp, mp: stats1.mp, maxMp: stats1.mp,
+                rankPoints: p1.rankPoints,
                 inventory: p1.user ? p1.user.inventory : { hpPotion: 5, mpPotion: 5, expScroll: 1 }
               },
               {
                 id: p2.id, ws: p2.ws, name: p2.name, role: p2.role, team: 'B',
                 hp: stats2.hp, maxHp: stats2.hp, mp: stats2.mp, maxMp: stats2.mp,
+                rankPoints: p2.rankPoints,
                 inventory: p2.user ? p2.user.inventory : { hpPotion: 5, mpPotion: 5, expScroll: 1 }
               }
             ]
@@ -231,11 +286,12 @@ wss.on('connection', (ws) => {
 
       // --- 自建房間 ---
       else if (data.type === 'create_room') {
-        matchQueue = matchQueue.filter(p => p.ws !== ws); // 建房時先退出配對
+        matchQueue = matchQueue.filter(p => p.ws !== ws);
         const roomId = 'ROOM_' + Math.floor(1000 + Math.random() * 9000);
         const role = data.role || 'warrior';
         const name = data.name || '勇者';
         const stats = ROLE_STATS[role] || ROLE_STATS.warrior;
+        const rankPts = ws.user ? ws.user.rankPoints : 0;
 
         rooms[roomId] = {
           id: roomId,
@@ -243,6 +299,7 @@ wss.on('connection', (ws) => {
           players: [{
             id: ws.id, ws, name, role, team: 'A',
             hp: stats.hp, maxHp: stats.hp, mp: stats.mp, maxMp: stats.mp,
+            rankPoints: rankPts,
             inventory: ws.user ? ws.user.inventory : { hpPotion: 5, mpPotion: 5, expScroll: 1 }
           }]
         };
@@ -254,7 +311,7 @@ wss.on('connection', (ws) => {
         broadcastRoomState(roomId);
       }
 
-      // --- 加入特定房間 ---
+      // --- 加入房間 ---
       else if (data.type === 'join_room') {
         matchQueue = matchQueue.filter(p => p.ws !== ws);
         const { roomId, role, name } = data;
@@ -265,10 +322,12 @@ wss.on('connection', (ws) => {
 
         const team = (room.players.filter(p => p.team === 'A').length <= room.players.filter(p => p.team === 'B').length) ? 'A' : 'B';
         const stats = ROLE_STATS[role] || ROLE_STATS.warrior;
+        const rankPts = ws.user ? ws.user.rankPoints : 0;
 
         const newPlayer = {
           id: ws.id, ws, name: name || '勇者', role, team,
           hp: stats.hp, maxHp: stats.hp, mp: stats.mp, maxMp: stats.mp,
+          rankPoints: rankPts,
           inventory: ws.user ? ws.user.inventory : { hpPotion: 5, mpPotion: 5, expScroll: 1 }
         };
 
@@ -290,7 +349,7 @@ wss.on('connection', (ws) => {
         }
       }
 
-      // --- 釋放技能 ---
+      // --- 釋放技能與戰鬥結算 ---
       else if (data.type === 'use_skill') {
         const room = rooms[ws.roomId];
         if (!room || room.status !== 'playing') return;
@@ -321,21 +380,43 @@ wss.on('connection', (ws) => {
           const rawVal = Math.floor(Math.random() * (data.maxVal - data.minVal + 1)) + data.minVal;
           if (data.isHeal) {
             t.hp = Math.min(t.maxHp, t.hp + rawVal);
-            broadcastBattleLog(room.id, `💚 ${caster.name} 對 ${t.name} 使用了【${data.skillName}】，恢復了 ${rawVal} 點 HP！`);
+            broadcastBattleLog(room.id, `💚 ${caster.name} 對 ${t.name} 使用了【${data.skillName}】，恢復 ${rawVal} HP！`);
           } else {
             t.hp = Math.max(0, t.hp - rawVal);
-            broadcastBattleLog(room.id, `💥 ${caster.name} 對 ${t.name} 使用了【${data.skillName}】，造成了 ${rawVal} 點傷害！`);
+            broadcastBattleLog(room.id, `💥 ${caster.name} 對 ${t.name} 使用了【${data.skillName}】，造成 ${rawVal} 傷害！`);
           }
         });
 
-        // 檢查勝負
+        // 🏆 檢查勝負與結算排位分數
         const teamAAlive = room.players.some(p => p.team === 'A' && p.hp > 0);
         const teamBAlive = room.players.some(p => p.team === 'B' && p.hp > 0);
 
         if (!teamAAlive || !teamBAlive) {
           room.status = 'game_over';
-          const winner = teamAAlive ? '🔵 隊伍 A' : '🔴 隊伍 B';
-          broadcastBattleLog(room.id, `🏆 遊戲結束！【${winner}】獲得了最終勝利！`);
+          const winTeam = teamAAlive ? 'A' : 'B';
+          const winTeamName = teamAAlive ? '🔵 隊伍 A' : '🔴 隊伍 B';
+
+          broadcastBattleLog(room.id, `🏆 遊戲結束！【${winTeamName}】獲得了最終勝利！`);
+
+          // 更新參與玩家的積分 (+25 / -15)
+          for (let p of room.players) {
+            const isWinner = (p.team === winTeam);
+            const delta = isWinner ? 25 : -15;
+
+            p.rankPoints = Math.max(0, (p.rankPoints || 0) + delta);
+            const rInfo = getRankInfo(p.rankPoints);
+
+            broadcastBattleLog(room.id, `🎖️ ${p.name} (${isWinner ? '獲勝' : '戰敗'})：積分 ${delta > 0 ? '+' + delta : delta} (總分: ${p.rankPoints} - ${rInfo.icon} ${rInfo.name})`);
+
+            if (p.ws && p.ws.user) {
+              p.ws.user.rankPoints = p.rankPoints;
+              try {
+                await pool.query('UPDATE users SET rank_points = $1 WHERE id = $2', [p.rankPoints, p.ws.user.id]);
+              } catch (e) {
+                console.error("更新段位積分失敗:", e);
+              }
+            }
+          }
         }
 
         broadcastRoomState(room.id);
@@ -351,14 +432,13 @@ wss.on('connection', (ws) => {
         if (data.potionType === 'hp' && p.inventory.hpPotion > 0) {
           p.inventory.hpPotion--;
           p.hp = Math.min(p.maxHp, p.hp + 3000);
-          broadcastBattleLog(room.id, `🧪 ${p.name} 使用了 HP 藥水，恢復了 3000 點生命值！`);
+          broadcastBattleLog(room.id, `🧪 ${p.name} 使用了 HP 藥水！`);
         } else if (data.potionType === 'mp' && p.inventory.mpPotion > 0) {
           p.inventory.mpPotion--;
           p.mp = Math.min(p.maxMp, p.mp + 1500);
-          broadcastBattleLog(room.id, `🧪 ${p.name} 使用了 MP 藥水，恢復了 1500 點魔法值！`);
+          broadcastBattleLog(room.id, `🧪 ${p.name} 使用了 MP 藥水！`);
         }
 
-        // 同步扣除後的背包回 DB
         if (ws.user) {
           ws.user.inventory = p.inventory;
           await pool.query(
@@ -370,19 +450,16 @@ wss.on('connection', (ws) => {
         broadcastRoomState(room.id);
       }
 
-      // --- 返回大廳 / 離開房間 ---
+      // --- 返回大廳 ---
       else if (data.type === 'go_idle') {
         if (ws.roomId && rooms[ws.roomId]) {
           rooms[ws.roomId].players = rooms[ws.roomId].players.filter(p => p.id !== ws.id);
-          if (rooms[ws.roomId].players.length === 0) {
-            delete rooms[ws.roomId];
-          } else {
-            broadcastRoomState(ws.roomId);
-          }
+          if (rooms[ws.roomId].players.length === 0) delete rooms[ws.roomId];
+          else broadcastRoomState(ws.roomId);
           ws.roomId = null;
         }
         ws.isIdle = true;
-        ws.send(JSON.stringify({ type: 'returned_to_idle', message: '🧘 已回到大廳，繼續修練中...' }));
+        ws.send(JSON.stringify({ type: 'returned_to_idle', message: '🧘 已回到大廳修練...' }));
       }
 
     } catch (err) {
@@ -394,13 +471,22 @@ wss.on('connection', (ws) => {
     matchQueue = matchQueue.filter(p => p.ws !== ws);
     if (ws.roomId && rooms[ws.roomId]) {
       rooms[ws.roomId].players = rooms[ws.roomId].players.filter(p => p.id !== ws.id);
-      if (rooms[ws.roomId].players.length === 0) {
-        delete rooms[ws.roomId];
-      } else {
-        broadcastRoomState(ws.roomId);
-      }
+      if (rooms[ws.roomId].players.length === 0) delete rooms[ws.roomId];
+      else broadcastRoomState(ws.roomId);
     }
   });
 });
 
-console.log(`🚀 RPG 遊戲伺服器已啟動於 Port ${PORT}`);
+// 🛡️ 6. 防止未捕捉錯誤導致伺服器崩潰 (Crash Guard)
+process.on('uncaughtException', (err) => {
+  console.error('💥 捕捉到未處理的錯誤 (uncaughtException):', err);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('💥 捕捉到未處理的 Promise 拒絕 (unhandledRejection):', reason);
+});
+
+// 🚀 啟動伺服器 Listen
+server.listen(PORT, () => {
+  console.log(`🚀 RPG 遊戲伺服器已啟動於 Port ${PORT}`);
+});
