@@ -2,7 +2,7 @@
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8">
-  <title>多人線上 RPG 戰鬥房間</title>
+  <title>多人線上 RPG 戰鬥房間 - 職業特性增強版</title>
   <style>
     * { box-sizing: border-box; font-family: "Segoe UI", Microsoft JhengHei, sans-serif; }
     body { background-color: #121212; color: #e0e0e0; margin: 0; padding: 20px; display: flex; justify-content: center; }
@@ -35,6 +35,13 @@
     .player-card.dead { opacity: 0.5; filter: grayscale(1); }
     .player-header { display: flex; justify-content: space-between; font-weight: bold; margin-bottom: 6px; }
     
+    .status-tags { font-size: 11px; margin-top: 4px; display: flex; gap: 4px; flex-wrap: wrap; }
+    .status-badge { padding: 2px 5px; border-radius: 3px; font-weight: bold; color: #fff; }
+    .badge-burn { background-color: #ff5722; }
+    .badge-paralyze { background-color: #ffeb3b; color: #000; }
+    .badge-poison { background-color: #9c27b0; }
+    .badge-blind { background-color: #607d8b; }
+
     .bar-container { background: #555; height: 14px; border-radius: 7px; overflow: hidden; margin-bottom: 4px; position: relative; }
     .hp-bar { background: linear-gradient(90deg, #e53935, #ef5350); height: 100%; width: 100%; transition: width 0.3s; }
     .mp-bar { background: linear-gradient(90deg, #1e88e5, #42a5f5); height: 100%; width: 100%; transition: width 0.3s; }
@@ -47,7 +54,7 @@
     .btn-potion { background-color: #0288d1; }
     .btn-potion:hover { background-color: #03a9f4; }
 
-    #battleLog { height: 160px; overflow-y: auto; background-color: #000; color: #00ff66; padding: 10px; font-family: monospace; font-size: 13px; border-radius: 4px; }
+    #battleLog { height: 180px; overflow-y: auto; background-color: #000; color: #00ff66; padding: 10px; font-family: monospace; font-size: 13px; border-radius: 4px; }
     .queue-status { margin-top: 10px; padding: 8px; background: #332200; border: 1px dashed #ff9800; border-radius: 4px; color: #ffca28; }
     .target-indicator { font-size: 13px; color: #ffca28; font-weight: bold; margin-bottom: 5px; }
 
@@ -95,7 +102,7 @@
 <body>
 
 <div id="mainContainer" class="container">
-  <h2>⚔️ 線上 RPG 戰鬥與匹配系統</h2>
+  <h2>⚔️ 線上 RPG 戰鬥與匹配系統 (職業特性增強版)</h2>
 
   <!-- 帳號登入 / 註冊區塊 -->
   <div id="authSection" class="card">
@@ -122,12 +129,12 @@
           <label>玩家暱稱：<input type="text" id="playerName" value="勇者"></label>
           <label>選擇職業：
             <select id="playerRole">
-              <option value="warrior">🛡️ 戰士 (16000 HP)</option>
-              <option value="mage">🔮 法師 (9000 HP)</option>
-              <option value="priest">💚 牧師 (10000 HP)</option>
-              <option value="knight">🏰 騎士 (20000 HP)</option>
-              <option value="assassin">🗡️ 刺客 (11000 HP)</option>
-              <option value="archer">🏹 弓箭手 (10500 HP)</option>
+              <option value="berserker">🩸 狂戰士 (16000 HP - 攻擊吸血)</option>
+              <option value="mage">🔮 法師 (9000 HP - 灼燒/麻痺)</option>
+              <option value="priest">💚 牧師 (10000 HP - 專屬復活)</option>
+              <option value="knight">🏰 騎士 (20000 HP - 5% 荊棘反傷)</option>
+              <option value="assassin">🗡️ 刺客 (11000 HP - 劇毒持續扣血)</option>
+              <option value="archer">🏹 弓箭手 (10500 HP - 致盲MISS)</option>
             </select>
           </label>
           
@@ -219,11 +226,13 @@
   let currentRoomState = null;
   let selectedTargetId = null;
   let oldPlayerHpMap = {}; 
+  let reviveCooldownEndTime = 0; // 牧師復活術 CD 時間戳記 (5分鐘)
 
+  // 強化後的技能表
   const SKILLS = {
     mage: [
-      { name: '🔥 火球術', mpCost: 80, minVal: 220, maxVal: 350, isAoe: false, isHeal: false, icon: '🔥' },
-      { name: '⚡ 連鎖閃電', mpCost: 150, minVal: 180, maxVal: 280, isAoe: false, isHeal: false, icon: '⚡' },
+      { name: '🔥 火球術', mpCost: 80, minVal: 220, maxVal: 350, isAoe: false, isHeal: false, icon: '🔥', effect: 'burn', chance: 0.3 },
+      { name: '⚡ 連鎖閃電', mpCost: 150, minVal: 180, maxVal: 280, isAoe: false, isHeal: false, icon: '⚡', effect: 'paralyze', chance: 0.25 },
       { name: '❄️ 暴風雪', mpCost: 220, minVal: 150, maxVal: 250, isAoe: true, isHeal: false, icon: '❄️' },
       { name: '☄️ 隕石術', mpCost: 400, minVal: 500, maxVal: 850, isAoe: true, isHeal: false, isUlt: true, icon: '☄️' }
     ],
@@ -231,31 +240,31 @@
       { name: '💚 治癒術', mpCost: 70, minVal: 200, maxVal: 320, isAoe: false, isHeal: true, icon: '💚' },
       { name: '✨ 聖光彈', mpCost: 90, minVal: 180, maxVal: 280, isAoe: false, isHeal: false, icon: '✨' },
       { name: '🙏 神聖祈禱', mpCost: 180, minVal: 150, maxVal: 250, isAoe: true, isHeal: true, icon: '🙏' },
-      { name: '🌟 天使降臨', mpCost: 350, minVal: 450, maxVal: 700, isAoe: true, isHeal: true, isUlt: true, icon: '🌟' }
+      { name: '🌟 復活術', mpCost: 300, minVal: 0, maxVal: 0, isAoe: false, isRevive: true, isUlt: true, cd: 300, icon: '🌟' }
     ],
-    warrior: [
-      { name: '⚔️ 重擊', mpCost: 40, minVal: 180, maxVal: 300, isAoe: false, isHeal: false, icon: '⚔️' },
-      { name: '🌪️ 旋風斬', mpCost: 100, minVal: 130, maxVal: 220, isAoe: true, isHeal: false, icon: '🌪️' },
-      { name: '🩸 狂暴怒吼', mpCost: 120, minVal: 250, maxVal: 400, isAoe: false, isHeal: false, icon: '🩸' },
-      { name: '💥 英雄一擊', mpCost: 300, minVal: 550, maxVal: 900, isAoe: false, isHeal: false, isUlt: true, icon: '💥' }
+    berserker: [ // 原戰士改名為狂戰士 (內建20%吸血)
+      { name: '⚔️ 重擊', mpCost: 40, minVal: 180, maxVal: 300, isAoe: false, isHeal: false, icon: '⚔️', lifesteal: 0.2 },
+      { name: '🌪️ 旋風斬', mpCost: 100, minVal: 130, maxVal: 220, isAoe: true, isHeal: false, icon: '🌪️', lifesteal: 0.2 },
+      { name: '🩸 狂暴怒吼', mpCost: 120, minVal: 250, maxVal: 400, isAoe: false, isHeal: false, icon: '🩸', lifesteal: 0.2 },
+      { name: '💥 英雄一擊', mpCost: 300, minVal: 550, maxVal: 900, isAoe: false, isHeal: false, isUlt: true, icon: '💥', lifesteal: 0.2 }
     ],
-    knight: [
+    knight: [ // 內建 5% 反傷
       { name: '🛡️ 盾牌衝鋒', mpCost: 40, minVal: 150, maxVal: 240, isAoe: false, isHeal: false, icon: '🛡️' },
       { name: '🔨 裁決之錘', mpCost: 80, minVal: 200, maxVal: 320, isAoe: false, isHeal: false, icon: '🔨' },
       { name: '🧱 堅守陣線', mpCost: 120, minVal: 120, maxVal: 200, isAoe: true, isHeal: true, icon: '🧱' },
       { name: '🏰 正義風暴', mpCost: 280, minVal: 400, maxVal: 650, isAoe: true, isHeal: false, isUlt: true, icon: '🏰' }
     ],
     assassin: [
-      { name: '🗡️ 毒刃', mpCost: 50, minVal: 220, maxVal: 350, isAoe: false, isHeal: false, icon: '🗡️' },
-      { name: '👣 影襲', mpCost: 90, minVal: 280, maxVal: 420, isAoe: false, isHeal: false, icon: '👣' },
+      { name: '🗡️ 毒刃', mpCost: 50, minVal: 220, maxVal: 350, isAoe: false, isHeal: false, icon: '🗡️', effect: 'poison', chance: 0.35 },
+      { name: '👣 影襲', mpCost: 90, minVal: 280, maxVal: 420, isAoe: false, isHeal: false, icon: '👣', effect: 'poison', chance: 0.2 },
       { name: '🔪 飛刀風暴', mpCost: 150, minVal: 160, maxVal: 280, isAoe: true, isHeal: false, icon: '🔪' },
-      { name: '☠️ 瞬獄殺', mpCost: 350, minVal: 650, maxVal: 1100, isAoe: false, isHeal: false, isUlt: true, icon: '☠️' }
+      { name: '☠️ 瞬獄殺', mpCost: 350, minVal: 650, maxVal: 1100, isAoe: false, isHeal: false, isUlt: true, icon: '☠️', effect: 'poison', chance: 0.5 }
     ],
     archer: [
-      { name: '🏹 精準射擊', mpCost: 50, minVal: 200, maxVal: 320, isAoe: false, isHeal: false, icon: '🏹' },
-      { name: '🌧️ 箭雨', mpCost: 140, minVal: 140, maxVal: 240, isAoe: true, isHeal: false, icon: '🌧️' },
+      { name: '🏹 精準射擊', mpCost: 50, minVal: 200, maxVal: 320, isAoe: false, isHeal: false, icon: '🏹', effect: 'blind', chance: 0.25 },
+      { name: '🌧️ 箭雨', mpCost: 140, minVal: 140, maxVal: 240, isAoe: true, isHeal: false, icon: '🌧️', effect: 'blind', chance: 0.15 },
       { name: '🎯 貫穿箭', mpCost: 110, minVal: 260, maxVal: 400, isAoe: false, isHeal: false, icon: '🎯' },
-      { name: '🦅 幻影神射', mpCost: 320, minVal: 580, maxVal: 950, isAoe: false, isHeal: false, icon: '🦅' }
+      { name: '🦅 幻影神射', mpCost: 320, minVal: 580, maxVal: 950, isAoe: false, isHeal: false, icon: '🦅', effect: 'blind', chance: 0.4 }
     ]
   };
 
@@ -278,7 +287,7 @@
       
       const validName = (data.user.name && data.user.name !== "空白") ? data.user.name : "勇者";
       document.getElementById('playerName').value = validName;
-      document.getElementById('playerRole').value = data.user.role || 'warrior';
+      document.getElementById('playerRole').value = data.user.role || 'berserker';
       updateInventoryDisplay(data.user.inventory);
     }
     else if (data.type === 'idle_reward') {
@@ -296,17 +305,8 @@
       logMessage("❌ 已取消匹配。");
       showQueueUI(false);
     }
-    else if (data.type === 'match_found') {
-      logMessage("🎉 匹配成功 (1v1)！即將進入戰鬥...");
-      myPlayerId = data.player.id;
-      selectedTargetId = null;
-      document.getElementById('displayRoomId').innerText = data.roomId;
-      document.getElementById('lobbySection').classList.add('hidden');
-      document.getElementById('roomSection').classList.remove('hidden');
-      showQueueUI(false);
-      updateInventoryDisplay(data.player.inventory);
-    }
-    else if (data.type === 'room_created' || data.type === 'room_joined') {
+    else if (data.type === 'match_found' || data.type === 'room_created' || data.type === 'room_joined') {
+      if (data.type === 'match_found') logMessage("🎉 匹配成功 (1v1)！即將進入戰鬥...");
       myPlayerId = data.player.id;
       selectedTargetId = null;
       document.getElementById('displayRoomId').innerText = data.roomId;
@@ -319,10 +319,7 @@
       currentRoomState = data;
       renderRoom(data);
     }
-    else if (data.type === 'game_start') {
-      logMessage(data.message);
-    }
-    else if (data.type === 'game_over') {
+    else if (data.type === 'game_start' || data.type === 'game_over') {
       logMessage(data.message);
     }
     else if (data.type === 'battle_log') {
@@ -377,24 +374,16 @@
     return nameInput;
   }
 
-  // 控制匹配 UI 顯示/隱藏的輔助函數
   function showQueueUI(inQueue) {
-    if (inQueue) {
-      document.getElementById('btnJoinQueue').classList.add('hidden');
-      document.getElementById('btnLeaveQueue').classList.remove('hidden');
-      document.getElementById('queueStatus').classList.remove('hidden');
-    } else {
-      document.getElementById('btnJoinQueue').classList.remove('hidden');
-      document.getElementById('btnLeaveQueue').classList.add('hidden');
-      document.getElementById('queueStatus').classList.add('hidden');
-    }
+    document.getElementById('btnJoinQueue').classList.toggle('hidden', inQueue);
+    document.getElementById('btnLeaveQueue').classList.toggle('hidden', !inQueue);
+    document.getElementById('queueStatus').classList.toggle('hidden', !inQueue);
   }
 
   function joinQueue() {
     if (!checkWsConnected()) return;
     const name = getSafePlayerName();
     const role = document.getElementById('playerRole').value;
-    
     ws.send(JSON.stringify({ type: 'join_queue', name, role }));
     showQueueUI(true);
     logMessage(`🎲 已送出 1v1 配對請求 (暱稱: ${name})...`);
@@ -402,7 +391,6 @@
 
   function leaveQueue() {
     if (!checkWsConnected()) return;
-    // 💡 強制讓前端恢復 UI，避免後端沒回覆時卡住
     ws.send(JSON.stringify({ type: 'leave_queue' }));
     showQueueUI(false);
     logMessage("❌ 已手動取消匹配。");
@@ -410,11 +398,9 @@
 
   function createRoom() {
     if (!checkWsConnected()) return;
-    // 💡 建房前先強制離開匹配，防止狀態衝突
     leaveQueue();
     const name = getSafePlayerName();
     const role = document.getElementById('playerRole').value;
-    console.log("👉 正要發送建房請求：", { type: 'create_room', name, role });
     ws.send(JSON.stringify({ type: 'create_room', name, role }));
   }
 
@@ -478,7 +464,7 @@
     const targetText = document.getElementById('currentTargetText');
     if (selectedTargetId) {
       const targetPlayer = roomState.players.find(p => p.id === selectedTargetId);
-      if (targetPlayer && targetPlayer.hp > 0) {
+      if (targetPlayer) {
         targetText.innerText = `🎯 目前鎖定目標：${targetPlayer.name} (${targetPlayer.team}隊) [再次點擊可取消選取]`;
       } else {
         selectedTargetId = null;
@@ -498,9 +484,18 @@
       const isSelected = selectedTargetId === p.id;
       pCard.className = `player-card ${isDead ? 'dead' : ''} ${isSelected ? 'selected' : ''}`;
       
-      if (roomState.status === 'playing' && !isDead) {
+      if (roomState.status === 'playing') {
         pCard.style.cursor = 'pointer';
         pCard.onclick = () => selectTarget(p.id);
+      }
+
+      // 異常狀態標籤展示
+      let statusHtml = '';
+      if (p.statusEffects) {
+        if (p.statusEffects.burn) statusHtml += `<span class="status-badge badge-burn">🔥 灼燒</span>`;
+        if (p.statusEffects.paralyze) statusHtml += `<span class="status-badge badge-paralyze">⚡ 麻痺</span>`;
+        if (p.statusEffects.poison) statusHtml += `<span class="status-badge badge-poison">☠️ 中毒</span>`;
+        if (p.statusEffects.blind) statusHtml += `<span class="status-badge badge-blind">👁️ 致盲</span>`;
       }
 
       pCard.innerHTML = `
@@ -516,6 +511,7 @@
           <div class="mp-bar" style="width: ${mpPercent}%;"></div>
           <div class="bar-text">MP: ${p.mp} / ${p.maxMp}</div>
         </div>
+        <div class="status-tags">${statusHtml}</div>
       `;
 
       if (p.team === 'A') teamA.appendChild(pCard);
@@ -548,11 +544,22 @@
     container.innerHTML = '';
 
     const mySkills = SKILLS[me.role] || [];
+    const now = Date.now();
+
     mySkills.forEach(skill => {
       const btn = document.createElement('button');
-      btn.innerText = `${skill.name} (MP: ${skill.mpCost})`;
-      if (skill.isUlt) btn.className = 'btn-ult';
-      btn.disabled = me.mp < skill.mpCost || me.hp <= 0;
+      
+      if (skill.isRevive) {
+        const remainingCd = Math.max(0, Math.ceil((reviveCooldownEndTime - now) / 1000));
+        btn.innerText = `${skill.name} (MP: ${skill.mpCost})${remainingCd > 0 ? ` CD:${remainingCd}s` : ''}`;
+        if (skill.isUlt) btn.className = 'btn-ult';
+        btn.disabled = me.mp < skill.mpCost || me.hp <= 0 || remainingCd > 0;
+      } else {
+        btn.innerText = `${skill.name} (MP: ${skill.mpCost})`;
+        if (skill.isUlt) btn.className = 'btn-ult';
+        btn.disabled = me.mp < skill.mpCost || me.hp <= 0;
+      }
+
       btn.onclick = () => useSkill(skill);
       container.appendChild(btn);
     });
@@ -560,6 +567,11 @@
 
   function useSkill(skill) {
     if (!checkWsConnected()) return;
+
+    if (skill.isRevive) {
+      reviveCooldownEndTime = Date.now() + (skill.cd * 1000);
+    }
+
     ws.send(JSON.stringify({
       type: 'use_skill',
       skillName: skill.name,
@@ -568,6 +580,10 @@
       maxVal: skill.maxVal,
       isAoe: skill.isAoe,
       isHeal: skill.isHeal,
+      isRevive: skill.isRevive || false,
+      lifesteal: skill.lifesteal || 0,
+      effect: skill.effect || null,
+      chance: skill.chance || 0,
       isUlt: skill.isUlt || false,
       targetId: selectedTargetId
     }));
@@ -591,7 +607,7 @@
   }
 
   function checkBattleLogForEffects(msg) {
-    if (msg.includes('【大招！】') || msg.includes('💥【暴擊！】')) {
+    if (msg.includes('【大招！】') || msg.includes('💥【暴擊！】') || msg.includes('⚡【麻痺】')) {
       triggerContainerShake();
     }
   }
