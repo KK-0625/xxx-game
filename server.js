@@ -68,7 +68,7 @@ const wss = new WebSocket.Server({ server });
 const rooms = {};
 let matchQueue = [];
 
-// 👥 在線人數模擬計數器 (基礎 350 人，於 300~500 間浮動)
+// 👥 在線人數模擬計數器
 let simulatedOnlineCount = 380;
 
 const ROLE_STATS = {
@@ -79,6 +79,10 @@ const ROLE_STATS = {
   assassin:  { hp: 11000, mp: 3000 },
   archer:    { hp: 10500, mp: 3200 }
 };
+
+// 🤖 擬真 AI 玩家名字與職業清單
+const AI_NAMES = ["影流之主", "孤高之劍", "夜之狂刃", "星空幻影", "無雙戰神", "疾風劍豪", "聖光騎士", "暗夜刺客"];
+const ALL_ROLES = ['berserker', 'mage', 'priest', 'knight', 'assassin', 'archer'];
 
 // 廣播房間狀態
 function broadcastRoomState(roomId) {
@@ -142,8 +146,7 @@ function broadcastLobbyChat(senderName, message) {
 
 // 👥 廣播大廳在線人數
 function broadcastOnlineCount() {
-  // 讓人數在 300 ~ 500 之間隨機波動
-  const fluctuation = Math.floor(Math.random() * 9) - 4; // -4 ~ +4
+  const fluctuation = Math.floor(Math.random() * 9) - 4;
   simulatedOnlineCount = Math.max(300, Math.min(500, simulatedOnlineCount + fluctuation));
   const realCount = wss.clients.size;
   const totalDisplay = simulatedOnlineCount + realCount;
@@ -160,7 +163,6 @@ function broadcastOnlineCount() {
   });
 }
 
-// 定時更新人數與心跳
 setInterval(broadcastOnlineCount, 5000);
 
 const heartbeatInterval = setInterval(() => {
@@ -210,13 +212,122 @@ setInterval(async () => {
   }
 }, 10000);
 
+// 🤖 建立 AI 玩家與房間邏輯
+function createMatchWithAI(p1) {
+  const roomId = 'ROOM_' + Math.floor(1000 + Math.random() * 9000);
+  const aiName = AI_NAMES[Math.floor(Math.random() * AI_NAMES.length)] + Math.floor(Math.random() * 89 + 10);
+  const aiRole = ALL_ROLES[Math.floor(Math.random() * ALL_ROLES.length)];
+  
+  const stats1 = ROLE_STATS[p1.role] || ROLE_STATS.berserker;
+  const aiStats = ROLE_STATS[aiRole] || ROLE_STATS.berserker;
+
+  const aiPlayerId = 'AI_' + Math.random().toString(36).substr(2, 9);
+
+  rooms[roomId] = {
+    id: roomId,
+    status: 'waiting',
+    isAiMatch: true,
+    regenTimer: null,
+    aiTimer: null,
+    players: [
+      {
+        id: p1.id, ws: p1.ws, name: p1.name, role: p1.role, team: 'A',
+        hp: stats1.hp, maxHp: stats1.hp, mp: stats1.mp, maxMp: stats1.mp,
+        rankPoints: p1.rankPoints, statusEffects: {}, isAi: false,
+        inventory: p1.user ? p1.user.inventory : { hpPotion: 5, mpPotion: 5, expScroll: 1 }
+      },
+      {
+        id: aiPlayerId, ws: null, name: aiName, role: aiRole, team: 'B',
+        hp: aiStats.hp, maxHp: aiStats.hp, mp: aiStats.mp, maxMp: aiStats.mp,
+        rankPoints: p1.rankPoints + (Math.floor(Math.random() * 100) - 50), statusEffects: {}, isAi: true,
+        inventory: { hpPotion: 5, mpPotion: 5, expScroll: 1 }
+      }
+    ]
+  };
+
+  p1.ws.roomId = roomId;
+  p1.ws.send(JSON.stringify({ type: 'match_found', roomId, player: rooms[roomId].players[0] }));
+  broadcastRoomState(roomId);
+}
+
+// 🤖 AI 戰鬥行動邏輯
+function startAIBattleLoop(roomId) {
+  const room = rooms[roomId];
+  if (!room || !room.isAiMatch) return;
+
+  room.aiTimer = setInterval(() => {
+    if (!rooms[roomId] || room.status !== 'playing') {
+      clearInterval(room.aiTimer);
+      return;
+    }
+
+    const ai = room.players.find(p => p.isAi && p.hp > 0);
+    if (!ai) return;
+
+    // AI 自動恢復 MP
+    ai.mp = Math.min(ai.maxMp, ai.mp + 80);
+
+    const enemies = room.players.filter(p => p.team !== ai.team && p.hp > 0);
+    if (enemies.length === 0) return;
+    const target = enemies[Math.floor(Math.random() * enemies.length)];
+
+    // AI 血量低於 40% 時隨機喝水
+    if (ai.hp < ai.maxHp * 0.4 && ai.inventory.hpPotion > 0 && Math.random() < 0.6) {
+      ai.inventory.hpPotion--;
+      ai.hp = Math.min(ai.maxHp, ai.hp + 3000);
+      broadcastBattleLog(roomId, `🧪 ${ai.name} 使用了 HP 藥水！`);
+      broadcastRoomState(roomId);
+      return;
+    }
+
+    // AI 進行攻擊
+    const dmg = Math.floor(Math.random() * 150) + 180;
+    target.hp = Math.max(0, target.hp - dmg);
+    broadcastBattleLog(roomId, `💥 ${ai.name} 對 ${target.name} 發動攻擊，造成 ${dmg} 傷害！`);
+
+    // 檢查勝負
+    const teamAAlive = room.players.some(p => p.team === 'A' && p.hp > 0);
+    const teamBAlive = room.players.some(p => p.team === 'B' && p.hp > 0);
+
+    if (!teamAAlive || !teamBAlive) {
+      room.status = 'game_over';
+      if (room.regenTimer) clearInterval(room.regenTimer);
+      if (room.aiTimer) clearInterval(room.aiTimer);
+
+      const winTeam = teamAAlive ? 'A' : 'B';
+      const winTeamName = teamAAlive ? '🔵 隊伍 A' : '🔴 隊伍 B';
+      broadcastBattleLog(roomId, `🏆 遊戲結束！【${winTeamName}】獲得了最終勝利！`);
+
+      room.players.forEach(async (p) => {
+        if (!p.isAi) {
+          const isWinner = (p.team === winTeam);
+          const delta = isWinner ? 25 : -15;
+          p.rankPoints = Math.max(0, (p.rankPoints || 0) + delta);
+          const rInfo = getRankInfo(p.rankPoints);
+          broadcastBattleLog(roomId, `🎖️ ${p.name} (${isWinner ? '獲勝' : '戰敗'})：積分 ${delta > 0 ? '+' + delta : delta} (總分: ${p.rankPoints} - ${rInfo.icon} ${rInfo.name})`);
+          
+          if (p.ws && p.ws.user) {
+            p.ws.user.rankPoints = p.rankPoints;
+            try {
+              await pool.query('UPDATE users SET rank_points = $1 WHERE id = $2', [p.rankPoints, p.ws.user.id]);
+            } catch (e) {
+              console.error("更新段位積分失敗:", e);
+            }
+          }
+        }
+      });
+    }
+
+    broadcastRoomState(roomId);
+  }, 2500);
+}
+
 // 🎮 5. WebSocket 訊息處理
 wss.on('connection', (ws) => {
   ws.id = 'PLAYER_' + Math.random().toString(36).substr(2, 9);
   ws.isIdle = true;
   ws.isAlive = true;
 
-  // 剛連線時主動發送一次在線人數
   ws.send(JSON.stringify({ type: 'online_count', onlineCount: simulatedOnlineCount + wss.clients.size }));
 
   ws.on('pong', () => { ws.isAlive = true; });
@@ -267,7 +378,7 @@ wss.on('connection', (ws) => {
         }
       }
 
-      // --- 1v1 隨機匹配 ---
+      // --- 1v1 隨機匹配 (含 AI 智慧補位) ---
       else if (data.type === 'join_queue') {
         matchQueue = matchQueue.filter(p => p.ws.readyState === WebSocket.OPEN && p.ws !== ws);
 
@@ -275,10 +386,12 @@ wss.on('connection', (ws) => {
         const name = data.name || (ws.user ? ws.user.name : '勇者');
         const rankPts = ws.user ? ws.user.rankPoints : 0;
 
-        matchQueue.push({ ws, id: ws.id, name, role, rankPoints: rankPts, user: ws.user });
+        const queuePlayer = { ws, id: ws.id, name, role, rankPoints: rankPts, user: ws.user };
+        matchQueue.push(queuePlayer);
         ws.isIdle = false;
         ws.send(JSON.stringify({ type: 'queue_joined' }));
 
+        // 檢查是否有其他真人玩家
         if (matchQueue.length >= 2) {
           const p1 = matchQueue.shift();
           const p2 = matchQueue.shift();
@@ -289,18 +402,19 @@ wss.on('connection', (ws) => {
           rooms[roomId] = {
             id: roomId,
             status: 'waiting',
+            isAiMatch: false,
             regenTimer: null,
             players: [
               {
                 id: p1.id, ws: p1.ws, name: p1.name, role: p1.role, team: 'A',
                 hp: stats1.hp, maxHp: stats1.hp, mp: stats1.mp, maxMp: stats1.mp,
-                rankPoints: p1.rankPoints, statusEffects: {},
+                rankPoints: p1.rankPoints, statusEffects: {}, isAi: false,
                 inventory: p1.user ? p1.user.inventory : { hpPotion: 5, mpPotion: 5, expScroll: 1 }
               },
               {
                 id: p2.id, ws: p2.ws, name: p2.name, role: p2.role, team: 'B',
                 hp: stats2.hp, maxHp: stats2.hp, mp: stats2.mp, maxMp: stats2.mp,
-                rankPoints: p2.rankPoints, statusEffects: {},
+                rankPoints: p2.rankPoints, statusEffects: {}, isAi: false,
                 inventory: p2.user ? p2.user.inventory : { hpPotion: 5, mpPotion: 5, expScroll: 1 }
               }
             ]
@@ -312,6 +426,15 @@ wss.on('connection', (ws) => {
           p1.ws.send(JSON.stringify({ type: 'match_found', roomId, player: rooms[roomId].players[0] }));
           p2.ws.send(JSON.stringify({ type: 'match_found', roomId, player: rooms[roomId].players[1] }));
           broadcastRoomState(roomId);
+        } else {
+          // ⏱️ 超過 3 秒若無真人，自動召喚 AI 對手，玩家完全不會發現
+          setTimeout(() => {
+            const index = matchQueue.findIndex(p => p.ws === ws);
+            if (index !== -1) {
+              matchQueue.splice(index, 1);
+              createMatchWithAI(queuePlayer);
+            }
+          }, 3000);
         }
       }
 
@@ -328,18 +451,19 @@ wss.on('connection', (ws) => {
         const roomId = 'ROOM_' + Math.floor(1000 + Math.random() * 9000);
         const role = data.role || 'berserker';
         const name = data.name || '勇者';
-        const team = data.team || 'A'; // 自選初始隊伍
+        const team = data.team || 'A';
         const stats = ROLE_STATS[role] || ROLE_STATS.berserker;
         const rankPts = ws.user ? ws.user.rankPoints : 0;
 
         rooms[roomId] = {
           id: roomId,
           status: 'waiting',
+          isAiMatch: false,
           regenTimer: null,
           players: [{
             id: ws.id, ws, name, role, team,
             hp: stats.hp, maxHp: stats.hp, mp: stats.mp, maxMp: stats.mp,
-            rankPoints: rankPts, statusEffects: {},
+            rankPoints: rankPts, statusEffects: {}, isAi: false,
             inventory: ws.user ? ws.user.inventory : { hpPotion: 5, mpPotion: 5, expScroll: 1 }
           }]
         };
@@ -350,7 +474,7 @@ wss.on('connection', (ws) => {
         broadcastRoomState(roomId);
       }
 
-      // 🚩 --- 加入房間 (可自選隊伍) ---
+      // 🚩 --- 加入房間 ---
       else if (data.type === 'join_room') {
         matchQueue = matchQueue.filter(p => p.ws !== ws);
         const { roomId, role, name, targetTeam } = data;
@@ -359,11 +483,9 @@ wss.on('connection', (ws) => {
         if (!room) return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 找不到該房間號碼！' }));
         if (room.players.length >= 6) return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 該房間人數已滿！' }));
 
-        // 判定選擇的隊伍
         let assignedTeam = targetTeam || 'A';
         const teamCount = room.players.filter(p => p.team === assignedTeam).length;
         if (teamCount >= 3) {
-          // 若目標隊伍滿了則分配到另一隊
           assignedTeam = assignedTeam === 'A' ? 'B' : 'A';
         }
 
@@ -373,7 +495,7 @@ wss.on('connection', (ws) => {
         const newPlayer = {
           id: ws.id, ws, name: name || '勇者', role, team: assignedTeam,
           hp: stats.hp, maxHp: stats.hp, mp: stats.mp, maxMp: stats.mp,
-          rankPoints: rankPts, statusEffects: {},
+          rankPoints: rankPts, statusEffects: {}, isAi: false,
           inventory: ws.user ? ws.user.inventory : { hpPotion: 5, mpPotion: 5, expScroll: 1 }
         };
 
@@ -392,7 +514,7 @@ wss.on('connection', (ws) => {
         const p = room.players.find(p => p.id === ws.id);
         if (!p) return;
 
-        const targetTeam = data.targetTeam; // 'A' 或 'B'
+        const targetTeam = data.targetTeam;
         const count = room.players.filter(pl => pl.team === targetTeam).length;
         if (count >= 3) {
           return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 該隊伍人數已滿！' }));
@@ -403,13 +525,12 @@ wss.on('connection', (ws) => {
         broadcastRoomState(room.id);
       }
 
-      // 💧 --- 開始遊戲 (含每秒自動恢復 MP 機能) ---
+      // 💧 --- 開始遊戲 ---
       else if (data.type === 'start_game') {
         const room = rooms[ws.roomId];
         if (room && room.status === 'waiting') {
           room.status = 'playing';
 
-          // 💧 啟動每秒恢復 50 MP 的計時器
           room.regenTimer = setInterval(() => {
             if (!rooms[room.id] || room.status !== 'playing') {
               clearInterval(room.regenTimer);
@@ -419,7 +540,7 @@ wss.on('connection', (ws) => {
             let updated = false;
             room.players.forEach(p => {
               if (p.hp > 0 && p.mp < p.maxMp) {
-                p.mp = Math.min(p.maxMp, p.mp + 50); // 每秒回復 50 MP
+                p.mp = Math.min(p.maxMp, p.mp + 50);
                 updated = true;
               }
             });
@@ -428,6 +549,11 @@ wss.on('connection', (ws) => {
               broadcastRoomState(room.id);
             }
           }, 1000);
+
+          // 如果是 AI 匹配房，自動啟動 AI 對戰迴圈
+          if (room.isAiMatch) {
+            startAIBattleLoop(room.id);
+          }
 
           broadcastRoomState(room.id);
           broadcastBattleLog(room.id, "⚔️ 戰鬥開始！每秒會自動回復 50 魔力 (MP)！");
@@ -446,7 +572,6 @@ wss.on('connection', (ws) => {
           return ws.send(JSON.stringify({ type: 'error', message: '⚠️ MP 不足，無法釋放技能！' }));
         }
 
-        // 致盲判定
         if (caster.statusEffects && caster.statusEffects.blind && Math.random() < 0.5) {
           caster.mp -= data.mpCost;
           broadcastBattleLog(room.id, `👁️ ${caster.name} 受致盲影響，技能 MISS！`);
@@ -456,7 +581,6 @@ wss.on('connection', (ws) => {
 
         caster.mp -= data.mpCost;
 
-        // 復活術處理
         if (data.isRevive) {
           let deadTeammates = room.players.filter(p => p.team === caster.team && p.hp <= 0);
           let reviveTarget = data.targetId ? deadTeammates.find(p => p.id === data.targetId) : deadTeammates[0];
@@ -490,14 +614,12 @@ wss.on('connection', (ws) => {
             totalDamageDealt += rawVal;
             broadcastBattleLog(room.id, `💥 ${caster.name} 對 ${t.name} 使用【${data.skillName}】，造成 ${rawVal} 傷害！`);
 
-            // 騎士 5% 荊棘反傷
             if (t.role === 'knight' && rawVal > 0) {
               const reflectDmg = Math.floor(rawVal * 0.05);
               caster.hp = Math.max(0, caster.hp - reflectDmg);
               broadcastBattleLog(room.id, `🏰 ${t.name} (騎士) 荊棘反傷，反彈 ${reflectDmg} 傷害！`);
             }
 
-            // 異常狀態判定
             if (data.effect && Math.random() < (data.chance || 0)) {
               t.statusEffects = t.statusEffects || {};
               t.statusEffects[data.effect] = true;
@@ -514,20 +636,19 @@ wss.on('connection', (ws) => {
           }
         });
 
-        // 狂戰士吸血
         if (data.lifesteal && totalDamageDealt > 0 && caster.hp > 0) {
           const lifestealAmount = Math.floor(totalDamageDealt * data.lifesteal);
           caster.hp = Math.min(caster.maxHp, caster.hp + lifestealAmount);
           broadcastBattleLog(room.id, `🩸 ${caster.name} 吸血回復了 ${lifestealAmount} HP！`);
         }
 
-        // 🏆 檢查勝負
         const teamAAlive = room.players.some(p => p.team === 'A' && p.hp > 0);
         const teamBAlive = room.players.some(p => p.team === 'B' && p.hp > 0);
 
         if (!teamAAlive || !teamBAlive) {
           room.status = 'game_over';
-          if (room.regenTimer) clearInterval(room.regenTimer); // 停止 MP 回復
+          if (room.regenTimer) clearInterval(room.regenTimer);
+          if (room.aiTimer) clearInterval(room.aiTimer);
 
           const winTeam = teamAAlive ? 'A' : 'B';
           const winTeamName = teamAAlive ? '🔵 隊伍 A' : '🔴 隊伍 B';
@@ -535,20 +656,22 @@ wss.on('connection', (ws) => {
           broadcastBattleLog(room.id, `🏆 遊戲結束！【${winTeamName}】獲得了最終勝利！`);
 
           for (let p of room.players) {
-            const isWinner = (p.team === winTeam);
-            const delta = isWinner ? 25 : -15;
+            if (!p.isAi) {
+              const isWinner = (p.team === winTeam);
+              const delta = isWinner ? 25 : -15;
 
-            p.rankPoints = Math.max(0, (p.rankPoints || 0) + delta);
-            const rInfo = getRankInfo(p.rankPoints);
+              p.rankPoints = Math.max(0, (p.rankPoints || 0) + delta);
+              const rInfo = getRankInfo(p.rankPoints);
 
-            broadcastBattleLog(room.id, `🎖️ ${p.name} (${isWinner ? '獲勝' : '戰敗'})：積分 ${delta > 0 ? '+' + delta : delta} (總分: ${p.rankPoints} - ${rInfo.icon} ${rInfo.name})`);
+              broadcastBattleLog(room.id, `🎖️ ${p.name} (${isWinner ? '獲勝' : '戰敗'})：積分 ${delta > 0 ? '+' + delta : delta} (總分: ${p.rankPoints} - ${rInfo.icon} ${rInfo.name})`);
 
-            if (p.ws && p.ws.user) {
-              p.ws.user.rankPoints = p.rankPoints;
-              try {
-                await pool.query('UPDATE users SET rank_points = $1 WHERE id = $2', [p.rankPoints, p.ws.user.id]);
-              } catch (e) {
-                console.error("更新段位積分失敗:", e);
+              if (p.ws && p.ws.user) {
+                p.ws.user.rankPoints = p.rankPoints;
+                try {
+                  await pool.query('UPDATE users SET rank_points = $1 WHERE id = $2', [p.rankPoints, p.ws.user.id]);
+                } catch (e) {
+                  console.error("更新段位積分失敗:", e);
+                }
               }
             }
           }
@@ -589,6 +712,7 @@ wss.on('connection', (ws) => {
           room.players = room.players.filter(p => p.id !== ws.id);
           if (room.players.length === 0) {
             if (room.regenTimer) clearInterval(room.regenTimer);
+            if (room.aiTimer) clearInterval(room.aiTimer);
             delete rooms[ws.roomId];
           } else {
             broadcastRoomState(ws.roomId);
@@ -611,6 +735,7 @@ wss.on('connection', (ws) => {
       room.players = room.players.filter(p => p.id !== ws.id);
       if (room.players.length === 0) {
         if (room.regenTimer) clearInterval(room.regenTimer);
+        if (room.aiTimer) clearInterval(room.aiTimer);
         delete rooms[ws.roomId];
       } else {
         broadcastRoomState(ws.roomId);
