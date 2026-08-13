@@ -41,19 +41,18 @@ async function initDB() {
       );
     `);
     
-    // 自動修復：為舊資料庫加入 rank_points 欄位
     await pool.query(`
       ALTER TABLE users ADD COLUMN IF NOT EXISTS rank_points INT DEFAULT 0;
     `);
 
-    console.log("🟢 資料庫連線並初始化成功 (含段位機制)！");
+    console.log("🟢 資料庫連線並初始化成功！");
   } catch (err) {
     console.error("🔴 資料庫初始化失敗：", err);
   }
 }
 initDB();
 
-// 🌐 3. 建立 HTTP 伺服器 (防止 Render 睡眠)
+// 🌐 3. 建立 HTTP 伺服器
 const server = http.createServer((req, res) => {
   if (req.url === '/ping' || req.url === '/') {
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
@@ -69,7 +68,9 @@ const wss = new WebSocket.Server({ server });
 const rooms = {};
 let matchQueue = [];
 
-// 職業基礎屬性
+// 👥 在線人數模擬計數器 (基礎 350 人，於 300~500 間浮動)
+let simulatedOnlineCount = 380;
+
 const ROLE_STATS = {
   berserker: { hp: 16000, mp: 2000 },
   mage:      { hp: 9000,  mp: 5000 },
@@ -111,7 +112,7 @@ function broadcastRoomState(roomId) {
   });
 }
 
-// 廣播日誌
+// 廣播戰鬥日誌
 function broadcastBattleLog(roomId, message) {
   const room = rooms[roomId];
   if (!room) return;
@@ -123,7 +124,45 @@ function broadcastBattleLog(roomId, message) {
   });
 }
 
-// 💓 心跳保活 (每 30 秒 Ping 一次防止 TCP 中斷)
+// 💬 廣播大廳聊天訊息
+function broadcastLobbyChat(senderName, message) {
+  const payload = JSON.stringify({
+    type: 'lobby_chat',
+    sender: senderName,
+    message: message,
+    time: new Date().toLocaleTimeString('zh-TW', { hour12: false })
+  });
+
+  wss.clients.forEach(client => {
+    if (client.readyState === WebSocket.OPEN && client.isIdle) {
+      client.send(payload);
+    }
+  });
+}
+
+// 👥 廣播大廳在線人數
+function broadcastOnlineCount() {
+  // 讓人數在 300 ~ 500 之間隨機波動
+  const fluctuation = Math.floor(Math.random() * 9) - 4; // -4 ~ +4
+  simulatedOnlineCount = Math.max(300, Math.min(500, simulatedOnlineCount + fluctuation));
+  const realCount = wss.clients.size;
+  const totalDisplay = simulatedOnlineCount + realCount;
+
+  const payload = JSON.stringify({
+    type: 'online_count',
+    onlineCount: totalDisplay
+  });
+
+  wss.clients.forEach(client => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(payload);
+    }
+  });
+}
+
+// 定時更新人數與心跳
+setInterval(broadcastOnlineCount, 5000);
+
 const heartbeatInterval = setInterval(() => {
   wss.clients.forEach((ws) => {
     if (ws.isAlive === false) return ws.terminate();
@@ -136,7 +175,7 @@ wss.on('close', () => {
   clearInterval(heartbeatInterval);
 });
 
-// 🧘 掛機獎勵計時器 (每 10 秒發送)
+// 🧘 掛機獎勵計時器
 setInterval(async () => {
   for (let client of wss.clients) {
     if (client.readyState === WebSocket.OPEN && client.user && client.isIdle) {
@@ -171,15 +210,16 @@ setInterval(async () => {
   }
 }, 10000);
 
-// 🎮 5. WebSocket 訊息對接
+// 🎮 5. WebSocket 訊息處理
 wss.on('connection', (ws) => {
   ws.id = 'PLAYER_' + Math.random().toString(36).substr(2, 9);
-  ws.isIdle = false;
+  ws.isIdle = true;
   ws.isAlive = true;
 
-  ws.on('pong', () => {
-    ws.isAlive = true;
-  });
+  // 剛連線時主動發送一次在線人數
+  ws.send(JSON.stringify({ type: 'online_count', onlineCount: simulatedOnlineCount + wss.clients.size }));
+
+  ws.on('pong', () => { ws.isAlive = true; });
 
   ws.on('message', async (message) => {
     try {
@@ -190,10 +230,7 @@ wss.on('connection', (ws) => {
         const { username, password } = data;
         const hash = await bcrypt.hash(password, 10);
         try {
-          await pool.query(
-            'INSERT INTO users (username, password_hash, rank_points) VALUES ($1, $2, 0)',
-            [username, hash]
-          );
+          await pool.query('INSERT INTO users (username, password_hash, rank_points) VALUES ($1, $2, 0)', [username, hash]);
           ws.send(JSON.stringify({ type: 'register_success', message: '🎉 註冊成功！預設段位為【🥉 青銅】。' }));
         } catch (e) {
           ws.send(JSON.stringify({ type: 'error', message: '⚠️ 帳號名稱已被使用！' }));
@@ -215,18 +252,19 @@ wss.on('connection', (ws) => {
           role: user.role,
           rankPoints: user.rank_points || 0,
           rankInfo: getRankInfo(user.rank_points || 0),
-          inventory: {
-            hpPotion: user.hp_potion,
-            mpPotion: user.mp_potion,
-            expScroll: user.exp_scroll
-          }
+          inventory: { hpPotion: user.hp_potion, mpPotion: user.mp_potion, expScroll: user.exp_scroll }
         };
         ws.isIdle = true;
 
-        ws.send(JSON.stringify({
-          type: 'login_success',
-          user: ws.user
-        }));
+        ws.send(JSON.stringify({ type: 'login_success', user: ws.user }));
+      }
+
+      // 💬 --- 大廳聊天室訊息發送 ---
+      else if (data.type === 'send_lobby_chat') {
+        const senderName = (ws.user && ws.user.name) ? ws.user.name : (data.name || '勇者');
+        if (data.message && data.message.trim() !== '') {
+          broadcastLobbyChat(senderName, data.message.trim());
+        }
       }
 
       // --- 1v1 隨機匹配 ---
@@ -244,7 +282,6 @@ wss.on('connection', (ws) => {
         if (matchQueue.length >= 2) {
           const p1 = matchQueue.shift();
           const p2 = matchQueue.shift();
-
           const roomId = 'ROOM_' + Math.floor(1000 + Math.random() * 9000);
           const stats1 = ROLE_STATS[p1.role] || ROLE_STATS.berserker;
           const stats2 = ROLE_STATS[p2.role] || ROLE_STATS.berserker;
@@ -252,6 +289,7 @@ wss.on('connection', (ws) => {
           rooms[roomId] = {
             id: roomId,
             status: 'waiting',
+            regenTimer: null,
             players: [
               {
                 id: p1.id, ws: p1.ws, name: p1.name, role: p1.role, team: 'A',
@@ -273,7 +311,6 @@ wss.on('connection', (ws) => {
 
           p1.ws.send(JSON.stringify({ type: 'match_found', roomId, player: rooms[roomId].players[0] }));
           p2.ws.send(JSON.stringify({ type: 'match_found', roomId, player: rooms[roomId].players[1] }));
-
           broadcastRoomState(roomId);
         }
       }
@@ -291,14 +328,16 @@ wss.on('connection', (ws) => {
         const roomId = 'ROOM_' + Math.floor(1000 + Math.random() * 9000);
         const role = data.role || 'berserker';
         const name = data.name || '勇者';
+        const team = data.team || 'A'; // 自選初始隊伍
         const stats = ROLE_STATS[role] || ROLE_STATS.berserker;
         const rankPts = ws.user ? ws.user.rankPoints : 0;
 
         rooms[roomId] = {
           id: roomId,
           status: 'waiting',
+          regenTimer: null,
           players: [{
-            id: ws.id, ws, name, role, team: 'A',
+            id: ws.id, ws, name, role, team,
             hp: stats.hp, maxHp: stats.hp, mp: stats.mp, maxMp: stats.mp,
             rankPoints: rankPts, statusEffects: {},
             inventory: ws.user ? ws.user.inventory : { hpPotion: 5, mpPotion: 5, expScroll: 1 }
@@ -307,26 +346,32 @@ wss.on('connection', (ws) => {
 
         ws.roomId = roomId;
         ws.isIdle = false;
-
         ws.send(JSON.stringify({ type: 'room_created', roomId, player: rooms[roomId].players[0] }));
         broadcastRoomState(roomId);
       }
 
-      // --- 加入房間 ---
+      // 🚩 --- 加入房間 (可自選隊伍) ---
       else if (data.type === 'join_room') {
         matchQueue = matchQueue.filter(p => p.ws !== ws);
-        const { roomId, role, name } = data;
+        const { roomId, role, name, targetTeam } = data;
         const room = rooms[roomId];
 
         if (!room) return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 找不到該房間號碼！' }));
         if (room.players.length >= 6) return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 該房間人數已滿！' }));
 
-        const team = (room.players.filter(p => p.team === 'A').length <= room.players.filter(p => p.team === 'B').length) ? 'A' : 'B';
+        // 判定選擇的隊伍
+        let assignedTeam = targetTeam || 'A';
+        const teamCount = room.players.filter(p => p.team === assignedTeam).length;
+        if (teamCount >= 3) {
+          // 若目標隊伍滿了則分配到另一隊
+          assignedTeam = assignedTeam === 'A' ? 'B' : 'A';
+        }
+
         const stats = ROLE_STATS[role] || ROLE_STATS.berserker;
         const rankPts = ws.user ? ws.user.rankPoints : 0;
 
         const newPlayer = {
-          id: ws.id, ws, name: name || '勇者', role, team,
+          id: ws.id, ws, name: name || '勇者', role, team: assignedTeam,
           hp: stats.hp, maxHp: stats.hp, mp: stats.mp, maxMp: stats.mp,
           rankPoints: rankPts, statusEffects: {},
           inventory: ws.user ? ws.user.inventory : { hpPotion: 5, mpPotion: 5, expScroll: 1 }
@@ -340,13 +385,52 @@ wss.on('connection', (ws) => {
         broadcastRoomState(roomId);
       }
 
-      // --- 開始遊戲 ---
+      // 🚩 --- 房間內切換隊伍 ---
+      else if (data.type === 'switch_team') {
+        const room = rooms[ws.roomId];
+        if (!room || room.status !== 'waiting') return;
+        const p = room.players.find(p => p.id === ws.id);
+        if (!p) return;
+
+        const targetTeam = data.targetTeam; // 'A' 或 'B'
+        const count = room.players.filter(pl => pl.team === targetTeam).length;
+        if (count >= 3) {
+          return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 該隊伍人數已滿！' }));
+        }
+
+        p.team = targetTeam;
+        broadcastBattleLog(room.id, `🔄 ${p.name} 切換到了 隊伍 ${targetTeam}！`);
+        broadcastRoomState(room.id);
+      }
+
+      // 💧 --- 開始遊戲 (含每秒自動恢復 MP 機能) ---
       else if (data.type === 'start_game') {
         const room = rooms[ws.roomId];
-        if (room) {
+        if (room && room.status === 'waiting') {
           room.status = 'playing';
+
+          // 💧 啟動每秒恢復 50 MP 的計時器
+          room.regenTimer = setInterval(() => {
+            if (!rooms[room.id] || room.status !== 'playing') {
+              clearInterval(room.regenTimer);
+              return;
+            }
+
+            let updated = false;
+            room.players.forEach(p => {
+              if (p.hp > 0 && p.mp < p.maxMp) {
+                p.mp = Math.min(p.maxMp, p.mp + 50); // 每秒回復 50 MP
+                updated = true;
+              }
+            });
+
+            if (updated) {
+              broadcastRoomState(room.id);
+            }
+          }, 1000);
+
           broadcastRoomState(room.id);
-          broadcastBattleLog(room.id, "⚔️ 戰鬥開始！請雙方玩家開始發動技能！");
+          broadcastBattleLog(room.id, "⚔️ 戰鬥開始！每秒會自動回復 50 魔力 (MP)！");
         }
       }
 
@@ -362,81 +446,64 @@ wss.on('connection', (ws) => {
           return ws.send(JSON.stringify({ type: 'error', message: '⚠️ MP 不足，無法釋放技能！' }));
         }
 
-        // 👁️ 致盲 (Blind) 判定：50% 機率攻擊 MISS
+        // 致盲判定
         if (caster.statusEffects && caster.statusEffects.blind && Math.random() < 0.5) {
           caster.mp -= data.mpCost;
-          broadcastBattleLog(room.id, `👁️ ${caster.name} 受致盲影響，技能【${data.skillName}】施放失敗 (MISS)！`);
+          broadcastBattleLog(room.id, `👁️ ${caster.name} 受致盲影響，技能 MISS！`);
           broadcastRoomState(room.id);
           return;
         }
 
         caster.mp -= data.mpCost;
 
-        // 🌟 處理【牧師復活術】
+        // 復活術處理
         if (data.isRevive) {
           let deadTeammates = room.players.filter(p => p.team === caster.team && p.hp <= 0);
-          let reviveTarget = null;
-          if (data.targetId) {
-            reviveTarget = deadTeammates.find(p => p.id === data.targetId);
-          }
-          if (!reviveTarget && deadTeammates.length > 0) {
-            reviveTarget = deadTeammates[0];
-          }
+          let reviveTarget = data.targetId ? deadTeammates.find(p => p.id === data.targetId) : deadTeammates[0];
 
           if (reviveTarget) {
-            reviveTarget.hp = Math.floor(reviveTarget.maxHp * 0.3); // 恢復 30% 生命值
-            reviveTarget.statusEffects = {}; // 移除異常狀態
-            broadcastBattleLog(room.id, `🌟 ${caster.name} 使用了【${data.skillName}】，奇蹟般地復活了 ${reviveTarget.name}！`);
+            reviveTarget.hp = Math.floor(reviveTarget.maxHp * 0.3);
+            reviveTarget.statusEffects = {};
+            broadcastBattleLog(room.id, `🌟 ${caster.name} 復活了 ${reviveTarget.name}！`);
           } else {
-            broadcastBattleLog(room.id, `🌟 ${caster.name} 使用了【${data.skillName}】，但沒有可復活的隊友！`);
+            broadcastBattleLog(room.id, `🌟 ${caster.name} 使用了【${data.skillName}】，但無可復活隊友！`);
           }
           broadcastRoomState(room.id);
           return;
         }
 
-        let targets = [];
-
-        if (data.isHeal) {
-          targets = data.isAoe 
-            ? room.players.filter(p => p.team === caster.team && p.hp > 0)
-            : [room.players.find(p => p.id === data.targetId) || caster];
-        } else {
-          targets = data.isAoe
-            ? room.players.filter(p => p.team !== caster.team && p.hp > 0)
-            : [room.players.find(p => p.id === data.targetId) || room.players.find(p => p.team !== caster.team && p.hp > 0)];
-        }
+        let targets = data.isHeal
+          ? (data.isAoe ? room.players.filter(p => p.team === caster.team && p.hp > 0) : [room.players.find(p => p.id === data.targetId) || caster])
+          : (data.isAoe ? room.players.filter(p => p.team !== caster.team && p.hp > 0) : [room.players.find(p => p.id === data.targetId) || room.players.find(p => p.team !== caster.team && p.hp > 0)]);
 
         targets = targets.filter(Boolean);
-
         let totalDamageDealt = 0;
 
         targets.forEach(t => {
           const rawVal = Math.floor(Math.random() * (data.maxVal - data.minVal + 1)) + data.minVal;
-          
+
           if (data.isHeal) {
             t.hp = Math.min(t.maxHp, t.hp + rawVal);
-            broadcastBattleLog(room.id, `💚 ${caster.name} 對 ${t.name} 使用了【${data.skillName}】，恢復 ${rawVal} HP！`);
+            broadcastBattleLog(room.id, `💚 ${caster.name} 對 ${t.name} 使用【${data.skillName}】，恢復 ${rawVal} HP！`);
           } else {
             t.hp = Math.max(0, t.hp - rawVal);
             totalDamageDealt += rawVal;
-            broadcastBattleLog(room.id, `💥 ${caster.name} 對 ${t.name} 使用了【${data.skillName}】，造成 ${rawVal} 傷害！`);
+            broadcastBattleLog(room.id, `💥 ${caster.name} 對 ${t.name} 使用【${data.skillName}】，造成 ${rawVal} 傷害！`);
 
-            // 🏰 騎士 5% 荊棘反傷機制
+            // 騎士 5% 荊棘反傷
             if (t.role === 'knight' && rawVal > 0) {
               const reflectDmg = Math.floor(rawVal * 0.05);
               caster.hp = Math.max(0, caster.hp - reflectDmg);
-              broadcastBattleLog(room.id, `🏰 ${t.name} (騎士) 觸發荊棘反傷，對 ${caster.name} 反彈了 ${reflectDmg} 傷害！`);
+              broadcastBattleLog(room.id, `🏰 ${t.name} (騎士) 荊棘反傷，反彈 ${reflectDmg} 傷害！`);
             }
 
-            // 🔮/🗡️/🏹 異常狀態判定 (灼燒, 麻痺, 中毒, 致盲)
+            // 異常狀態判定
             if (data.effect && Math.random() < (data.chance || 0)) {
               t.statusEffects = t.statusEffects || {};
               t.statusEffects[data.effect] = true;
-
               const effectNames = { burn: '🔥【灼燒】', paralyze: '⚡【麻痺】', poison: '☠️【中毒】', blind: '👁️【致盲】' };
-              broadcastBattleLog(room.id, `✨ ${t.name} 陷入了 ${effectNames[data.effect] || data.effect} 狀態！`);
+              broadcastBattleLog(room.id, `✨ ${t.name} 陷入了 ${effectNames[data.effect] || data.effect}！`);
 
-              // 設置狀態自動消除時間 (5 秒後清除)
               setTimeout(() => {
                 if (t.statusEffects) {
                   t.statusEffects[data.effect] = false;
@@ -447,25 +514,26 @@ wss.on('connection', (ws) => {
           }
         });
 
-        // 🩸 狂戰士 攻擊吸血機制
+        // 狂戰士吸血
         if (data.lifesteal && totalDamageDealt > 0 && caster.hp > 0) {
           const lifestealAmount = Math.floor(totalDamageDealt * data.lifesteal);
           caster.hp = Math.min(caster.maxHp, caster.hp + lifestealAmount);
-          broadcastBattleLog(room.id, `🩸 ${caster.name} 觸發狂戰士吸血，回復了 ${lifestealAmount} HP！`);
+          broadcastBattleLog(room.id, `🩸 ${caster.name} 吸血回復了 ${lifestealAmount} HP！`);
         }
 
-        // 🏆 檢查勝負與結算排位分數
+        // 🏆 檢查勝負
         const teamAAlive = room.players.some(p => p.team === 'A' && p.hp > 0);
         const teamBAlive = room.players.some(p => p.team === 'B' && p.hp > 0);
 
         if (!teamAAlive || !teamBAlive) {
           room.status = 'game_over';
+          if (room.regenTimer) clearInterval(room.regenTimer); // 停止 MP 回復
+
           const winTeam = teamAAlive ? 'A' : 'B';
           const winTeamName = teamAAlive ? '🔵 隊伍 A' : '🔴 隊伍 B';
 
           broadcastBattleLog(room.id, `🏆 遊戲結束！【${winTeamName}】獲得了最終勝利！`);
 
-          // 更新參與玩家的積分 (+25 / -15)
           for (let p of room.players) {
             const isWinner = (p.team === winTeam);
             const delta = isWinner ? 25 : -15;
@@ -508,10 +576,7 @@ wss.on('connection', (ws) => {
 
         if (ws.user) {
           ws.user.inventory = p.inventory;
-          await pool.query(
-            'UPDATE users SET hp_potion = $1, mp_potion = $2 WHERE id = $3',
-            [p.inventory.hpPotion, p.inventory.mpPotion, ws.user.id]
-          );
+          await pool.query('UPDATE users SET hp_potion = $1, mp_potion = $2 WHERE id = $3', [p.inventory.hpPotion, p.inventory.mpPotion, ws.user.id]);
         }
 
         broadcastRoomState(room.id);
@@ -520,9 +585,14 @@ wss.on('connection', (ws) => {
       // --- 返回大廳 ---
       else if (data.type === 'go_idle') {
         if (ws.roomId && rooms[ws.roomId]) {
-          rooms[ws.roomId].players = rooms[ws.roomId].players.filter(p => p.id !== ws.id);
-          if (rooms[ws.roomId].players.length === 0) delete rooms[ws.roomId];
-          else broadcastRoomState(ws.roomId);
+          const room = rooms[ws.roomId];
+          room.players = room.players.filter(p => p.id !== ws.id);
+          if (room.players.length === 0) {
+            if (room.regenTimer) clearInterval(room.regenTimer);
+            delete rooms[ws.roomId];
+          } else {
+            broadcastRoomState(ws.roomId);
+          }
           ws.roomId = null;
         }
         ws.isIdle = true;
@@ -537,23 +607,21 @@ wss.on('connection', (ws) => {
   ws.on('close', () => {
     matchQueue = matchQueue.filter(p => p.ws !== ws);
     if (ws.roomId && rooms[ws.roomId]) {
-      rooms[ws.roomId].players = rooms[ws.roomId].players.filter(p => p.id !== ws.id);
-      if (rooms[ws.roomId].players.length === 0) delete rooms[ws.roomId];
-      else broadcastRoomState(ws.roomId);
+      const room = rooms[ws.roomId];
+      room.players = room.players.filter(p => p.id !== ws.id);
+      if (room.players.length === 0) {
+        if (room.regenTimer) clearInterval(room.regenTimer);
+        delete rooms[ws.roomId];
+      } else {
+        broadcastRoomState(ws.roomId);
+      }
     }
   });
 });
 
-// 🛡️ 6. 防止未捕捉錯誤導致伺服器崩潰 (Crash Guard)
-process.on('uncaughtException', (err) => {
-  console.error('💥 捕捉到未處理的錯誤 (uncaughtException):', err);
-});
+process.on('uncaughtException', (err) => console.error('💥 未處理錯誤:', err));
+process.on('unhandledRejection', (reason) => console.error('💥 未處理 Promise 拒絕:', reason));
 
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('💥 捕捉到未處理的 Promise 拒絕 (unhandledRejection):', reason);
-});
-
-// 🚀 啟動伺服器 Listen
 server.listen(PORT, () => {
   console.log(`🚀 RPG 遊戲伺服器已啟動於 Port ${PORT}`);
 });
