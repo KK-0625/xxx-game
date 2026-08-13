@@ -216,9 +216,10 @@
 <script>
   let ws = new WebSocket('wss://rpg-game-backend-vhag.onrender.com');
   let myPlayerId = null;
+  let currentUser = null; // 儲存登入後的使用者資料
   let currentRoomState = null;
   let selectedTargetId = null;
-  let oldPlayerHpMap = {}; // 紀錄上一幀的血量以計算傷害/治療
+  let oldPlayerHpMap = {}; 
 
   const SKILLS = {
     mage: [
@@ -270,6 +271,7 @@
       alert(data.message);
     }
     else if (data.type === 'login_success') {
+      currentUser = data.user; // 保存使用者全域變數
       logMessage(`🎉 登入成功！歡迎回來，${data.user.name}`);
       document.getElementById('authSection').classList.add('hidden');
       document.getElementById('lobbySection').classList.remove('hidden');
@@ -343,43 +345,12 @@
     }
   };
 
-  // 檢查連線狀態函式
   function checkWsConnected() {
     if (!ws || ws.readyState !== WebSocket.OPEN) {
-      alert("⚠️ 伺服器連線尚未建立或中斷，請確認是否正常連線後重試！");
+      alert("⚠️ 伺服器連線尚未建立或中斷！");
       return false;
     }
     return true;
-  }
-
-  // 🎬 ===== 特效處理邏輯 =====
-  function checkBattleLogForEffects(msg) {
-    if (msg.includes('【大招！】') || msg.includes('💥【暴擊！】')) {
-      triggerContainerShake();
-    }
-  }
-
-  function triggerContainerShake() {
-    const container = document.getElementById('mainContainer');
-    container.classList.add('shake-effect');
-    setTimeout(() => container.classList.remove('shake-effect'), 300);
-  }
-
-  function showFloatingText(targetCard, text, isHeal = false, isCrit = false) {
-    if (!targetCard) return;
-    const el = document.createElement('div');
-    let className = isHeal ? 'heal-num' : 'damage-num';
-    if (isCrit) className += ' crit-num';
-
-    el.className = `floating-number ${className}`;
-    el.innerText = text;
-
-    const randomX = Math.floor(Math.random() * 40) - 20;
-    el.style.left = `calc(50% + ${randomX}px)`;
-    el.style.top = '10px';
-
-    targetCard.appendChild(el);
-    setTimeout(() => el.remove(), 800);
   }
 
   function register() {
@@ -396,6 +367,35 @@
     const p = document.getElementById('authPassword').value.trim();
     if (!u || !p) return alert("請輸入帳號與密碼！");
     ws.send(JSON.stringify({ type: 'login', username: u, password: p }));
+  }
+
+  // 🎯 核心修復：正確取用全域 currentUser.name，避免被 "空白" 蓋掉
+  function joinQueue() {
+    if (!checkWsConnected()) return;
+    const name = currentUser ? currentUser.name : document.getElementById('playerName').value;
+    const role = document.getElementById('playerRole').value;
+    ws.send(JSON.stringify({ type: 'join_queue', name, role }));
+  }
+
+  function leaveQueue() {
+    if (!checkWsConnected()) return;
+    ws.send(JSON.stringify({ type: 'leave_queue' }));
+  }
+
+  function createRoom() {
+    if (!checkWsConnected()) return;
+    const name = currentUser ? currentUser.name : document.getElementById('playerName').value;
+    const role = document.getElementById('playerRole').value;
+    ws.send(JSON.stringify({ type: 'create_room', name, role }));
+  }
+
+  function joinRoom() {
+    if (!checkWsConnected()) return;
+    const name = currentUser ? currentUser.name : document.getElementById('playerName').value;
+    const role = document.getElementById('playerRole').value;
+    const roomId = document.getElementById('joinRoomId').value.trim();
+    if (!roomId) return alert("請輸入房號！");
+    ws.send(JSON.stringify({ type: 'join_room', name, role, roomId }));
   }
 
   function updateInventoryDisplay(inv) {
@@ -491,7 +491,6 @@
       if (p.team === 'A') teamA.appendChild(pCard);
       else teamB.appendChild(pCard);
 
-      // 🎬 動畫比對：檢查血量變化並顯示受傷/治療動畫
       if (oldPlayerHpMap[p.id] !== undefined) {
         const hpDiff = p.hp - oldPlayerHpMap[p.id];
         if (hpDiff < 0) {
@@ -549,34 +548,6 @@
     ws.send(JSON.stringify({ type: 'use_potion', potionType: potionType }));
   }
 
-  function joinQueue() {
-    if (!checkWsConnected()) return;
-    const name = document.getElementById('playerName').value;
-    const role = document.getElementById('playerRole').value;
-    ws.send(JSON.stringify({ type: 'join_queue', name, role }));
-  }
-
-  function leaveQueue() {
-    if (!checkWsConnected()) return;
-    ws.send(JSON.stringify({ type: 'leave_queue' }));
-  }
-
-  function createRoom() {
-    if (!checkWsConnected()) return;
-    const name = document.getElementById('playerName').value;
-    const role = document.getElementById('playerRole').value;
-    ws.send(JSON.stringify({ type: 'create_room', name, role }));
-  }
-
-  function joinRoom() {
-    if (!checkWsConnected()) return;
-    const name = document.getElementById('playerName').value;
-    const role = document.getElementById('playerRole').value;
-    const roomId = document.getElementById('joinRoomId').value.trim();
-    if (!roomId) return alert("請輸入房號！");
-    ws.send(JSON.stringify({ type: 'join_room', name, role, roomId }));
-  }
-
   function startGame() { if (checkWsConnected()) ws.send(JSON.stringify({ type: 'start_game' })); }
   function rematch() { if (checkWsConnected()) ws.send(JSON.stringify({ type: 'rematch' })); }
   function leaveToIdle() { if (checkWsConnected()) ws.send(JSON.stringify({ type: 'go_idle' })); }
@@ -587,6 +558,35 @@
     item.innerText = `[${new Date().toLocaleTimeString()}] ${msg}`;
     log.appendChild(item);
     log.scrollTop = log.scrollHeight;
+  }
+
+  function checkBattleLogForEffects(msg) {
+    if (msg.includes('【大招！】') || msg.includes('💥【暴擊！】')) {
+      triggerContainerShake();
+    }
+  }
+
+  function triggerContainerShake() {
+    const container = document.getElementById('mainContainer');
+    container.classList.add('shake-effect');
+    setTimeout(() => container.classList.remove('shake-effect'), 300);
+  }
+
+  function showFloatingText(targetCard, text, isHeal = false, isCrit = false) {
+    if (!targetCard) return;
+    const el = document.createElement('div');
+    let className = isHeal ? 'heal-num' : 'damage-num';
+    if (isCrit) className += ' crit-num';
+
+    el.className = `floating-number ${className}`;
+    el.innerText = text;
+
+    const randomX = Math.floor(Math.random() * 40) - 20;
+    el.style.left = `calc(50% + ${randomX}px)`;
+    el.style.top = '10px';
+
+    targetCard.appendChild(el);
+    setTimeout(() => el.remove(), 800);
   }
 </script>
 
