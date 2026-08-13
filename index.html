@@ -260,6 +260,8 @@
   };
 
   ws.onopen = () => { logMessage("🟢 成功連接伺服器！請先進行帳號登入或註冊。"); };
+  ws.onerror = () => { logMessage("🔴 伺服器連線失敗，請檢查網路或稍後重試。"); };
+  ws.onclose = () => { logMessage("🟡 與伺服器中斷連線。"); };
 
   ws.onmessage = (event) => {
     const data = JSON.parse(event.data);
@@ -341,6 +343,15 @@
     }
   };
 
+  // 檢查連線狀態函式
+  function checkWsConnected() {
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      alert("⚠️ 伺服器連線尚未建立或中斷，請確認是否正常連線後重試！");
+      return false;
+    }
+    return true;
+  }
+
   // 🎬 ===== 特效處理邏輯 =====
   function checkBattleLogForEffects(msg) {
     if (msg.includes('【大招！】') || msg.includes('💥【暴擊！】')) {
@@ -372,15 +383,17 @@
   }
 
   function register() {
-    const u = document.getElementById('authUsername').value;
-    const p = document.getElementById('authPassword').value;
+    if (!checkWsConnected()) return;
+    const u = document.getElementById('authUsername').value.trim();
+    const p = document.getElementById('authPassword').value.trim();
     if (!u || !p) return alert("請輸入帳號與密碼！");
     ws.send(JSON.stringify({ type: 'register', username: u, password: p }));
   }
 
   function login() {
-    const u = document.getElementById('authUsername').value;
-    const p = document.getElementById('authPassword').value;
+    if (!checkWsConnected()) return;
+    const u = document.getElementById('authUsername').value.trim();
+    const p = document.getElementById('authPassword').value.trim();
     if (!u || !p) return alert("請輸入帳號與密碼！");
     ws.send(JSON.stringify({ type: 'login', username: u, password: p }));
   }
@@ -517,6 +530,7 @@
   }
 
   function useSkill(skill) {
+    if (!checkWsConnected()) return;
     ws.send(JSON.stringify({
       type: 'use_skill',
       skillName: skill.name,
@@ -531,36 +545,41 @@
   }
 
   function usePotion(potionType) {
+    if (!checkWsConnected()) return;
     ws.send(JSON.stringify({ type: 'use_potion', potionType: potionType }));
   }
 
   function joinQueue() {
+    if (!checkWsConnected()) return;
     const name = document.getElementById('playerName').value;
     const role = document.getElementById('playerRole').value;
     ws.send(JSON.stringify({ type: 'join_queue', name, role }));
   }
 
   function leaveQueue() {
+    if (!checkWsConnected()) return;
     ws.send(JSON.stringify({ type: 'leave_queue' }));
   }
 
   function createRoom() {
+    if (!checkWsConnected()) return;
     const name = document.getElementById('playerName').value;
     const role = document.getElementById('playerRole').value;
     ws.send(JSON.stringify({ type: 'create_room', name, role }));
   }
 
   function joinRoom() {
+    if (!checkWsConnected()) return;
     const name = document.getElementById('playerName').value;
     const role = document.getElementById('playerRole').value;
-    const roomId = document.getElementById('joinRoomId').value;
+    const roomId = document.getElementById('joinRoomId').value.trim();
     if (!roomId) return alert("請輸入房號！");
     ws.send(JSON.stringify({ type: 'join_room', name, role, roomId }));
   }
 
-  function startGame() { ws.send(JSON.stringify({ type: 'start_game' })); }
-  function rematch() { ws.send(JSON.stringify({ type: 'rematch' })); }
-  function leaveToIdle() { ws.send(JSON.stringify({ type: 'go_idle' })); }
+  function startGame() { if (checkWsConnected()) ws.send(JSON.stringify({ type: 'start_game' })); }
+  function rematch() { if (checkWsConnected()) ws.send(JSON.stringify({ type: 'rematch' })); }
+  function leaveToIdle() { if (checkWsConnected()) ws.send(JSON.stringify({ type: 'go_idle' })); }
 
   function logMessage(msg) {
     const log = document.getElementById('battleLog');
