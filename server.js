@@ -32,7 +32,7 @@ async function initDB() {
         id SERIAL PRIMARY KEY,
         username VARCHAR(50) UNIQUE NOT NULL,
         password_hash VARCHAR(255) NOT NULL,
-        role VARCHAR(20) DEFAULT 'warrior',
+        role VARCHAR(20) DEFAULT 'berserker',
         hp_potion INT DEFAULT 5,
         mp_potion INT DEFAULT 5,
         exp_scroll INT DEFAULT 1,
@@ -71,12 +71,12 @@ let matchQueue = [];
 
 // 職業基礎屬性
 const ROLE_STATS = {
-  warrior: { hp: 16000, mp: 2000 },
-  mage:    { hp: 9000,  mp: 5000 },
-  priest:  { hp: 10000, mp: 4500 },
-  knight:  { hp: 20000, mp: 1800 },
-  assassin:{ hp: 11000, mp: 3000 },
-  archer:  { hp: 10500, mp: 3200 }
+  berserker: { hp: 16000, mp: 2000 },
+  mage:      { hp: 9000,  mp: 5000 },
+  priest:    { hp: 10000, mp: 4500 },
+  knight:    { hp: 20000, mp: 1800 },
+  assassin:  { hp: 11000, mp: 3000 },
+  archer:    { hp: 10500, mp: 3200 }
 };
 
 // 廣播房間狀態
@@ -98,6 +98,7 @@ function broadcastRoomState(roomId) {
       mp: p.mp,
       maxMp: p.maxMp,
       inventory: p.inventory,
+      statusEffects: p.statusEffects || {},
       rankPoints: p.rankPoints || 0,
       rankInfo: getRankInfo(p.rankPoints || 0)
     }))
@@ -232,7 +233,7 @@ wss.on('connection', (ws) => {
       else if (data.type === 'join_queue') {
         matchQueue = matchQueue.filter(p => p.ws.readyState === WebSocket.OPEN && p.ws !== ws);
 
-        const role = data.role || (ws.user ? ws.user.role : 'warrior');
+        const role = data.role || (ws.user ? ws.user.role : 'berserker');
         const name = data.name || (ws.user ? ws.user.name : '勇者');
         const rankPts = ws.user ? ws.user.rankPoints : 0;
 
@@ -245,8 +246,8 @@ wss.on('connection', (ws) => {
           const p2 = matchQueue.shift();
 
           const roomId = 'ROOM_' + Math.floor(1000 + Math.random() * 9000);
-          const stats1 = ROLE_STATS[p1.role] || ROLE_STATS.warrior;
-          const stats2 = ROLE_STATS[p2.role] || ROLE_STATS.warrior;
+          const stats1 = ROLE_STATS[p1.role] || ROLE_STATS.berserker;
+          const stats2 = ROLE_STATS[p2.role] || ROLE_STATS.berserker;
 
           rooms[roomId] = {
             id: roomId,
@@ -255,13 +256,13 @@ wss.on('connection', (ws) => {
               {
                 id: p1.id, ws: p1.ws, name: p1.name, role: p1.role, team: 'A',
                 hp: stats1.hp, maxHp: stats1.hp, mp: stats1.mp, maxMp: stats1.mp,
-                rankPoints: p1.rankPoints,
+                rankPoints: p1.rankPoints, statusEffects: {},
                 inventory: p1.user ? p1.user.inventory : { hpPotion: 5, mpPotion: 5, expScroll: 1 }
               },
               {
                 id: p2.id, ws: p2.ws, name: p2.name, role: p2.role, team: 'B',
                 hp: stats2.hp, maxHp: stats2.hp, mp: stats2.mp, maxMp: stats2.mp,
-                rankPoints: p2.rankPoints,
+                rankPoints: p2.rankPoints, statusEffects: {},
                 inventory: p2.user ? p2.user.inventory : { hpPotion: 5, mpPotion: 5, expScroll: 1 }
               }
             ]
@@ -288,9 +289,9 @@ wss.on('connection', (ws) => {
       else if (data.type === 'create_room') {
         matchQueue = matchQueue.filter(p => p.ws !== ws);
         const roomId = 'ROOM_' + Math.floor(1000 + Math.random() * 9000);
-        const role = data.role || 'warrior';
+        const role = data.role || 'berserker';
         const name = data.name || '勇者';
-        const stats = ROLE_STATS[role] || ROLE_STATS.warrior;
+        const stats = ROLE_STATS[role] || ROLE_STATS.berserker;
         const rankPts = ws.user ? ws.user.rankPoints : 0;
 
         rooms[roomId] = {
@@ -299,7 +300,7 @@ wss.on('connection', (ws) => {
           players: [{
             id: ws.id, ws, name, role, team: 'A',
             hp: stats.hp, maxHp: stats.hp, mp: stats.mp, maxMp: stats.mp,
-            rankPoints: rankPts,
+            rankPoints: rankPts, statusEffects: {},
             inventory: ws.user ? ws.user.inventory : { hpPotion: 5, mpPotion: 5, expScroll: 1 }
           }]
         };
@@ -321,13 +322,13 @@ wss.on('connection', (ws) => {
         if (room.players.length >= 6) return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 該房間人數已滿！' }));
 
         const team = (room.players.filter(p => p.team === 'A').length <= room.players.filter(p => p.team === 'B').length) ? 'A' : 'B';
-        const stats = ROLE_STATS[role] || ROLE_STATS.warrior;
+        const stats = ROLE_STATS[role] || ROLE_STATS.berserker;
         const rankPts = ws.user ? ws.user.rankPoints : 0;
 
         const newPlayer = {
           id: ws.id, ws, name: name || '勇者', role, team,
           hp: stats.hp, maxHp: stats.hp, mp: stats.mp, maxMp: stats.mp,
-          rankPoints: rankPts,
+          rankPoints: rankPts, statusEffects: {},
           inventory: ws.user ? ws.user.inventory : { hpPotion: 5, mpPotion: 5, expScroll: 1 }
         };
 
@@ -361,7 +362,38 @@ wss.on('connection', (ws) => {
           return ws.send(JSON.stringify({ type: 'error', message: '⚠️ MP 不足，無法釋放技能！' }));
         }
 
+        // 👁️ 致盲 (Blind) 判定：50% 機率攻擊 MISS
+        if (caster.statusEffects && caster.statusEffects.blind && Math.random() < 0.5) {
+          caster.mp -= data.mpCost;
+          broadcastBattleLog(room.id, `👁️ ${caster.name} 受致盲影響，技能【${data.skillName}】施放失敗 (MISS)！`);
+          broadcastRoomState(room.id);
+          return;
+        }
+
         caster.mp -= data.mpCost;
+
+        // 🌟 處理【牧師復活術】
+        if (data.isRevive) {
+          let deadTeammates = room.players.filter(p => p.team === caster.team && p.hp <= 0);
+          let reviveTarget = null;
+          if (data.targetId) {
+            reviveTarget = deadTeammates.find(p => p.id === data.targetId);
+          }
+          if (!reviveTarget && deadTeammates.length > 0) {
+            reviveTarget = deadTeammates[0];
+          }
+
+          if (reviveTarget) {
+            reviveTarget.hp = Math.floor(reviveTarget.maxHp * 0.3); // 恢復 30% 生命值
+            reviveTarget.statusEffects = {}; // 移除異常狀態
+            broadcastBattleLog(room.id, `🌟 ${caster.name} 使用了【${data.skillName}】，奇蹟般地復活了 ${reviveTarget.name}！`);
+          } else {
+            broadcastBattleLog(room.id, `🌟 ${caster.name} 使用了【${data.skillName}】，但沒有可復活的隊友！`);
+          }
+          broadcastRoomState(room.id);
+          return;
+        }
+
         let targets = [];
 
         if (data.isHeal) {
@@ -376,16 +408,51 @@ wss.on('connection', (ws) => {
 
         targets = targets.filter(Boolean);
 
+        let totalDamageDealt = 0;
+
         targets.forEach(t => {
           const rawVal = Math.floor(Math.random() * (data.maxVal - data.minVal + 1)) + data.minVal;
+          
           if (data.isHeal) {
             t.hp = Math.min(t.maxHp, t.hp + rawVal);
             broadcastBattleLog(room.id, `💚 ${caster.name} 對 ${t.name} 使用了【${data.skillName}】，恢復 ${rawVal} HP！`);
           } else {
             t.hp = Math.max(0, t.hp - rawVal);
+            totalDamageDealt += rawVal;
             broadcastBattleLog(room.id, `💥 ${caster.name} 對 ${t.name} 使用了【${data.skillName}】，造成 ${rawVal} 傷害！`);
+
+            // 🏰 騎士 5% 荊棘反傷機制
+            if (t.role === 'knight' && rawVal > 0) {
+              const reflectDmg = Math.floor(rawVal * 0.05);
+              caster.hp = Math.max(0, caster.hp - reflectDmg);
+              broadcastBattleLog(room.id, `🏰 ${t.name} (騎士) 觸發荊棘反傷，對 ${caster.name} 反彈了 ${reflectDmg} 傷害！`);
+            }
+
+            // 🔮/🗡️/🏹 異常狀態判定 (灼燒, 麻痺, 中毒, 致盲)
+            if (data.effect && Math.random() < (data.chance || 0)) {
+              t.statusEffects = t.statusEffects || {};
+              t.statusEffects[data.effect] = true;
+
+              const effectNames = { burn: '🔥【灼燒】', paralyze: '⚡【麻痺】', poison: '☠️【中毒】', blind: '👁️【致盲】' };
+              broadcastBattleLog(room.id, `✨ ${t.name} 陷入了 ${effectNames[data.effect] || data.effect} 狀態！`);
+
+              // 設置狀態自動消除時間 (5 秒後清除)
+              setTimeout(() => {
+                if (t.statusEffects) {
+                  t.statusEffects[data.effect] = false;
+                  if (rooms[room.id]) broadcastRoomState(room.id);
+                }
+              }, 5000);
+            }
           }
         });
+
+        // 🩸 狂戰士 攻擊吸血機制
+        if (data.lifesteal && totalDamageDealt > 0 && caster.hp > 0) {
+          const lifestealAmount = Math.floor(totalDamageDealt * data.lifesteal);
+          caster.hp = Math.min(caster.maxHp, caster.hp + lifestealAmount);
+          broadcastBattleLog(room.id, `🩸 ${caster.name} 觸發狂戰士吸血，回復了 ${lifestealAmount} HP！`);
+        }
 
         // 🏆 檢查勝負與結算排位分數
         const teamAAlive = room.players.some(p => p.team === 'A' && p.hp > 0);
