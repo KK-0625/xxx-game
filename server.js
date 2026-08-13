@@ -17,8 +17,8 @@ function getRankInfo(points) {
   if (pts >= 3500) return { name: '璀璨之星', icon: '👑', color: '#ff1744' };
   if (pts >= 2700) return { name: '戰場傳說', icon: '⚔️', color: '#ff9100' };
   if (pts >= 2000) return { name: '星耀', icon: '🌟', color: '#e040fb' };
-  if (pts >= 1400) return { name: '鑽石', icon: '🔷', color: '#00e5ff' };
-  if (pts >= 900)  return { name: '鉑金', icon: '💎', color: '#00e676' };
+  if (pts >= 1400) return { name: '鑽石', icon: '💎', color: '#00e5ff' };
+  if (pts >= 900)  return { name: '鉑金', icon: '🔷', color: '#00e676' };
   if (pts >= 500)  return { name: '黃金', icon: '🥇', color: '#ffd600' };
   if (pts >= 200)  return { name: '白銀', icon: '🥈', color: '#cfd8dc' };
   return { name: '青銅', icon: '🥉', color: '#a1887f' };
