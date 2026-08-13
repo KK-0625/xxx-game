@@ -51,7 +51,6 @@
     .queue-status { margin-top: 10px; padding: 8px; background: #332200; border: 1px dashed #ff9800; border-radius: 4px; color: #ffca28; }
     .target-indicator { font-size: 13px; color: #ffca28; font-weight: bold; margin-bottom: 5px; }
 
-    /* 🎬 特效動畫 */
     @keyframes shake {
       0% { transform: translate(1px, 1px) rotate(0deg); }
       20% { transform: translate(-3px, 0px) rotate(1deg); }
@@ -120,7 +119,6 @@
       <div class="lobby-box card">
         <h4>🎮 遊戲配對</h4>
         <div style="display: flex; flex-direction: column; gap: 8px;">
-          <!-- 核心修復：取消 readonly，允許手動修整 -->
           <label>玩家暱稱：<input type="text" id="playerName" value="勇者"></label>
           <label>選擇職業：
             <select id="playerRole">
@@ -257,7 +255,7 @@
       { name: '🏹 精準射擊', mpCost: 50, minVal: 200, maxVal: 320, isAoe: false, isHeal: false, icon: '🏹' },
       { name: '🌧️ 箭雨', mpCost: 140, minVal: 140, maxVal: 240, isAoe: true, isHeal: false, icon: '🌧️' },
       { name: '🎯 貫穿箭', mpCost: 110, minVal: 260, maxVal: 400, isAoe: false, isHeal: false, icon: '🎯' },
-      { name: '🦅 幻影神射', mpCost: 320, minVal: 580, maxVal: 950, isAoe: false, isHeal: false, isUlt: true, icon: '🦅' }
+      { name: '🦅 幻影神射', mpCost: 320, minVal: 580, maxVal: 950, isAoe: false, isHeal: false, icon: '🦅' }
     ]
   };
 
@@ -278,7 +276,6 @@
       document.getElementById('authSection').classList.add('hidden');
       document.getElementById('lobbySection').classList.remove('hidden');
       
-      // 自動填寫暱稱（如果為 "空白" 則改為預設暱稱）
       const validName = (data.user.name && data.user.name !== "空白") ? data.user.name : "勇者";
       document.getElementById('playerName').value = validName;
       document.getElementById('playerRole').value = data.user.role || 'warrior';
@@ -293,15 +290,11 @@
     }
     else if (data.type === 'queue_joined') {
       logMessage("🎲 成功進入單人 1v1 匹配隊列，請稍候...");
-      document.getElementById('btnJoinQueue').classList.add('hidden');
-      document.getElementById('btnLeaveQueue').classList.remove('hidden');
-      document.getElementById('queueStatus').classList.remove('hidden');
+      showQueueUI(true);
     }
     else if (data.type === 'queue_left') {
       logMessage("❌ 已取消匹配。");
-      document.getElementById('btnJoinQueue').classList.remove('hidden');
-      document.getElementById('btnLeaveQueue').classList.add('hidden');
-      document.getElementById('queueStatus').classList.add('hidden');
+      showQueueUI(false);
     }
     else if (data.type === 'match_found') {
       logMessage("🎉 匹配成功 (1v1)！即將進入戰鬥...");
@@ -310,9 +303,7 @@
       document.getElementById('displayRoomId').innerText = data.roomId;
       document.getElementById('lobbySection').classList.add('hidden');
       document.getElementById('roomSection').classList.remove('hidden');
-      document.getElementById('btnJoinQueue').classList.remove('hidden');
-      document.getElementById('btnLeaveQueue').classList.add('hidden');
-      document.getElementById('queueStatus').classList.add('hidden');
+      showQueueUI(false);
       updateInventoryDisplay(data.player.inventory);
     }
     else if (data.type === 'room_created' || data.type === 'room_joined') {
@@ -321,6 +312,7 @@
       document.getElementById('displayRoomId').innerText = data.roomId;
       document.getElementById('lobbySection').classList.add('hidden');
       document.getElementById('roomSection').classList.remove('hidden');
+      showQueueUI(false);
       updateInventoryDisplay(data.player.inventory);
     }
     else if (data.type === 'room_state') {
@@ -374,7 +366,6 @@
     ws.send(JSON.stringify({ type: 'login', username: u, password: p }));
   }
 
-  // 取得安全的玩家名稱，避免送出 "空白" 或空值
   function getSafePlayerName() {
     let nameInput = document.getElementById('playerName').value.trim();
     if (!nameInput || nameInput === "空白") {
@@ -386,34 +377,50 @@
     return nameInput;
   }
 
+  // 控制匹配 UI 顯示/隱藏的輔助函數
+  function showQueueUI(inQueue) {
+    if (inQueue) {
+      document.getElementById('btnJoinQueue').classList.add('hidden');
+      document.getElementById('btnLeaveQueue').classList.remove('hidden');
+      document.getElementById('queueStatus').classList.remove('hidden');
+    } else {
+      document.getElementById('btnJoinQueue').classList.remove('hidden');
+      document.getElementById('btnLeaveQueue').classList.add('hidden');
+      document.getElementById('queueStatus').classList.add('hidden');
+    }
+  }
+
   function joinQueue() {
     if (!checkWsConnected()) return;
     const name = getSafePlayerName();
     const role = document.getElementById('playerRole').value;
     
-    console.log(`👉 發送配對請求：Name=${name}, Role=${role}`);
     ws.send(JSON.stringify({ type: 'join_queue', name, role }));
-    
+    showQueueUI(true);
     logMessage(`🎲 已送出 1v1 配對請求 (暱稱: ${name})...`);
-    document.getElementById('btnJoinQueue').classList.add('hidden');
-    document.getElementById('btnLeaveQueue').classList.remove('hidden');
-    document.getElementById('queueStatus').classList.remove('hidden');
   }
 
   function leaveQueue() {
     if (!checkWsConnected()) return;
+    // 💡 強制讓前端恢復 UI，避免後端沒回覆時卡住
     ws.send(JSON.stringify({ type: 'leave_queue' }));
+    showQueueUI(false);
+    logMessage("❌ 已手動取消匹配。");
   }
 
   function createRoom() {
     if (!checkWsConnected()) return;
+    // 💡 建房前先強制離開匹配，防止狀態衝突
+    leaveQueue();
     const name = getSafePlayerName();
     const role = document.getElementById('playerRole').value;
+    console.log("👉 正要發送建房請求：", { type: 'create_room', name, role });
     ws.send(JSON.stringify({ type: 'create_room', name, role }));
   }
 
   function joinRoom() {
     if (!checkWsConnected()) return;
+    leaveQueue();
     const name = getSafePlayerName();
     const role = document.getElementById('playerRole').value;
     const roomId = document.getElementById('joinRoomId').value.trim();
