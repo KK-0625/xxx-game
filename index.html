@@ -1,15 +1,3 @@
-<!-- 帳號登入 / 註冊區塊 -->
-<div id="authSection" class="card">
-  <h3>🔐 帳號登入 / 註冊</h3>
-  <div style="display: flex; gap: 10px; margin-bottom: 10px;">
-    <input type="text" id="authUsername" placeholder="帳號名稱">
-    <input type="password" id="authPassword" placeholder="密碼">
-  </div>
-  <div style="display: flex; gap: 10px;">
-    <button onclick="login()">🔑 帳號登入</button>
-    <button onclick="register()" style="background-color: #008cba;">📝 註冊新帳號</button>
-  </div>
-</div>
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
@@ -69,8 +57,21 @@
 <div class="container">
   <h2>⚔️ 線上 RPG 戰鬥與匹配系統</h2>
 
-  <!-- 大廳 -->
-  <div id="lobbySection" class="card lobby-panel">
+  <!-- 帳號登入 / 註冊區塊 -->
+  <div id="authSection" class="card">
+    <h3>🔐 帳號登入 / 註冊</h3>
+    <div style="display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap;">
+      <input type="text" id="authUsername" placeholder="帳號名稱">
+      <input type="password" id="authPassword" placeholder="密碼">
+    </div>
+    <div style="display: flex; gap: 10px;">
+      <button onclick="login()">🔑 帳號登入</button>
+      <button onclick="register()" style="background-color: #008cba;">📝 註冊新帳號</button>
+    </div>
+  </div>
+
+  <!-- 大廳 (預設隱藏，登入後顯示) -->
+  <div id="lobbySection" class="card lobby-panel hidden">
     <h3>🧘‍♂️ 大廳 (修練中...)</h3>
     <p id="idleStatusText" style="color: #aaa; margin: 0;">正在自動修練尋找藥水與道具...</p>
     
@@ -79,7 +80,7 @@
       <div class="lobby-box card">
         <h4>🎮 遊戲配對</h4>
         <div style="display: flex; flex-direction: column; gap: 8px;">
-          <label>玩家暱稱：<input type="text" id="playerName" value="勇者"></label>
+          <label>玩家暱稱：<input type="text" id="playerName" value="勇者" readonly></label>
           <label>選擇職業：
             <select id="playerRole">
               <option value="warrior">🛡️ 戰士 (16000 HP)</option>
@@ -109,7 +110,7 @@
 
       <!-- 背包查看區塊 -->
       <div class="lobby-box card">
-        <h4>🎒 我的背包道具</h4>
+        <h4>🎒 我的背包道具 (資料庫同步)</h4>
         <div class="inventory-list">
           <div class="inventory-item">
             <span>🧪 HP 藥水</span>
@@ -180,7 +181,7 @@
   let ws = new WebSocket('wss://rpg-game-backend-vhag.onrender.com');
   let myPlayerId = null;
   let currentRoomState = null;
-  let selectedTargetId = null; // 當前手動選擇的目標
+  let selectedTargetId = null;
 
   const SKILLS = {
     mage: [
@@ -221,12 +222,23 @@
     ]
   };
 
-  ws.onopen = () => { logMessage("🟢 成功連接伺服器！進入修練掛機狀態..."); };
+  ws.onopen = () => { logMessage("🟢 成功連接伺服器！請先進行帳號登入或註冊。"); };
 
   ws.onmessage = (event) => {
     const data = JSON.parse(event.data);
 
-    if (data.type === 'idle_reward') {
+    if (data.type === 'register_success') {
+      alert(data.message);
+    }
+    else if (data.type === 'login_success') {
+      logMessage(`🎉 登入成功！歡迎回來，${data.user.name}`);
+      document.getElementById('authSection').classList.add('hidden');
+      document.getElementById('lobbySection').classList.remove('hidden');
+      document.getElementById('playerName').value = data.user.name;
+      document.getElementById('playerRole').value = data.user.role || 'warrior';
+      updateInventoryDisplay(data.user.inventory);
+    }
+    else if (data.type === 'idle_reward') {
       logMessage(data.message);
       updateInventoryDisplay(data.inventory);
     }
@@ -287,9 +299,24 @@
       ws.send(JSON.stringify({ type: 'get_inventory' }));
     }
     else if (data.type === 'error') {
-      alert(data.message);
+      alert("❌ " + data.message);
     }
   };
+
+  // 註冊與登入函式
+  function register() {
+    const u = document.getElementById('authUsername').value;
+    const p = document.getElementById('authPassword').value;
+    if (!u || !p) return alert("請輸入帳號與密碼！");
+    ws.send(JSON.stringify({ type: 'register', username: u, password: p }));
+  }
+
+  function login() {
+    const u = document.getElementById('authUsername').value;
+    const p = document.getElementById('authPassword').value;
+    if (!u || !p) return alert("請輸入帳號與密碼！");
+    ws.send(JSON.stringify({ type: 'login', username: u, password: p }));
+  }
 
   function updateInventoryDisplay(inv) {
     if (!inv) return;
@@ -338,14 +365,13 @@
       btnRematch.classList.toggle('hidden', !isHost);
     }
 
-    // 更新當前手動選擇的目標文字
     const targetText = document.getElementById('currentTargetText');
     if (selectedTargetId) {
       const targetPlayer = roomState.players.find(p => p.id === selectedTargetId);
       if (targetPlayer && targetPlayer.hp > 0) {
         targetText.innerText = `🎯 目前鎖定目標：${targetPlayer.name} (${targetPlayer.team}隊) [再次點擊可取消選取]`;
       } else {
-        selectedTargetId = null; // 目標已死亡，清空並恢復自動鎖定
+        selectedTargetId = null;
         targetText.innerText = `🎯 技能目標：[自動鎖定模式] (點擊上方玩家卡片可手動選擇)`;
       }
     } else {
@@ -361,7 +387,6 @@
       const isSelected = selectedTargetId === p.id;
       pCard.className = `player-card ${isDead ? 'dead' : ''} ${isSelected ? 'selected' : ''}`;
       
-      // 點擊玩家卡片切換選取狀態
       if (roomState.status === 'playing' && !isDead) {
         pCard.style.cursor = 'pointer';
         pCard.onclick = () => selectTarget(p.id);
@@ -388,11 +413,7 @@
   }
 
   function selectTarget(playerId) {
-    if (selectedTargetId === playerId) {
-      selectedTargetId = null; // 切換取消
-    } else {
-      selectedTargetId = playerId;
-    }
+    selectedTargetId = (selectedTargetId === playerId) ? null : playerId;
     if (currentRoomState) renderRoom(currentRoomState);
   }
 
