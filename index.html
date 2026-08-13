@@ -2,14 +2,15 @@
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8">
-  <title>多人線上 RPG 戰鬥房間 - 職業特性增強版</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>多人線上 RPG 戰鬥房間 - 全功能增強版</title>
   <style>
     * { box-sizing: border-box; font-family: "Segoe UI", Microsoft JhengHei, sans-serif; }
     body { background-color: #121212; color: #e0e0e0; margin: 0; padding: 20px; display: flex; justify-content: center; }
     .container { width: 100%; max-width: 960px; display: flex; flex-direction: column; gap: 15px; position: relative; }
 
     .card { background-color: #1e1e1e; border: 1px solid #333; border-radius: 8px; padding: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
-    h2, h3 { margin-top: 0; color: #4caf50; }
+    h2, h3, h4 { margin-top: 0; color: #4caf50; }
 
     button { background-color: #388e3c; color: white; border: none; padding: 8px 16px; font-size: 14px; border-radius: 4px; cursor: pointer; transition: 0.2s; }
     button:hover { background-color: #4caf50; }
@@ -18,19 +19,33 @@
 
     .hidden { display: none !important; }
 
+    /* 大廳標題與在線人數 */
+    .lobby-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; padding-bottom: 10px; margin-bottom: 10px; }
+    .online-badge { background: #2a3a2a; color: #66bb6a; border: 1px solid #4caf50; padding: 4px 12px; border-radius: 20px; font-weight: bold; font-size: 13px; }
+
     .lobby-panel { display: flex; flex-direction: column; gap: 15px; }
     .lobby-content { display: flex; gap: 15px; flex-wrap: wrap; }
     .lobby-box { flex: 1; min-width: 280px; }
 
+    /* 大廳聊天室 */
+    .chat-box { height: 160px; overflow-y: auto; background-color: #141414; border: 1px solid #333; border-radius: 4px; padding: 8px; font-size: 13px; display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+    .chat-msg { word-break: break-all; }
+    .chat-time { color: #666; font-size: 11px; margin-right: 5px; }
+    .chat-sender { color: #ffca28; font-weight: bold; margin-right: 5px; }
+
+    /* 背包與個人資訊 */
     .inventory-list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
     .inventory-item { background: #2a2a2a; padding: 8px 12px; border-radius: 4px; display: flex; justify-content: space-between; align-items: center; border-left: 4px solid #ff9800; }
+    .rank-tag { font-size: 12px; padding: 2px 6px; border-radius: 4px; font-weight: bold; margin-left: 6px; }
 
+    /* 隊伍區域與選擇按鈕 */
     .teams-container { display: flex; gap: 15px; margin-top: 10px; }
     .team-box { flex: 1; background: #252525; padding: 10px; border-radius: 6px; }
     .team-box.team-a { border-top: 4px solid #2196f3; }
     .team-box.team-b { border-top: 4px solid #f44336; }
+    .team-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
 
-    .player-card { background: #333; border-radius: 6px; padding: 10px; margin-bottom: 10px; position: relative; border: 2px solid transparent; transition: 0.2s; overflow: visible; }
+    .player-card { background: #333; border-radius: 6px; padding: 10px; margin-bottom: 10px; position: relative; border: 2px solid transparent; transition: 0.2s; }
     .player-card.selected { border-color: #ffca28; background: #3d3b2a; }
     .player-card.dead { opacity: 0.5; filter: grayscale(1); }
     .player-header { display: flex; justify-content: space-between; font-weight: bold; margin-bottom: 6px; }
@@ -58,6 +73,7 @@
     .queue-status { margin-top: 10px; padding: 8px; background: #332200; border: 1px dashed #ff9800; border-radius: 4px; color: #ffca28; }
     .target-indicator { font-size: 13px; color: #ffca28; font-weight: bold; margin-bottom: 5px; }
 
+    /* 震動與傷害數字動畫 */
     @keyframes shake {
       0% { transform: translate(1px, 1px) rotate(0deg); }
       20% { transform: translate(-3px, 0px) rotate(1deg); }
@@ -81,13 +97,8 @@
     .flash-green { animation: heal-flash 0.4s ease-out; }
 
     .floating-number {
-      position: absolute;
-      font-weight: 900;
-      font-size: 22px;
-      pointer-events: none;
-      animation: floatUp 0.8s ease-out forwards;
-      z-index: 999;
-      text-shadow: 2px 2px 4px #000;
+      position: absolute; font-weight: 900; font-size: 22px; pointer-events: none;
+      animation: floatUp 0.8s ease-out forwards; z-index: 999; text-shadow: 2px 2px 4px #000;
     }
     @keyframes floatUp {
       0% { opacity: 1; transform: translateY(0) scale(1.2); }
@@ -96,13 +107,12 @@
     }
     .damage-num { color: #ff3333; }
     .heal-num { color: #33ff33; }
-    .crit-num { color: #ffeb3b; font-size: 26px; }
   </style>
 </head>
 <body>
 
 <div id="mainContainer" class="container">
-  <h2>⚔️ 線上 RPG 戰鬥與匹配系統 (職業特性增強版)</h2>
+  <h2>⚔️ 線上 RPG 戰鬥與匹配系統</h2>
 
   <!-- 帳號登入 / 註冊區塊 -->
   <div id="authSection" class="card">
@@ -117,14 +127,21 @@
     </div>
   </div>
 
-  <!-- 大廳 -->
+  <!-- 🧘‍♂️ 大廳 -->
   <div id="lobbySection" class="card lobby-panel hidden">
-    <h3>🧘‍♂️ 大廳 (修練中...)</h3>
-    <p id="idleStatusText" style="color: #aaa; margin: 0;">正在自動修練尋找藥水與道具...</p>
+    <div class="lobby-header">
+      <div>
+        <h3 style="margin:0;">🧘‍♂️ 大廳 (修練中...)</h3>
+        <span id="idleStatusText" style="color: #aaa; font-size: 13px;">正在自動修練尋找藥水與道具...</span>
+      </div>
+      <!-- 👥 在線人數 -->
+      <div class="online-badge">🟢 在線玩家：<span id="displayOnlineCount">---</span> 人</div>
+    </div>
     
     <div class="lobby-content">
+      <!-- 🎮 遊戲配對與自建房 -->
       <div class="lobby-box card">
-        <h4>🎮 遊戲配對</h4>
+        <h4>🎮 戰鬥選擇</h4>
         <div style="display: flex; flex-direction: column; gap: 8px;">
           <label>玩家暱稱：<input type="text" id="playerName" value="勇者"></label>
           <label>選擇職業：
@@ -145,17 +162,31 @@
             <div id="queueStatus" class="queue-status hidden">⏳ 正在尋找對手 (1v1) 中...</div>
             <hr style="border-color: #333; width: 100%;">
             
-            <div style="display: flex; gap: 8px;">
-              <button onclick="createRoom()">自訂自建房間</button>
-              <input type="text" id="joinRoomId" placeholder="輸入房號" style="width: 100px;">
-              <button onclick="joinRoom()">加入房間</button>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+              <button onclick="createRoom('A')">🏠 建立隊伍 A 房</button>
+              <button onclick="createRoom('B')" style="background-color: #e53935;">🏠 建立隊伍 B 房</button>
+            </div>
+            <div style="display: flex; gap: 8px; margin-top: 5px;">
+              <input type="text" id="joinRoomId" placeholder="輸入房號" style="width: 110px;">
+              <button onclick="joinRoom('A')">加入隊伍 A</button>
+              <button onclick="joinRoom('B')" style="background-color: #e53935;">加入隊伍 B</button>
             </div>
           </div>
         </div>
       </div>
 
-      <div class="lobby-box card">
-        <h4>🎒 我的背包道具 (資料庫同步)</h4>
+      <!-- 💬 大廳聊天室與背包 -->
+      <div class="lobby-box card" style="display: flex; flex-direction: column; gap: 10px;">
+        <h4>💬 大廳公眾聊天室</h4>
+        <div id="lobbyChatBox" class="chat-box">
+          <div style="color: #888; font-style: italic;">歡迎來到世界頻道，隨意跟大家交流吧！</div>
+        </div>
+        <div style="display: flex; gap: 6px;">
+          <input type="text" id="lobbyChatInput" placeholder="輸入聊天內容..." style="flex: 1;" onkeydown="if(event.key==='Enter') sendLobbyChat()">
+          <button onclick="sendLobbyChat()" style="background-color: #008cba;">發送</button>
+        </div>
+
+        <h4 style="margin-top: 10px;">🎒 我的背包 (資料庫同步)</h4>
         <div class="inventory-list">
           <div class="inventory-item">
             <span>🧪 HP 藥水</span>
@@ -174,9 +205,9 @@
     </div>
   </div>
 
-  <!-- 戰鬥房間介面 -->
+  <!-- 🏰 戰鬥房間介面 -->
   <div id="roomSection" class="card hidden">
-    <div style="display: flex; justify-content: space-between; align-items: center;">
+    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
       <h3>🏰 戰鬥房間 - 房號: <span id="displayRoomId" style="color: #ff9800;">-</span></h3>
       <div>
         <button id="btnStartGame" onclick="startGame()" class="hidden">⚔️ 開始遊戲</button>
@@ -185,26 +216,35 @@
       </div>
     </div>
 
+    <!-- 🚩 隊伍列表與換隊按鍵 -->
     <div class="teams-container">
       <div class="team-box team-a">
-        <h4 style="color: #2196f3; margin-top: 0;">🔵 隊伍 A</h4>
+        <div class="team-header">
+          <h4 style="color: #2196f3; margin: 0;">🔵 隊伍 A</h4>
+          <button id="btnSwitchTeamA" onclick="switchTeam('A')" style="font-size: 12px; padding: 4px 8px; background: #1976d2;">切換至 A 隊</button>
+        </div>
         <div id="teamAPlayers"></div>
       </div>
+
       <div class="team-box team-b">
-        <h4 style="color: #f44336; margin-top: 0;">🔴 隊伍 B</h4>
+        <div class="team-header">
+          <h4 style="color: #f44336; margin: 0;">🔴 隊伍 B</h4>
+          <button id="btnSwitchTeamB" onclick="switchTeam('B')" style="font-size: 12px; padding: 4px 8px; background: #d32f2f;">切換至 B 隊</button>
+        </div>
         <div id="teamBPlayers"></div>
       </div>
     </div>
 
+    <!-- ⚔️ 技能操作面板 -->
     <div id="actionPanel" class="action-panel hidden">
       <div id="currentTargetText" class="target-indicator">🎯 技能目標：[自動鎖定模式] (點擊上方玩家卡片可手動選擇)</div>
       <div>
-        <span style="font-weight: bold; font-size: 14px;">✨ 釋放技能：</span>
+        <span style="font-weight: bold; font-size: 14px;">✨ 釋放技能 (💧 每秒自動回復 50 MP)：</span>
         <div id="skillButtons" class="skill-btns" style="margin-top: 5px;"></div>
       </div>
       
       <div>
-        <span style="font-weight: bold; font-size: 14px;">🧪 快捷道具：</span>
+        <span style="font-weight: bold; font-size: 14px;">🧪 快捷藥水：</span>
         <div class="item-btns" style="margin-top: 5px;">
           <button id="btnHpPotion" class="btn-potion" onclick="usePotion('hp')">🧪 HP 藥水 (剩餘: 0)</button>
           <button id="btnMpPotion" class="btn-potion" onclick="usePotion('mp')">🧪 MP 藥水 (剩餘: 0)</button>
@@ -213,58 +253,59 @@
     </div>
   </div>
 
+  <!-- 📜 日誌 -->
   <div class="card">
-    <h3>📜 戰鬥與訊息日誌</h3>
+    <h3>📜 戰鬥與系統日誌</h3>
     <div id="battleLog"></div>
   </div>
 </div>
 
 <script>
+  // 請替換為你的後端 WebSocket 網址
   let ws = new WebSocket('wss://rpg-game-backend-vhag.onrender.com');
   let myPlayerId = null;
   let currentUser = null;
   let currentRoomState = null;
   let selectedTargetId = null;
   let oldPlayerHpMap = {}; 
-  let reviveCooldownEndTime = 0; // 牧師復活術 CD 時間戳記 (5分鐘)
+  let reviveCooldownEndTime = 0;
 
-  // 強化後的技能表
   const SKILLS = {
     mage: [
-      { name: '🔥 火球術', mpCost: 80, minVal: 220, maxVal: 350, isAoe: false, isHeal: false, icon: '🔥', effect: 'burn', chance: 0.3 },
-      { name: '⚡ 連鎖閃電', mpCost: 150, minVal: 180, maxVal: 280, isAoe: false, isHeal: false, icon: '⚡', effect: 'paralyze', chance: 0.25 },
-      { name: '❄️ 暴風雪', mpCost: 220, minVal: 150, maxVal: 250, isAoe: true, isHeal: false, icon: '❄️' },
-      { name: '☄️ 隕石術', mpCost: 400, minVal: 500, maxVal: 850, isAoe: true, isHeal: false, isUlt: true, icon: '☄️' }
+      { name: '🔥 火球術', mpCost: 80, minVal: 220, maxVal: 350, isAoe: false, isHeal: false, effect: 'burn', chance: 0.3 },
+      { name: '⚡ 連鎖閃電', mpCost: 150, minVal: 180, maxVal: 280, isAoe: false, isHeal: false, effect: 'paralyze', chance: 0.25 },
+      { name: '❄️ 暴風雪', mpCost: 220, minVal: 150, maxVal: 250, isAoe: true, isHeal: false },
+      { name: '☄️ 隕石術', mpCost: 400, minVal: 500, maxVal: 850, isAoe: true, isHeal: false, isUlt: true }
     ],
     priest: [
-      { name: '💚 治癒術', mpCost: 70, minVal: 200, maxVal: 320, isAoe: false, isHeal: true, icon: '💚' },
-      { name: '✨ 聖光彈', mpCost: 90, minVal: 180, maxVal: 280, isAoe: false, isHeal: false, icon: '✨' },
-      { name: '🙏 神聖祈禱', mpCost: 180, minVal: 150, maxVal: 250, isAoe: true, isHeal: true, icon: '🙏' },
-      { name: '🌟 復活術', mpCost: 300, minVal: 0, maxVal: 0, isAoe: false, isRevive: true, isUlt: true, cd: 300, icon: '🌟' }
+      { name: '💚 治癒術', mpCost: 70, minVal: 200, maxVal: 320, isAoe: false, isHeal: true },
+      { name: '✨ 聖光彈', mpCost: 90, minVal: 180, maxVal: 280, isAoe: false, isHeal: false },
+      { name: '🙏 神聖祈禱', mpCost: 180, minVal: 150, maxVal: 250, isAoe: true, isHeal: true },
+      { name: '🌟 復活術', mpCost: 300, minVal: 0, maxVal: 0, isAoe: false, isRevive: true, isUlt: true, cd: 300 }
     ],
-    berserker: [ // 原戰士改名為狂戰士 (內建20%吸血)
-      { name: '⚔️ 重擊', mpCost: 40, minVal: 180, maxVal: 300, isAoe: false, isHeal: false, icon: '⚔️', lifesteal: 0.2 },
-      { name: '🌪️ 旋風斬', mpCost: 100, minVal: 130, maxVal: 220, isAoe: true, isHeal: false, icon: '🌪️', lifesteal: 0.2 },
-      { name: '🩸 狂暴怒吼', mpCost: 120, minVal: 250, maxVal: 400, isAoe: false, isHeal: false, icon: '🩸', lifesteal: 0.2 },
-      { name: '💥 英雄一擊', mpCost: 300, minVal: 550, maxVal: 900, isAoe: false, isHeal: false, isUlt: true, icon: '💥', lifesteal: 0.2 }
+    berserker: [
+      { name: '⚔️ 重擊', mpCost: 40, minVal: 180, maxVal: 300, isAoe: false, isHeal: false, lifesteal: 0.2 },
+      { name: '🌪️ 旋風斬', mpCost: 100, minVal: 130, maxVal: 220, isAoe: true, isHeal: false, lifesteal: 0.2 },
+      { name: '🩸 狂暴怒吼', mpCost: 120, minVal: 250, maxVal: 400, isAoe: false, isHeal: false, lifesteal: 0.2 },
+      { name: '💥 英雄一擊', mpCost: 300, minVal: 550, maxVal: 900, isAoe: false, isHeal: false, isUlt: true, lifesteal: 0.2 }
     ],
-    knight: [ // 內建 5% 反傷
-      { name: '🛡️ 盾牌衝鋒', mpCost: 40, minVal: 150, maxVal: 240, isAoe: false, isHeal: false, icon: '🛡️' },
-      { name: '🔨 裁決之錘', mpCost: 80, minVal: 200, maxVal: 320, isAoe: false, isHeal: false, icon: '🔨' },
-      { name: '🧱 堅守陣線', mpCost: 120, minVal: 120, maxVal: 200, isAoe: true, isHeal: true, icon: '🧱' },
-      { name: '🏰 正義風暴', mpCost: 280, minVal: 400, maxVal: 650, isAoe: true, isHeal: false, isUlt: true, icon: '🏰' }
+    knight: [
+      { name: '🛡️ 盾牌衝鋒', mpCost: 40, minVal: 150, maxVal: 240, isAoe: false, isHeal: false },
+      { name: '🔨 裁決之錘', mpCost: 80, minVal: 200, maxVal: 320, isAoe: false, isHeal: false },
+      { name: '🧱 堅守陣線', mpCost: 120, minVal: 120, maxVal: 200, isAoe: true, isHeal: true },
+      { name: '🏰 正義風暴', mpCost: 280, minVal: 400, maxVal: 650, isAoe: true, isHeal: false, isUlt: true }
     ],
     assassin: [
-      { name: '🗡️ 毒刃', mpCost: 50, minVal: 220, maxVal: 350, isAoe: false, isHeal: false, icon: '🗡️', effect: 'poison', chance: 0.35 },
-      { name: '👣 影襲', mpCost: 90, minVal: 280, maxVal: 420, isAoe: false, isHeal: false, icon: '👣', effect: 'poison', chance: 0.2 },
-      { name: '🔪 飛刀風暴', mpCost: 150, minVal: 160, maxVal: 280, isAoe: true, isHeal: false, icon: '🔪' },
-      { name: '☠️ 瞬獄殺', mpCost: 350, minVal: 650, maxVal: 1100, isAoe: false, isHeal: false, isUlt: true, icon: '☠️', effect: 'poison', chance: 0.5 }
+      { name: '🗡️ 毒刃', mpCost: 50, minVal: 220, maxVal: 350, isAoe: false, isHeal: false, effect: 'poison', chance: 0.35 },
+      { name: '👣 影襲', mpCost: 90, minVal: 280, maxVal: 420, isAoe: false, isHeal: false, effect: 'poison', chance: 0.2 },
+      { name: '🔪 飛刀風暴', mpCost: 150, minVal: 160, maxVal: 280, isAoe: true, isHeal: false },
+      { name: '☠️ 瞬獄殺', mpCost: 350, minVal: 650, maxVal: 1100, isAoe: false, isHeal: false, isUlt: true, effect: 'poison', chance: 0.5 }
     ],
     archer: [
-      { name: '🏹 精準射擊', mpCost: 50, minVal: 200, maxVal: 320, isAoe: false, isHeal: false, icon: '🏹', effect: 'blind', chance: 0.25 },
-      { name: '🌧️ 箭雨', mpCost: 140, minVal: 140, maxVal: 240, isAoe: true, isHeal: false, icon: '🌧️', effect: 'blind', chance: 0.15 },
-      { name: '🎯 貫穿箭', mpCost: 110, minVal: 260, maxVal: 400, isAoe: false, isHeal: false, icon: '🎯' },
-      { name: '🦅 幻影神射', mpCost: 320, minVal: 580, maxVal: 950, isAoe: false, isHeal: false, icon: '🦅', effect: 'blind', chance: 0.4 }
+      { name: '🏹 精準射擊', mpCost: 50, minVal: 200, maxVal: 320, isAoe: false, isHeal: false, effect: 'blind', chance: 0.25 },
+      { name: '🌧️ 箭雨', mpCost: 140, minVal: 140, maxVal: 240, isAoe: true, isHeal: false, effect: 'blind', chance: 0.15 },
+      { name: '🎯 貫穿箭', mpCost: 110, minVal: 260, maxVal: 400, isAoe: false, isHeal: false },
+      { name: '🦅 幻影神射', mpCost: 320, minVal: 580, maxVal: 950, isAoe: false, isHeal: false, isUlt: true, effect: 'blind', chance: 0.4 }
     ]
   };
 
@@ -273,7 +314,6 @@
   ws.onclose = () => { logMessage("🟡 與伺服器中斷連線。"); };
 
   ws.onmessage = (event) => {
-    console.log("📥 收到訊息：", event.data);
     const data = JSON.parse(event.data);
 
     if (data.type === 'register_success') {
@@ -290,15 +330,20 @@
       document.getElementById('playerRole').value = data.user.role || 'berserker';
       updateInventoryDisplay(data.user.inventory);
     }
+    // 👥 接收擬真在線人數更新
+    else if (data.type === 'online_count') {
+      document.getElementById('displayOnlineCount').innerText = data.onlineCount;
+    }
+    // 💬 接收大廳聊天訊息
+    else if (data.type === 'lobby_chat') {
+      appendLobbyChat(data.sender, data.message, data.time);
+    }
     else if (data.type === 'idle_reward') {
       logMessage(data.message);
       updateInventoryDisplay(data.inventory);
     }
-    else if (data.type === 'inventory_update') {
-      updateInventoryDisplay(data.inventory);
-    }
     else if (data.type === 'queue_joined') {
-      logMessage("🎲 成功進入單人 1v1 匹配隊列，請稍候...");
+      logMessage("🎲 成功進入單人 1v1 匹配隊列...");
       showQueueUI(true);
     }
     else if (data.type === 'queue_left') {
@@ -306,7 +351,7 @@
       showQueueUI(false);
     }
     else if (data.type === 'match_found' || data.type === 'room_created' || data.type === 'room_joined') {
-      if (data.type === 'match_found') logMessage("🎉 匹配成功 (1v1)！即將進入戰鬥...");
+      if (data.type === 'match_found') logMessage("🎉 匹配成功！即將進入戰鬥...");
       myPlayerId = data.player.id;
       selectedTargetId = null;
       document.getElementById('displayRoomId').innerText = data.roomId;
@@ -319,9 +364,6 @@
       currentRoomState = data;
       renderRoom(data);
     }
-    else if (data.type === 'game_start' || data.type === 'game_over') {
-      logMessage(data.message);
-    }
     else if (data.type === 'battle_log') {
       logMessage(data.message);
       checkBattleLogForEffects(data.message);
@@ -332,7 +374,6 @@
       document.getElementById('lobbySection').classList.remove('hidden');
       document.getElementById('roomSection').classList.add('hidden');
       document.getElementById('actionPanel').classList.add('hidden');
-      ws.send(JSON.stringify({ type: 'get_inventory' }));
     }
     else if (data.type === 'error') {
       alert("❌ " + data.message);
@@ -363,12 +404,35 @@
     ws.send(JSON.stringify({ type: 'login', username: u, password: p }));
   }
 
+  // 💬 發送大廳聊天訊息
+  function sendLobbyChat() {
+    if (!checkWsConnected()) return;
+    const input = document.getElementById('lobbyChatInput');
+    const msg = input.value.trim();
+    if (!msg) return;
+
+    const senderName = getSafePlayerName();
+    ws.send(JSON.stringify({ type: 'send_lobby_chat', message: msg, name: senderName }));
+    input.value = '';
+  }
+
+  function appendLobbyChat(sender, message, time) {
+    const box = document.getElementById('lobbyChatBox');
+    const msgDiv = document.createElement('div');
+    msgDiv.className = 'chat-msg';
+    msgDiv.innerHTML = `<span class="chat-time">[${time}]</span><span class="chat-sender">${sender}:</span><span>${escapeHtml(message)}</span>`;
+    box.appendChild(msgDiv);
+    box.scrollTop = box.scrollHeight;
+  }
+
+  function escapeHtml(str) {
+    return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
   function getSafePlayerName() {
     let nameInput = document.getElementById('playerName').value.trim();
     if (!nameInput || nameInput === "空白") {
-      nameInput = (currentUser && currentUser.name && currentUser.name !== "空白") 
-        ? currentUser.name 
-        : "勇者" + Math.floor(Math.random() * 899 + 100);
+      nameInput = (currentUser && currentUser.name) ? currentUser.name : "勇者" + Math.floor(Math.random() * 899 + 100);
       document.getElementById('playerName').value = nameInput;
     }
     return nameInput;
@@ -386,32 +450,36 @@
     const role = document.getElementById('playerRole').value;
     ws.send(JSON.stringify({ type: 'join_queue', name, role }));
     showQueueUI(true);
-    logMessage(`🎲 已送出 1v1 配對請求 (暱稱: ${name})...`);
   }
 
   function leaveQueue() {
     if (!checkWsConnected()) return;
     ws.send(JSON.stringify({ type: 'leave_queue' }));
     showQueueUI(false);
-    logMessage("❌ 已手動取消匹配。");
   }
 
-  function createRoom() {
+  function createRoom(team = 'A') {
     if (!checkWsConnected()) return;
     leaveQueue();
     const name = getSafePlayerName();
     const role = document.getElementById('playerRole').value;
-    ws.send(JSON.stringify({ type: 'create_room', name, role }));
+    ws.send(JSON.stringify({ type: 'create_room', name, role, team }));
   }
 
-  function joinRoom() {
+  function joinRoom(targetTeam = 'A') {
     if (!checkWsConnected()) return;
     leaveQueue();
     const name = getSafePlayerName();
     const role = document.getElementById('playerRole').value;
     const roomId = document.getElementById('joinRoomId').value.trim();
     if (!roomId) return alert("請輸入房號！");
-    ws.send(JSON.stringify({ type: 'join_room', name, role, roomId }));
+    ws.send(JSON.stringify({ type: 'join_room', name, role, roomId, targetTeam }));
+  }
+
+  // 🚩 切換隊伍
+  function switchTeam(targetTeam) {
+    if (!checkWsConnected()) return;
+    ws.send(JSON.stringify({ type: 'switch_team', targetTeam }));
   }
 
   function updateInventoryDisplay(inv) {
@@ -444,6 +512,17 @@
 
     if (me && me.inventory) updateInventoryDisplay(me.inventory);
 
+    // 控制換隊按鈕啟用/停用
+    const btnSwitchA = document.getElementById('btnSwitchTeamA');
+    const btnSwitchB = document.getElementById('btnSwitchTeamB');
+    if (me && roomState.status === 'waiting') {
+      btnSwitchA.disabled = (me.team === 'A');
+      btnSwitchB.disabled = (me.team === 'B');
+    } else {
+      btnSwitchA.disabled = true;
+      btnSwitchB.disabled = true;
+    }
+
     const btnStart = document.getElementById('btnStartGame');
     const btnRematch = document.getElementById('btnRematch');
     
@@ -464,14 +543,9 @@
     const targetText = document.getElementById('currentTargetText');
     if (selectedTargetId) {
       const targetPlayer = roomState.players.find(p => p.id === selectedTargetId);
-      if (targetPlayer) {
-        targetText.innerText = `🎯 目前鎖定目標：${targetPlayer.name} (${targetPlayer.team}隊) [再次點擊可取消選取]`;
-      } else {
-        selectedTargetId = null;
-        targetText.innerText = `🎯 技能目標：[自動鎖定模式] (點擊上方玩家卡片可手動選擇)`;
-      }
+      targetText.innerText = targetPlayer ? `🎯 目前鎖定目標：${targetPlayer.name} (${targetPlayer.team}隊)` : `🎯 技能目標：[自動鎖定模式]`;
     } else {
-      targetText.innerText = `🎯 技能目標：[自動鎖定模式] (點擊上方玩家卡片可手動選擇)`;
+      targetText.innerText = `🎯 技能目標：[自動鎖定模式] (點擊玩家卡片可鎖定單體標的)`;
     }
 
     roomState.players.forEach(p => {
@@ -489,7 +563,6 @@
         pCard.onclick = () => selectTarget(p.id);
       }
 
-      // 異常狀態標籤展示
       let statusHtml = '';
       if (p.statusEffects) {
         if (p.statusEffects.burn) statusHtml += `<span class="status-badge badge-burn">🔥 灼燒</span>`;
@@ -498,9 +571,11 @@
         if (p.statusEffects.blind) statusHtml += `<span class="status-badge badge-blind">👁️ 致盲</span>`;
       }
 
+      const rInfo = p.rankInfo || { icon: '🥉', name: '青銅' };
+
       pCard.innerHTML = `
         <div class="player-header">
-          <span>${p.name} (${p.role}) ${p.id === myPlayerId ? '⭐我' : ''}</span>
+          <span>${p.name} (${p.role}) <span class="rank-tag">${rInfo.icon} ${rInfo.name}</span> ${p.id === myPlayerId ? '⭐我' : ''}</span>
           <span>${isDead ? '💀 陣亡' : '存活'}</span>
         </div>
         <div class="bar-container">
@@ -548,7 +623,6 @@
 
     mySkills.forEach(skill => {
       const btn = document.createElement('button');
-      
       if (skill.isRevive) {
         const remainingCd = Math.max(0, Math.ceil((reviveCooldownEndTime - now) / 1000));
         btn.innerText = `${skill.name} (MP: ${skill.mpCost})${remainingCd > 0 ? ` CD:${remainingCd}s` : ''}`;
@@ -568,9 +642,7 @@
   function useSkill(skill) {
     if (!checkWsConnected()) return;
 
-    if (skill.isRevive) {
-      reviveCooldownEndTime = Date.now() + (skill.cd * 1000);
-    }
+    if (skill.isRevive) reviveCooldownEndTime = Date.now() + (skill.cd * 1000);
 
     ws.send(JSON.stringify({
       type: 'use_skill',
@@ -591,7 +663,7 @@
 
   function usePotion(potionType) {
     if (!checkWsConnected()) return;
-    ws.send(JSON.stringify({ type: 'use_potion', potionType: potionType }));
+    ws.send(JSON.stringify({ type: 'use_potion', potionType }));
   }
 
   function startGame() { if (checkWsConnected()) ws.send(JSON.stringify({ type: 'start_game' })); }
@@ -618,13 +690,10 @@
     setTimeout(() => container.classList.remove('shake-effect'), 300);
   }
 
-  function showFloatingText(targetCard, text, isHeal = false, isCrit = false) {
+  function showFloatingText(targetCard, text, isHeal = false) {
     if (!targetCard) return;
     const el = document.createElement('div');
-    let className = isHeal ? 'heal-num' : 'damage-num';
-    if (isCrit) className += ' crit-num';
-
-    el.className = `floating-number ${className}`;
+    el.className = `floating-number ${isHeal ? 'heal-num' : 'damage-num'}`;
     el.innerText = text;
 
     const randomX = Math.floor(Math.random() * 40) - 20;
