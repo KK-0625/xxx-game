@@ -6,7 +6,7 @@
   <style>
     * { box-sizing: border-box; font-family: "Segoe UI", Microsoft JhengHei, sans-serif; }
     body { background-color: #121212; color: #e0e0e0; margin: 0; padding: 20px; display: flex; justify-content: center; }
-    .container { width: 100%; max-width: 960px; display: flex; flex-direction: column; gap: 15px; }
+    .container { width: 100%; max-width: 960px; display: flex; flex-direction: column; gap: 15px; position: relative; }
 
     .card { background-color: #1e1e1e; border: 1px solid #333; border-radius: 8px; padding: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
     h2, h3 { margin-top: 0; color: #4caf50; }
@@ -30,7 +30,7 @@
     .team-box.team-a { border-top: 4px solid #2196f3; }
     .team-box.team-b { border-top: 4px solid #f44336; }
 
-    .player-card { background: #333; border-radius: 6px; padding: 10px; margin-bottom: 10px; position: relative; border: 2px solid transparent; transition: 0.2s; }
+    .player-card { background: #333; border-radius: 6px; padding: 10px; margin-bottom: 10px; position: relative; border: 2px solid transparent; transition: 0.2s; overflow: visible; }
     .player-card.selected { border-color: #ffca28; background: #3d3b2a; }
     .player-card.dead { opacity: 0.5; filter: grayscale(1); }
     .player-header { display: flex; justify-content: space-between; font-weight: bold; margin-bottom: 6px; }
@@ -50,11 +50,52 @@
     #battleLog { height: 160px; overflow-y: auto; background-color: #000; color: #00ff66; padding: 10px; font-family: monospace; font-size: 13px; border-radius: 4px; }
     .queue-status { margin-top: 10px; padding: 8px; background: #332200; border: 1px dashed #ff9800; border-radius: 4px; color: #ffca28; }
     .target-indicator { font-size: 13px; color: #ffca28; font-weight: bold; margin-bottom: 5px; }
+
+    /* 🎬 ===== 視覺與動畫特效樣式 ===== */
+    @keyframes shake {
+      0% { transform: translate(1px, 1px) rotate(0deg); }
+      20% { transform: translate(-3px, 0px) rotate(1deg); }
+      40% { transform: translate(1px, -1px) rotate(1deg); }
+      60% { transform: translate(-3px, 1px) rotate(0deg); }
+      80% { transform: translate(-1px, -1px) rotate(1deg); }
+      100% { transform: translate(0px, 0px) rotate(0deg); }
+    }
+    .shake-effect { animation: shake 0.3s ease-in-out; }
+
+    @keyframes damage-flash {
+      0% { background-color: rgba(255, 0, 0, 0.7); box-shadow: 0 0 15px #ff0000; }
+      100% { background-color: #333; box-shadow: none; }
+    }
+    .flash-red { animation: damage-flash 0.4s ease-out; }
+
+    @keyframes heal-flash {
+      0% { background-color: rgba(0, 255, 0, 0.7); box-shadow: 0 0 15px #00ff00; }
+      100% { background-color: #333; box-shadow: none; }
+    }
+    .flash-green { animation: heal-flash 0.4s ease-out; }
+
+    .floating-number {
+      position: absolute;
+      font-weight: 900;
+      font-size: 22px;
+      pointer-events: none;
+      animation: floatUp 0.8s ease-out forwards;
+      z-index: 999;
+      text-shadow: 2px 2px 4px #000;
+    }
+    @keyframes floatUp {
+      0% { opacity: 1; transform: translateY(0) scale(1.2); }
+      50% { transform: translateY(-25px) scale(1.4); }
+      100% { opacity: 0; transform: translateY(-50px) scale(1); }
+    }
+    .damage-num { color: #ff3333; }
+    .heal-num { color: #33ff33; }
+    .crit-num { color: #ffeb3b; font-size: 26px; }
   </style>
 </head>
 <body>
 
-<div class="container">
+<div id="mainContainer" class="container">
   <h2>⚔️ 線上 RPG 戰鬥與匹配系統</h2>
 
   <!-- 帳號登入 / 註冊區塊 -->
@@ -70,13 +111,12 @@
     </div>
   </div>
 
-  <!-- 大廳 (預設隱藏，登入後顯示) -->
+  <!-- 大廳 -->
   <div id="lobbySection" class="card lobby-panel hidden">
     <h3>🧘‍♂️ 大廳 (修練中...)</h3>
     <p id="idleStatusText" style="color: #aaa; margin: 0;">正在自動修練尋找藥水與道具...</p>
     
     <div class="lobby-content">
-      <!-- 遊戲匹配 & 建立房間 -->
       <div class="lobby-box card">
         <h4>🎮 遊戲配對</h4>
         <div style="display: flex; flex-direction: column; gap: 8px;">
@@ -108,7 +148,6 @@
         </div>
       </div>
 
-      <!-- 背包查看區塊 -->
       <div class="lobby-box card">
         <h4>🎒 我的背包道具 (資料庫同步)</h4>
         <div class="inventory-list">
@@ -140,7 +179,6 @@
       </div>
     </div>
 
-    <!-- 隊伍狀況 -->
     <div class="teams-container">
       <div class="team-box team-a">
         <h4 style="color: #2196f3; margin-top: 0;">🔵 隊伍 A</h4>
@@ -152,7 +190,6 @@
       </div>
     </div>
 
-    <!-- 操作面板 -->
     <div id="actionPanel" class="action-panel hidden">
       <div id="currentTargetText" class="target-indicator">🎯 技能目標：[自動鎖定模式] (點擊上方玩家卡片可手動選擇)</div>
       <div>
@@ -170,7 +207,6 @@
     </div>
   </div>
 
-  <!-- 戰鬥日誌 -->
   <div class="card">
     <h3>📜 戰鬥與訊息日誌</h3>
     <div id="battleLog"></div>
@@ -182,43 +218,44 @@
   let myPlayerId = null;
   let currentRoomState = null;
   let selectedTargetId = null;
+  let oldPlayerHpMap = {}; // 紀錄上一幀的血量以計算傷害/治療
 
   const SKILLS = {
     mage: [
-      { name: '🔥 火球術', mpCost: 80, minVal: 220, maxVal: 350, isAoe: false, isHeal: false },
-      { name: '⚡ 連鎖閃電', mpCost: 150, minVal: 180, maxVal: 280, isAoe: false, isHeal: false },
-      { name: '❄️ 暴風雪', mpCost: 220, minVal: 150, maxVal: 250, isAoe: true, isHeal: false },
-      { name: '☄️ 隕石術', mpCost: 400, minVal: 500, maxVal: 850, isAoe: true, isHeal: false, isUlt: true }
+      { name: '🔥 火球術', mpCost: 80, minVal: 220, maxVal: 350, isAoe: false, isHeal: false, icon: '🔥' },
+      { name: '⚡ 連鎖閃電', mpCost: 150, minVal: 180, maxVal: 280, isAoe: false, isHeal: false, icon: '⚡' },
+      { name: '❄️ 暴風雪', mpCost: 220, minVal: 150, maxVal: 250, isAoe: true, isHeal: false, icon: '❄️' },
+      { name: '☄️ 隕石術', mpCost: 400, minVal: 500, maxVal: 850, isAoe: true, isHeal: false, isUlt: true, icon: '☄️' }
     ],
     priest: [
-      { name: '💚 治癒術', mpCost: 70, minVal: 200, maxVal: 320, isAoe: false, isHeal: true },
-      { name: '✨ 聖光彈', mpCost: 90, minVal: 180, maxVal: 280, isAoe: false, isHeal: false },
-      { name: '🙏 神聖祈禱', mpCost: 180, minVal: 150, maxVal: 250, isAoe: true, isHeal: true },
-      { name: '🌟 天使降臨', mpCost: 350, minVal: 450, maxVal: 700, isAoe: true, isHeal: true, isUlt: true }
+      { name: '💚 治癒術', mpCost: 70, minVal: 200, maxVal: 320, isAoe: false, isHeal: true, icon: '💚' },
+      { name: '✨ 聖光彈', mpCost: 90, minVal: 180, maxVal: 280, isAoe: false, isHeal: false, icon: '✨' },
+      { name: '🙏 神聖祈禱', mpCost: 180, minVal: 150, maxVal: 250, isAoe: true, isHeal: true, icon: '🙏' },
+      { name: '🌟 天使降臨', mpCost: 350, minVal: 450, maxVal: 700, isAoe: true, isHeal: true, isUlt: true, icon: '🌟' }
     ],
     warrior: [
-      { name: '⚔️ 重擊', mpCost: 40, minVal: 180, maxVal: 300, isAoe: false, isHeal: false },
-      { name: '🌪️ 旋風斬', mpCost: 100, minVal: 130, maxVal: 220, isAoe: true, isHeal: false },
-      { name: '🩸 狂暴怒吼', mpCost: 120, minVal: 250, maxVal: 400, isAoe: false, isHeal: false },
-      { name: '💥 英雄一擊', mpCost: 300, minVal: 550, maxVal: 900, isAoe: false, isHeal: false, isUlt: true }
+      { name: '⚔️ 重擊', mpCost: 40, minVal: 180, maxVal: 300, isAoe: false, isHeal: false, icon: '⚔️' },
+      { name: '🌪️ 旋風斬', mpCost: 100, minVal: 130, maxVal: 220, isAoe: true, isHeal: false, icon: '🌪️' },
+      { name: '🩸 狂暴怒吼', mpCost: 120, minVal: 250, maxVal: 400, isAoe: false, isHeal: false, icon: '🩸' },
+      { name: '💥 英雄一擊', mpCost: 300, minVal: 550, maxVal: 900, isAoe: false, isHeal: false, isUlt: true, icon: '💥' }
     ],
     knight: [
-      { name: '🛡️ 盾牌衝鋒', mpCost: 40, minVal: 150, maxVal: 240, isAoe: false, isHeal: false },
-      { name: '🔨 裁決之錘', mpCost: 80, minVal: 200, maxVal: 320, isAoe: false, isHeal: false },
-      { name: '🧱 堅守陣線', mpCost: 120, minVal: 120, maxVal: 200, isAoe: true, isHeal: true },
-      { name: '🏰 正義風暴', mpCost: 280, minVal: 400, maxVal: 650, isAoe: true, isHeal: false, isUlt: true }
+      { name: '🛡️ 盾牌衝鋒', mpCost: 40, minVal: 150, maxVal: 240, isAoe: false, isHeal: false, icon: '🛡️' },
+      { name: '🔨 裁決之錘', mpCost: 80, minVal: 200, maxVal: 320, isAoe: false, isHeal: false, icon: '🔨' },
+      { name: '🧱 堅守陣線', mpCost: 120, minVal: 120, maxVal: 200, isAoe: true, isHeal: true, icon: '🧱' },
+      { name: '🏰 正義風暴', mpCost: 280, minVal: 400, maxVal: 650, isAoe: true, isHeal: false, isUlt: true, icon: '🏰' }
     ],
     assassin: [
-      { name: '🗡️ 毒刃', mpCost: 50, minVal: 220, maxVal: 350, isAoe: false, isHeal: false },
-      { name: '👣 影襲', mpCost: 90, minVal: 280, maxVal: 420, isAoe: false, isHeal: false },
-      { name: '🔪 飛刀風暴', mpCost: 150, minVal: 160, maxVal: 280, isAoe: true, isHeal: false },
-      { name: '☠️ 瞬獄殺', mpCost: 350, minVal: 650, maxVal: 1100, isAoe: false, isHeal: false, isUlt: true }
+      { name: '🗡️ 毒刃', mpCost: 50, minVal: 220, maxVal: 350, isAoe: false, isHeal: false, icon: '🗡️' },
+      { name: '👣 影襲', mpCost: 90, minVal: 280, maxVal: 420, isAoe: false, isHeal: false, icon: '👣' },
+      { name: '🔪 飛刀風暴', mpCost: 150, minVal: 160, maxVal: 280, isAoe: true, isHeal: false, icon: '🔪' },
+      { name: '☠️ 瞬獄殺', mpCost: 350, minVal: 650, maxVal: 1100, isAoe: false, isHeal: false, isUlt: true, icon: '☠️' }
     ],
     archer: [
-      { name: '🏹 精準射擊', mpCost: 50, minVal: 200, maxVal: 320, isAoe: false, isHeal: false },
-      { name: '🌧️ 箭雨', mpCost: 140, minVal: 140, maxVal: 240, isAoe: true, isHeal: false },
-      { name: '🎯 貫穿箭', mpCost: 110, minVal: 260, maxVal: 400, isAoe: false, isHeal: false },
-      { name: '🦅 幻影神射', mpCost: 320, minVal: 580, maxVal: 950, isAoe: false, isHeal: false, isUlt: true }
+      { name: '🏹 精準射擊', mpCost: 50, minVal: 200, maxVal: 320, isAoe: false, isHeal: false, icon: '🏹' },
+      { name: '🌧️ 箭雨', mpCost: 140, minVal: 140, maxVal: 240, isAoe: true, isHeal: false, icon: '🌧️' },
+      { name: '🎯 貫穿箭', mpCost: 110, minVal: 260, maxVal: 400, isAoe: false, isHeal: false, icon: '🎯' },
+      { name: '🦅 幻影神射', mpCost: 320, minVal: 580, maxVal: 950, isAoe: false, isHeal: false, isUlt: true, icon: '🦅' }
     ]
   };
 
@@ -289,6 +326,7 @@
     }
     else if (data.type === 'battle_log') {
       logMessage(data.message);
+      checkBattleLogForEffects(data.message);
     }
     else if (data.type === 'returned_to_idle') {
       logMessage(data.message);
@@ -303,7 +341,36 @@
     }
   };
 
-  // 註冊與登入函式
+  // 🎬 ===== 特效處理邏輯 =====
+  function checkBattleLogForEffects(msg) {
+    if (msg.includes('【大招！】') || msg.includes('💥【暴擊！】')) {
+      triggerContainerShake();
+    }
+  }
+
+  function triggerContainerShake() {
+    const container = document.getElementById('mainContainer');
+    container.classList.add('shake-effect');
+    setTimeout(() => container.classList.remove('shake-effect'), 300);
+  }
+
+  function showFloatingText(targetCard, text, isHeal = false, isCrit = false) {
+    if (!targetCard) return;
+    const el = document.createElement('div');
+    let className = isHeal ? 'heal-num' : 'damage-num';
+    if (isCrit) className += ' crit-num';
+
+    el.className = `floating-number ${className}`;
+    el.innerText = text;
+
+    const randomX = Math.floor(Math.random() * 40) - 20;
+    el.style.left = `calc(50% + ${randomX}px)`;
+    el.style.top = '10px';
+
+    targetCard.appendChild(el);
+    setTimeout(() => el.remove(), 800);
+  }
+
   function register() {
     const u = document.getElementById('authUsername').value;
     const p = document.getElementById('authPassword').value;
@@ -384,6 +451,7 @@
       const mpPercent = Math.max(0, (p.mp / p.maxMp) * 100);
 
       const pCard = document.createElement('div');
+      pCard.id = `player-card-${p.id}`;
       const isSelected = selectedTargetId === p.id;
       pCard.className = `player-card ${isDead ? 'dead' : ''} ${isSelected ? 'selected' : ''}`;
       
@@ -409,6 +477,21 @@
 
       if (p.team === 'A') teamA.appendChild(pCard);
       else teamB.appendChild(pCard);
+
+      // 🎬 動畫比對：檢查血量變化並顯示受傷/治療動畫
+      if (oldPlayerHpMap[p.id] !== undefined) {
+        const hpDiff = p.hp - oldPlayerHpMap[p.id];
+        if (hpDiff < 0) {
+          pCard.classList.add('flash-red');
+          showFloatingText(pCard, `${hpDiff}`, false);
+          setTimeout(() => pCard.classList.remove('flash-red'), 400);
+        } else if (hpDiff > 0) {
+          pCard.classList.add('flash-green');
+          showFloatingText(pCard, `+${hpDiff}`, true);
+          setTimeout(() => pCard.classList.remove('flash-green'), 400);
+        }
+      }
+      oldPlayerHpMap[p.id] = p.hp;
     });
   }
 
