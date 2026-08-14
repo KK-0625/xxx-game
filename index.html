@@ -73,6 +73,17 @@
     .queue-status { margin-top: 10px; padding: 8px; background: #332200; border: 1px dashed #ff9800; border-radius: 4px; color: #ffca28; }
     .target-indicator { font-size: 13px; color: #ffca28; font-weight: bold; margin-bottom: 5px; }
 
+    /* 商店彈窗樣式 */
+    .shop-modal-overlay {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0, 0, 0, 0.7); display: flex; justify-content: center; align-items: center; z-index: 1000;
+    }
+    .shop-modal {
+      background: #1e1e1e; border: 2px solid #ffca28; border-radius: 8px; width: 90%; max-width: 450px; padding: 20px; box-shadow: 0 5px 15px rgba(0,0,0,0.8);
+    }
+    .shop-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #444; padding-bottom: 10px; margin-bottom: 15px; }
+    .shop-item { display: flex; justify-content: space-between; align-items: center; background: #2a2a2a; padding: 10px; margin-bottom: 10px; border-radius: 6px; }
+
     /* 震動與傷害數字動畫 */
     @keyframes shake {
       0% { transform: translate(1px, 1px) rotate(0deg); }
@@ -134,8 +145,11 @@
         <h3 style="margin:0;">🧘‍♂️ 大廳 (修練中...)</h3>
         <span id="idleStatusText" style="color: #aaa; font-size: 13px;">正在自動修練尋找藥水與道具...</span>
       </div>
-      <!-- 👥 在線人數 -->
-      <div class="online-badge">🟢 在線玩家：<span id="displayOnlineCount">---</span> 人</div>
+      <!-- 👥 在線人數與商店按鈕 -->
+      <div style="display: flex; gap: 10px; align-items: center;">
+        <button onclick="openShopModal()" style="background-color: #ff9800; font-weight: bold;">🛒 道具商店</button>
+        <div class="online-badge">🟢 在線玩家：<span id="displayOnlineCount">---</span> 人</div>
+      </div>
     </div>
     
     <div class="lobby-content">
@@ -185,6 +199,11 @@
 
         <h4 style="margin-top: 10px;">🎒 我的背包 (資料庫同步)</h4>
         <div class="inventory-list">
+          <!-- 新增金幣顯示 -->
+          <div class="inventory-item" style="border-left-color: #ffd700;">
+            <span>💰 持有金幣</span>
+            <strong id="lobbyGold" style="color: #ffd700;">0</strong>
+          </div>
           <div class="inventory-item">
             <span>🧪 HP 藥水</span>
             <strong id="lobbyHpPotion">0</strong>
@@ -206,7 +225,8 @@
   <div id="roomSection" class="card hidden">
     <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
       <h3>🏰 戰鬥房間 - 房號: <span id="displayRoomId" style="color: #ff9800;">-</span></h3>
-      <div>
+      <div style="display: flex; gap: 8px;">
+        <button onclick="openShopModal()" style="background-color: #ff9800;">🛒 商店</button>
         <button id="btnStartGame" onclick="startGame()" class="hidden">⚔️ 開始遊戲</button>
         <button id="btnRematch" onclick="rematch()" class="hidden">🔄 重新開局</button>
         <button onclick="leaveToIdle()" style="background-color: #d32f2f;">🚪 離開房間</button>
@@ -257,6 +277,52 @@
   </div>
 </div>
 
+<!-- 🛒 道具商店彈窗 UI -->
+<div id="shopModal" class="shop-modal-overlay hidden">
+  <div class="shop-modal">
+    <div class="shop-header">
+      <h3 style="margin: 0; color: #ffca28;">🛒 道具商店</h3>
+      <button onclick="closeShopModal()" style="background-color: #d32f2f; padding: 4px 10px;">❌ 關閉</button>
+    </div>
+    <div style="margin-bottom: 15px; text-align: right; font-weight: bold; color: #ffd700;">
+      💰 當前金幣：<span id="shopGoldDisplay">0</span>
+    </div>
+    
+    <div class="shop-item">
+      <div>
+        <strong>🧪 HP 藥水</strong>
+        <div style="font-size: 12px; color: #aaa;">回復大量生命值</div>
+      </div>
+      <div>
+        <span style="color: #ffd700; font-weight: bold; margin-right: 8px;">💰 50</span>
+        <button onclick="buyItem('hpPotion', 50)">購買</button>
+      </div>
+    </div>
+
+    <div class="shop-item">
+      <div>
+        <strong>🧪 MP 藥水</strong>
+        <div style="font-size: 12px; color: #aaa;">回復大量魔力值</div>
+      </div>
+      <div>
+        <span style="color: #ffd700; font-weight: bold; margin-right: 8px;">💰 50</span>
+        <button onclick="buyItem('mpPotion', 50)">購買</button>
+      </div>
+    </div>
+
+    <div class="shop-item">
+      <div>
+        <strong>📜 經驗卷軸</strong>
+        <div style="font-size: 12px; color: #aaa;">獲得大量經驗值</div>
+      </div>
+      <div>
+        <span style="color: #ffd700; font-weight: bold; margin-right: 8px;">💰 200</span>
+        <button onclick="buyItem('expScroll', 200)">購買</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
   // 請替換為你的後端 WebSocket 網址
   let ws = new WebSocket('wss://rpg-game-backend-vhag.onrender.com');
@@ -266,6 +332,9 @@
   let selectedTargetId = null;
   let oldPlayerHpMap = {}; 
   let reviveCooldownEndTime = 0;
+
+  // 本地背包與金幣資料備份（用於更新顯示）
+  let localInventory = { gold: 500, hpPotion: 0, mpPotion: 0, expScroll: 0 };
 
   const SKILLS = {
     mage: [
@@ -324,15 +393,12 @@
       
       const validName = (data.user.name && data.user.name !== "空白") ? data.user.name : "勇者";
       document.getElementById('playerName').value = validName;
-      // 登入後預設職業為狂戰士 (berserker)
       document.getElementById('playerRole').value = data.user.role || 'berserker';
       updateInventoryDisplay(data.user.inventory);
     }
-    // 👥 接收擬真在線人數更新
     else if (data.type === 'online_count') {
       document.getElementById('displayOnlineCount').innerText = data.onlineCount;
     }
-    // 💬 接收大廳聊天訊息
     else if (data.type === 'lobby_chat') {
       appendLobbyChat(data.sender, data.message, data.time);
     }
@@ -402,7 +468,6 @@
     ws.send(JSON.stringify({ type: 'login', username: u, password: p }));
   }
 
-  // 💬 發送大廳聊天訊息
   function sendLobbyChat() {
     if (!checkWsConnected()) return;
     const input = document.getElementById('lobbyChatInput');
@@ -456,7 +521,6 @@
     showQueueUI(false);
   }
 
-  // 🏠 整合自訂房間邏輯（有填房號就加入，沒填則建立）
   function handleCustomRoom() {
     if (!checkWsConnected()) return;
     leaveQueue();
@@ -465,15 +529,12 @@
     const roomId = document.getElementById('joinRoomId').value.trim();
 
     if (roomId) {
-      // 輸入房號 -> 加入隊伍 A (進房後可自由切換)
       ws.send(JSON.stringify({ type: 'join_room', name, role, roomId, targetTeam: 'A' }));
     } else {
-      // 未輸入房號 -> 自動開立隊伍 A 房
       ws.send(JSON.stringify({ type: 'create_room', name, role, team: 'A' }));
     }
   }
 
-  // 🚩 切換隊伍
   function switchTeam(targetTeam) {
     if (!checkWsConnected()) return;
     ws.send(JSON.stringify({ type: 'switch_team', targetTeam }));
@@ -481,21 +542,64 @@
 
   function updateInventoryDisplay(inv) {
     if (!inv) return;
-    document.getElementById('lobbyHpPotion').innerText = inv.hpPotion || 0;
-    document.getElementById('lobbyMpPotion').innerText = inv.mpPotion || 0;
-    document.getElementById('lobbyExpScroll').innerText = inv.expScroll || 0;
+    // 備份並更新本地資料
+    localInventory = Object.assign(localInventory, inv);
+
+    document.getElementById('lobbyGold').innerText = localInventory.gold !== undefined ? localInventory.gold : 0;
+    document.getElementById('shopGoldDisplay').innerText = localInventory.gold !== undefined ? localInventory.gold : 0;
+    document.getElementById('lobbyHpPotion').innerText = localInventory.hpPotion || 0;
+    document.getElementById('lobbyMpPotion').innerText = localInventory.mpPotion || 0;
+    document.getElementById('lobbyExpScroll').innerText = localInventory.expScroll || 0;
 
     const btnHp = document.getElementById('btnHpPotion');
     const btnMp = document.getElementById('btnMpPotion');
 
-    const hpCount = inv.hpPotion || 0;
-    const mpCount = inv.mpPotion || 0;
+    const hpCount = localInventory.hpPotion || 0;
+    const mpCount = localInventory.mpPotion || 0;
 
     btnHp.innerText = `🧪 HP 藥水 (剩餘: ${hpCount})`;
     btnHp.disabled = hpCount <= 0;
 
     btnMp.innerText = `🧪 MP 藥水 (剩餘: ${mpCount})`;
     btnMp.disabled = mpCount <= 0;
+  }
+
+  /* 🛒 商店邏輯 */
+  function openShopModal() {
+    document.getElementById('shopModal').classList.remove('hidden');
+    document.getElementById('shopGoldDisplay').innerText = localInventory.gold || 0;
+  }
+
+  function closeShopModal() {
+    document.getElementById('shopModal').classList.add('hidden');
+  }
+
+  function buyItem(itemKey, price) {
+    const currentGold = localInventory.gold || 0;
+    if (currentGold < price) {
+      alert("⚠️ 金幣不足，無法購買！");
+      return;
+    }
+
+    localInventory.gold -= price;
+    localInventory[itemKey] = (localInventory[itemKey] || 0) + 1;
+    
+    updateInventoryDisplay(localInventory);
+    logMessage(`🛒 成功購買了 ${getItemName(itemKey)}！消耗金幣: ${price}`);
+
+    // 若後端有實作 shop 訊息，可將購買同步發送給伺服器
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'buy_item', itemKey, price }));
+    }
+  }
+
+  function getItemName(key) {
+    switch (key) {
+      case 'hpPotion': return '🧪 HP 藥水';
+      case 'mpPotion': return '🧪 MP 藥水';
+      case 'expScroll': return '📜 經驗卷軸';
+      default: return '道具';
+    }
   }
 
   function renderRoom(roomState) {
@@ -509,7 +613,6 @@
 
     if (me && me.inventory) updateInventoryDisplay(me.inventory);
 
-    // 控制換隊按鈕啟用/停用
     const btnSwitchA = document.getElementById('btnSwitchTeamA');
     const btnSwitchB = document.getElementById('btnSwitchTeamB');
     if (me && roomState.status === 'waiting') {
@@ -702,46 +805,37 @@
   }
 </script>
 <script>
-  // 1. 停用滑鼠右鍵選單
+  // 防簡化開發者檢測等防護
   document.addEventListener('contextmenu', function(e) {
     e.preventDefault();
   }, false);
 
-  // 2. 停用常見的開啟開發者工具與檢視原始碼快捷鍵
   document.addEventListener('keydown', function(e) {
-    // F12 鍵
     if (e.key === 'F12' || e.keyCode === 123) {
       e.preventDefault();
       return false;
     }
 
-    // Ctrl + Shift + I (開發者工具)
-    // Ctrl + Shift + J (控制台)
-    // Ctrl + Shift + C (元素檢測)
     if (e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'i' || e.key === 'J' || e.key === 'j' || e.key === 'C' || e.key === 'c')) {
       e.preventDefault();
       return false;
     }
 
-    // Ctrl + U (檢視網頁原始碼)
     if (e.ctrlKey && (e.key === 'U' || e.key === 'u')) {
       e.preventDefault();
       return false;
     }
 
-    // Ctrl + S (儲存網頁)
     if (e.ctrlKey && (e.key === 'S' || e.key === 's')) {
       e.preventDefault();
       return false;
     }
   }, false);
 
-  // 3. 防範 DevTools 開啟的額外阻擋 ( debugger 無限迴圈手段 )
   setInterval(function() {
     const startTime = performance.now();
     debugger;
     const endTime = performance.now();
-    // 若打開 DevTools 導致斷點停頓，會自動清理或影響運作
   }, 100);
 </script>
 </body>
