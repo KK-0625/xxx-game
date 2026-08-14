@@ -210,7 +210,7 @@ function scheduleIdleReward(client) {
 
         client.send(JSON.stringify({
           type: 'idle_reward',
-          message: `🧘 修練中... 獲得了 🧪 ${potionName} 與 🪙 ${goldEarned} 金幣！`,
+          message: `🧘 修練中... 獲得了 🧪 ${potionName} 與  ${goldEarned} 金幣！`,
           inventory: client.user.inventory,
           rankPoints: client.user.rankPoints,
           rankInfo: getRankInfo(client.user.rankPoints)
