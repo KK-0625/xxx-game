@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>多人線上 RPG 戰鬥房間 - 技能動畫增強版</title>
+  <title>多人線上 RPG 戰鬥房間 - 技能動畫與音效增強版</title>
   <style>
     * { box-sizing: border-box; font-family: "Segoe UI", Microsoft JhengHei, sans-serif; }
     body { background-color: #121212; color: #e0e0e0; margin: 0; padding: 20px; display: flex; justify-content: center; overflow-x: hidden; }
@@ -89,48 +89,37 @@
     .shop-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #444; padding-bottom: 10px; margin-bottom: 15px; }
     .shop-item { display: flex; justify-content: space-between; align-items: center; background: #2a2a2a; padding: 10px; margin-bottom: 10px; border-radius: 6px; }
 
-    /* 🌟✨ 技能施放動畫 Overlay ✨🌟 */
-    #skillFxOverlay {
-      position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-      pointer-events: none; z-index: 9999; display: flex; justify-content: center; align-items: center;
+    /* 🌟✨ 技能施放動畫容器 (縮小並固定在右上方) ✨🌟 */
+    #skillFxContainer {
+      position: fixed; top: 25px; right: 25px;
+      pointer-events: none; z-index: 9999;
+      display: flex; flex-direction: column; gap: 8px; align-items: flex-end;
     }
-    .skill-title-anim {
-      font-size: 48px; font-weight: 900; color: #fff;
-      text-shadow: 0 0 10px #ffea00, 0 0 20px #ff6d00, 0 0 30px #ff1744;
-      animation: skillPopup 0.9s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
-    }
-
-    @keyframes skillPopup {
-      0% { opacity: 0; transform: scale(0.2) rotate(-10deg); }
-      30% { opacity: 1; transform: scale(1.3) rotate(0deg); }
-      70% { opacity: 1; transform: scale(1); }
-      100% { opacity: 0; transform: translateY(-80px) scale(0.8); }
+    .skill-toast-anim {
+      font-size: 20px; font-weight: bold; color: #fff;
+      background: rgba(20, 20, 20, 0.85); border: 2px solid #ffca28;
+      padding: 8px 16px; border-radius: 20px;
+      box-shadow: 0 0 15px rgba(255, 202, 40, 0.4);
+      animation: floatInRight 1.2s ease-out forwards;
     }
 
-    /* 畫面閃光效果 */
-    .screen-flash {
-      position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-      pointer-events: none; z-index: 9998; opacity: 0;
-    }
-    .flash-fire { background: radial-gradient(circle, rgba(255,87,34,0.4) 0%, rgba(0,0,0,0) 70%); animation: flashFade 0.4s ease-out; }
-    .flash-heal { background: radial-gradient(circle, rgba(76,175,80,0.4) 0%, rgba(0,0,0,0) 70%); animation: flashFade 0.4s ease-out; }
-    .flash-ult { background: radial-gradient(circle, rgba(233,30,99,0.5) 0%, rgba(0,0,0,0) 80%); animation: flashFade 0.6s ease-out; }
-
-    @keyframes flashFade {
-      0% { opacity: 1; }
-      100% { opacity: 0; }
+    @keyframes floatInRight {
+      0% { opacity: 0; transform: translateX(50px) scale(0.8); }
+      20% { opacity: 1; transform: translateX(0) scale(1.05); }
+      80% { opacity: 1; transform: translateX(0) scale(1); }
+      100% { opacity: 0; transform: translateY(-30px) scale(0.9); }
     }
 
-    /* 震動與傷害/治癒數字動畫 */
+    /* 輕微震動與傷害/治癒數字動畫 */
     @keyframes shake {
-      0% { transform: translate(1px, 1px) rotate(0deg); }
-      20% { transform: translate(-4px, 2px) rotate(1deg); }
-      40% { transform: translate(3px, -2px) rotate(-1deg); }
-      60% { transform: translate(-3px, 1px) rotate(0deg); }
-      80% { transform: translate(2px, -1px) rotate(1deg); }
-      100% { transform: translate(0px, 0px) rotate(0deg); }
+      0% { transform: translate(1px, 1px); }
+      20% { transform: translate(-2px, 1px); }
+      40% { transform: translate(2px, -1px); }
+      60% { transform: translate(-2px, 1px); }
+      80% { transform: translate(1px, -1px); }
+      100% { transform: translate(0px, 0px); }
     }
-    .shake-effect { animation: shake 0.35s ease-in-out; }
+    .shake-effect { animation: shake 0.25s ease-in-out; }
 
     @keyframes damage-flash {
       0% { background-color: rgba(255, 0, 0, 0.7); box-shadow: 0 0 15px #ff0000; }
@@ -145,13 +134,13 @@
     .flash-green { animation: heal-flash 0.4s ease-out; }
 
     .floating-number {
-      position: absolute; font-weight: 900; font-size: 24px; pointer-events: none;
+      position: absolute; font-weight: 900; font-size: 22px; pointer-events: none;
       animation: floatUp 0.8s ease-out forwards; z-index: 999; text-shadow: 2px 2px 4px #000;
     }
     @keyframes floatUp {
       0% { opacity: 1; transform: translateY(0) scale(1.2); }
-      50% { transform: translateY(-30px) scale(1.5); }
-      100% { opacity: 0; transform: translateY(-60px) scale(1); }
+      50% { transform: translateY(-25px) scale(1.4); }
+      100% { opacity: 0; transform: translateY(-50px) scale(1); }
     }
     .damage-num { color: #ff3333; }
     .heal-num { color: #33ff33; }
@@ -159,9 +148,8 @@
 </head>
 <body>
 
-<!-- 動畫 Overlay 容器 -->
-<div id="skillFxOverlay"></div>
-<div id="screenFlash" class="screen-flash"></div>
+<!-- 技能動畫右上方懸浮容器 -->
+<div id="skillFxContainer"></div>
 
 <div id="mainContainer" class="container">
   <h2>⚔️ 線上 RPG 戰鬥與匹配系統</h2>
@@ -383,6 +371,97 @@
   let oldPlayerHpMap = {}; 
   let reviveCooldownEndTime = 0;
 
+  // Web Audio API 音效生成器 (無需外掛 MP3)
+  const AudioFX = {
+    ctx: null,
+    init() {
+      if (!this.ctx) {
+        this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      if (this.ctx.state === 'suspended') {
+        this.ctx.resume();
+      }
+    },
+    // 🗡️ 劍擊聲 / 戰士
+    playSword() {
+      this.init();
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(400, this.ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(100, this.ctx.currentTime + 0.15);
+      gain.gain.setValueAtTime(0.3, this.ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.15);
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start();
+      osc.stop(this.ctx.currentTime + 0.15);
+    },
+    // 🔮 法術聲 / 法師
+    playMagic() {
+      this.init();
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(300, this.ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(1200, this.ctx.currentTime + 0.3);
+      gain.gain.setValueAtTime(0.25, this.ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.3);
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start();
+      osc.stop(this.ctx.currentTime + 0.3);
+    },
+    // 💚 治癒聲 / 牧師
+    playHeal() {
+      this.init();
+      const now = this.ctx.currentTime;
+      [523.25, 659.25, 783.99, 1046.50].forEach((freq, idx) => {
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(freq, now + idx * 0.08);
+        gain.gain.setValueAtTime(0.15, now + idx * 0.08);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + idx * 0.08 + 0.25);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(now + idx * 0.08);
+        osc.stop(now + idx * 0.08 + 0.25);
+      });
+    },
+    // 🗡️ 刺擊聲 / 刺客
+    playStab() {
+      this.init();
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'square';
+      osc.frequency.setValueAtTime(800, this.ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(150, this.ctx.currentTime + 0.08);
+      gain.gain.setValueAtTime(0.25, this.ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.08);
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start();
+      osc.stop(this.ctx.currentTime + 0.08);
+    },
+    // 🏹 弓箭聲 / 弓箭手
+    playArrow() {
+      this.init();
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(150, this.ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(600, this.ctx.currentTime + 0.1);
+      osc.frequency.exponentialRampToValueAtTime(200, this.ctx.currentTime + 0.2);
+      gain.gain.setValueAtTime(0.2, this.ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.2);
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start();
+      osc.stop(this.ctx.currentTime + 0.2);
+    }
+  };
+
   let localUserData = {
     level: 1,
     exp: 0,
@@ -394,40 +473,40 @@
 
   const SKILLS = {
     mage: [
-      { name: '🔥 火球術', mpCost: 80, minVal: 220, maxVal: 350, isAoe: false, isHeal: false, effect: 'burn', chance: 0.3 },
-      { name: '⚡ 連鎖閃電', mpCost: 150, minVal: 180, maxVal: 280, isAoe: false, isHeal: false, effect: 'paralyze', chance: 0.25 },
-      { name: '❄️ 暴風雪', mpCost: 220, minVal: 150, maxVal: 250, isAoe: true, isHeal: false },
-      { name: '☄️ 隕石術', mpCost: 400, minVal: 500, maxVal: 850, isAoe: true, isHeal: false, isUlt: true }
+      { name: '🔥 火球術', mpCost: 80, minVal: 220, maxVal: 350, isAoe: false, isHeal: false, effect: 'burn', chance: 0.3, sound: 'magic' },
+      { name: '⚡ 連鎖閃電', mpCost: 150, minVal: 180, maxVal: 280, isAoe: false, isHeal: false, effect: 'paralyze', chance: 0.25, sound: 'magic' },
+      { name: '❄️ 暴風雪', mpCost: 220, minVal: 150, maxVal: 250, isAoe: true, isHeal: false, sound: 'magic' },
+      { name: '☄️ 隕石術', mpCost: 400, minVal: 500, maxVal: 850, isAoe: true, isHeal: false, isUlt: true, sound: 'magic' }
     ],
     priest: [
-      { name: '💚 治癒術', mpCost: 70, minVal: 200, maxVal: 320, isAoe: false, isHeal: true },
-      { name: '✨ 聖光彈', mpCost: 90, minVal: 180, maxVal: 280, isAoe: false, isHeal: false },
-      { name: '🙏 神聖祈禱', mpCost: 180, minVal: 150, maxVal: 250, isAoe: true, isHeal: true },
-      { name: '🌟 復活術', mpCost: 300, minVal: 0, maxVal: 0, isAoe: false, isRevive: true, isUlt: true, cd: 300 }
+      { name: '💚 治癒術', mpCost: 70, minVal: 200, maxVal: 320, isAoe: false, isHeal: true, sound: 'heal' },
+      { name: '✨ 聖光彈', mpCost: 90, minVal: 180, maxVal: 280, isAoe: false, isHeal: false, sound: 'magic' },
+      { name: '🙏 神聖祈禱', mpCost: 180, minVal: 150, maxVal: 250, isAoe: true, isHeal: true, sound: 'heal' },
+      { name: '🌟 復活術', mpCost: 300, minVal: 0, maxVal: 0, isAoe: false, isRevive: true, isUlt: true, cd: 300, sound: 'heal' }
     ],
     berserker: [
-      { name: '⚔️ 重擊', mpCost: 40, minVal: 180, maxVal: 300, isAoe: false, isHeal: false, lifesteal: 0.2 },
-      { name: '🌪️ 旋風斬', mpCost: 100, minVal: 130, maxVal: 220, isAoe: true, isHeal: false, lifesteal: 0.2 },
-      { name: '🩸 狂暴怒吼', mpCost: 120, minVal: 250, maxVal: 400, isAoe: false, isHeal: false, lifesteal: 0.2 },
-      { name: '💥 英雄一擊', mpCost: 300, minVal: 550, maxVal: 900, isAoe: false, isHeal: false, isUlt: true, lifesteal: 0.2 }
+      { name: '⚔️ 重擊', mpCost: 40, minVal: 180, maxVal: 300, isAoe: false, isHeal: false, lifesteal: 0.2, sound: 'sword' },
+      { name: '🌪️ 旋風斬', mpCost: 100, minVal: 130, maxVal: 220, isAoe: true, isHeal: false, lifesteal: 0.2, sound: 'sword' },
+      { name: '🩸 狂暴怒吼', mpCost: 120, minVal: 250, maxVal: 400, isAoe: false, isHeal: false, lifesteal: 0.2, sound: 'sword' },
+      { name: '💥 英雄一擊', mpCost: 300, minVal: 550, maxVal: 900, isAoe: false, isHeal: false, isUlt: true, lifesteal: 0.2, sound: 'sword' }
     ],
     knight: [
-      { name: '🛡️ 盾牌衝鋒', mpCost: 40, minVal: 150, maxVal: 240, isAoe: false, isHeal: false },
-      { name: '🔨 裁決之錘', mpCost: 80, minVal: 200, maxVal: 320, isAoe: false, isHeal: false },
-      { name: '🧱 堅守陣線', mpCost: 120, minVal: 120, maxVal: 200, isAoe: true, isHeal: true },
-      { name: '🏰 正義風暴', mpCost: 280, minVal: 400, maxVal: 650, isAoe: true, isHeal: false, isUlt: true }
+      { name: '🛡️ 盾牌衝鋒', mpCost: 40, minVal: 150, maxVal: 240, isAoe: false, isHeal: false, sound: 'sword' },
+      { name: '🔨 裁決之錘', mpCost: 80, minVal: 200, maxVal: 320, isAoe: false, isHeal: false, sound: 'sword' },
+      { name: '🧱 堅守陣線', mpCost: 120, minVal: 120, maxVal: 200, isAoe: true, isHeal: true, sound: 'heal' },
+      { name: '🏰 正義風暴', mpCost: 280, minVal: 400, maxVal: 650, isAoe: true, isHeal: false, isUlt: true, sound: 'sword' }
     ],
     assassin: [
-      { name: '🗡️ 毒刃', mpCost: 50, minVal: 220, maxVal: 350, isAoe: false, isHeal: false, effect: 'poison', chance: 0.35 },
-      { name: '👣 影襲', mpCost: 90, minVal: 280, maxVal: 420, isAoe: false, isHeal: false, effect: 'poison', chance: 0.2 },
-      { name: '🔪 飛刀風暴', mpCost: 150, minVal: 160, maxVal: 280, isAoe: true, isHeal: false },
-      { name: '☠️ 瞬獄殺', mpCost: 350, minVal: 650, maxVal: 1100, isAoe: false, isHeal: false, isUlt: true, effect: 'poison', chance: 0.5 }
+      { name: '🗡️ 毒刃', mpCost: 50, minVal: 220, maxVal: 350, isAoe: false, isHeal: false, effect: 'poison', chance: 0.35, sound: 'stab' },
+      { name: '👣 影襲', mpCost: 90, minVal: 280, maxVal: 420, isAoe: false, isHeal: false, effect: 'poison', chance: 0.2, sound: 'stab' },
+      { name: '🔪 飛刀風暴', mpCost: 150, minVal: 160, maxVal: 280, isAoe: true, isHeal: false, sound: 'stab' },
+      { name: '☠️ 瞬獄殺', mpCost: 350, minVal: 650, maxVal: 1100, isAoe: false, isHeal: false, isUlt: true, effect: 'poison', chance: 0.5, sound: 'stab' }
     ],
     archer: [
-      { name: '🏹 精準射擊', mpCost: 50, minVal: 200, maxVal: 320, isAoe: false, isHeal: false, effect: 'blind', chance: 0.25 },
-      { name: '🌧️ 箭雨', mpCost: 140, minVal: 140, maxVal: 240, isAoe: true, isHeal: false, effect: 'blind', chance: 0.15 },
-      { name: '🎯 貫穿箭', mpCost: 110, minVal: 260, maxVal: 400, isAoe: false, isHeal: false },
-      { name: '🦅 幻影神射', mpCost: 320, minVal: 580, maxVal: 950, isAoe: false, isHeal: false, isUlt: true, effect: 'blind', chance: 0.4 }
+      { name: '🏹 精準射擊', mpCost: 50, minVal: 200, maxVal: 320, isAoe: false, isHeal: false, effect: 'blind', chance: 0.25, sound: 'arrow' },
+      { name: '🌧️ 箭雨', mpCost: 140, minVal: 140, maxVal: 240, isAoe: true, isHeal: false, effect: 'blind', chance: 0.15, sound: 'arrow' },
+      { name: '🎯 貫穿箭', mpCost: 110, minVal: 260, maxVal: 400, isAoe: false, isHeal: false, sound: 'arrow' },
+      { name: '🦅 幻影神射', mpCost: 320, minVal: 580, maxVal: 950, isAoe: false, isHeal: false, isUlt: true, effect: 'blind', chance: 0.4, sound: 'arrow' }
     ]
   };
 
@@ -835,30 +914,25 @@
     });
   }
 
-  /* 🌟 播放技能視覺動畫與全螢幕特效 🌟 */
-  function playSkillAnimation(skill) {
-    // 1. 中央浮空技能標題動畫
-    const overlay = document.getElementById('skillFxOverlay');
+  /* 🌟 播放精簡版右上方技能動畫與專屬音效 🌟 */
+  function playSkillAnimationAndSound(skill) {
+    // 1. 右上方浮現精緻 Toast 動畫
+    const container = document.getElementById('skillFxContainer');
     const animEl = document.createElement('div');
-    animEl.className = 'skill-title-anim';
-    animEl.innerText = skill.name;
-    overlay.appendChild(animEl);
+    animEl.className = 'skill-toast-anim';
+    animEl.innerText = `✨ 施展：${skill.name}`;
+    container.appendChild(animEl);
 
-    setTimeout(() => animEl.remove(), 900);
+    setTimeout(() => animEl.remove(), 1200);
 
-    // 2. 畫面閃光效果
-    const flash = document.getElementById('screenFlash');
-    flash.className = 'screen-flash'; // reset
-    if (skill.isUlt) {
-      flash.classList.add('flash-ult');
-    } else if (skill.isHeal) {
-      flash.classList.add('flash-heal');
-    } else {
-      flash.classList.add('flash-fire');
-    }
-    setTimeout(() => { flash.className = 'screen-flash'; }, 600);
+    // 2. 播放專屬音效
+    if (skill.sound === 'sword') AudioFX.playSword();
+    else if (skill.sound === 'magic') AudioFX.playMagic();
+    else if (skill.sound === 'heal') AudioFX.playHeal();
+    else if (skill.sound === 'stab') AudioFX.playStab();
+    else if (skill.sound === 'arrow') AudioFX.playArrow();
 
-    // 3. 釋放攻擊技能時引發震動
+    // 3. 戰鬥微震動
     triggerContainerShake();
   }
 
@@ -867,8 +941,8 @@
 
     if (skill.isRevive) reviveCooldownEndTime = Date.now() + (skill.cd * 1000);
 
-    // 觸發前端動畫
-    playSkillAnimation(skill);
+    // 觸發音效與視覺動畫
+    playSkillAnimationAndSound(skill);
 
     ws.send(JSON.stringify({
       type: 'use_skill',
@@ -889,6 +963,8 @@
 
   function usePotion(potionType) {
     if (!checkWsConnected()) return;
+    if (potionType === 'hp') AudioFX.playHeal();
+    else AudioFX.playMagic();
     ws.send(JSON.stringify({ type: 'use_potion', potionType }));
   }
 
@@ -913,7 +989,7 @@
   function triggerContainerShake() {
     const container = document.getElementById('mainContainer');
     container.classList.add('shake-effect');
-    setTimeout(() => container.classList.remove('shake-effect'), 350);
+    setTimeout(() => container.classList.remove('shake-effect'), 250);
   }
 
   function showFloatingText(targetCard, text, isHeal = false) {
