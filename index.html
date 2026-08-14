@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>多人線上 RPG 戰鬥房間 - 全功能增強版</title>
+  <title>多人線上 RPG 戰鬥房間 - 戰鬥時請勿跳窗</title>
   <style>
     * { box-sizing: border-box; font-family: "Segoe UI", Microsoft JhengHei, sans-serif; }
     body { background-color: #121212; color: #e0e0e0; margin: 0; padding: 20px; display: flex; justify-content: center; }
@@ -18,6 +18,15 @@
     input, select { background: #2a2a2a; color: #fff; border: 1px solid #444; padding: 8px; border-radius: 4px; font-size: 14px; }
 
     .hidden { display: none !important; }
+
+    /* 🔊 右上角音量控制面板樣式 */
+    #audioControlPanel {
+      position: fixed; top: 15px; right: 15px; z-index: 9999;
+      background: rgba(30, 30, 30, 0.9); backdrop-filter: blur(5px);
+      padding: 6px 12px; border-radius: 8px; display: flex; align-items: center; gap: 8px;
+      border: 1px solid #444; box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    }
+    #audioControlPanel input[type="range"] { width: 90px; cursor: pointer; accent-color: #4caf50; }
 
     /* 大廳標題與在線人數 */
     .lobby-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; padding-bottom: 10px; margin-bottom: 10px; }
@@ -110,6 +119,13 @@
   </style>
 </head>
 <body>
+
+<!-- 🔊 右上角音量控制面板 -->
+<div id="audioControlPanel">
+  <span style="font-size: 14px;">🔊</span>
+  <input type="range" id="volumeSlider" min="0" max="1" step="0.05" value="0.5">
+  <span id="volumeText" style="color: #aaa; font-size: 12px; width: 32px; text-align: right;">50%</span>
+</div>
 
 <div id="mainContainer" class="container">
   <h2>⚔️ 線上 RPG 戰鬥與匹配系統</h2>
@@ -261,6 +277,88 @@
 </div>
 
 <script>
+  // 🔊 音量與動態音效合成系統 (Web Audio API)
+  const volumeSlider = document.getElementById('volumeSlider');
+  const volumeText = document.getElementById('volumeText');
+  let masterVolume = 0.5; // 預設音量 50%
+
+  if (volumeSlider) {
+    volumeSlider.addEventListener('input', (e) => {
+      masterVolume = parseFloat(e.target.value);
+      if (volumeText) {
+        volumeText.innerText = Math.round(masterVolume * 100) + '%';
+      }
+    });
+  }
+
+  let audioCtx = null;
+  function initAudio() {
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (audioCtx.state === 'suspended') {
+      audioCtx.resume();
+    }
+  }
+
+  function playSound(type) {
+    try {
+      initAudio();
+      if (!audioCtx || masterVolume <= 0) return;
+
+      const osc = audioCtx.createOscillator();
+      const gainNode = audioCtx.createGain();
+      const now = audioCtx.currentTime;
+
+      osc.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+
+      if (type === 'attack') {
+        // 💥 物理攻擊：低沉打擊音
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(150, now);
+        osc.frequency.exponentialRampToValueAtTime(40, now + 0.15);
+        gainNode.gain.setValueAtTime(masterVolume * 0.6, now);
+        gainNode.gain.linearRampToValueAtTime(0.01, now + 0.15);
+        osc.start(now);
+        osc.stop(now + 0.15);
+      } 
+      else if (type === 'skill') {
+        // ✨ 魔法施放：高頻閃爍音
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(300, now);
+        osc.frequency.exponentialRampToValueAtTime(800, now + 0.3);
+        gainNode.gain.setValueAtTime(masterVolume * 0.4, now);
+        gainNode.gain.linearRampToValueAtTime(0.01, now + 0.3);
+        osc.start(now);
+        osc.stop(now + 0.3);
+      }
+      else if (type === 'heal') {
+        // 💚 治療回復：輕快上升音階
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(400, now);
+        osc.frequency.setValueAtTime(600, now + 0.1);
+        osc.frequency.setValueAtTime(800, now + 0.2);
+        gainNode.gain.setValueAtTime(masterVolume * 0.4, now);
+        gainNode.gain.linearRampToValueAtTime(0.01, now + 0.35);
+        osc.start(now);
+        osc.stop(now + 0.35);
+      }
+      else if (type === 'potion') {
+        // 🧪 喝水音效：短促啵啵聲
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(600, now);
+        osc.frequency.exponentialRampToValueAtTime(200, now + 0.1);
+        gainNode.gain.setValueAtTime(masterVolume * 0.5, now);
+        gainNode.gain.linearRampToValueAtTime(0.01, now + 0.1);
+        osc.start(now);
+        osc.stop(now + 0.1);
+      }
+    } catch (e) {
+      console.log("音效播放失敗:", e);
+    }
+  }
+
   // 請替換為你的後端 WebSocket 網址
   let ws = new WebSocket('wss://rpg-game-backend-vhag.onrender.com');
   let myPlayerId = null;
@@ -330,11 +428,9 @@
       document.getElementById('playerRole').value = data.user.role || 'berserker';
       updateInventoryDisplay(data.user.inventory);
     }
-    // 👥 接收擬真在線人數更新
     else if (data.type === 'online_count') {
       document.getElementById('displayOnlineCount').innerText = data.onlineCount;
     }
-    // 💬 接收大廳聊天訊息
     else if (data.type === 'lobby_chat') {
       appendLobbyChat(data.sender, data.message, data.time);
     }
@@ -404,7 +500,6 @@
     ws.send(JSON.stringify({ type: 'login', username: u, password: p }));
   }
 
-  // 💬 發送大廳聊天訊息
   function sendLobbyChat() {
     if (!checkWsConnected()) return;
     const input = document.getElementById('lobbyChatInput');
@@ -476,7 +571,6 @@
     ws.send(JSON.stringify({ type: 'join_room', name, role, roomId, targetTeam }));
   }
 
-  // 🚩 切換隊伍
   function switchTeam(targetTeam) {
     if (!checkWsConnected()) return;
     ws.send(JSON.stringify({ type: 'switch_team', targetTeam }));
@@ -512,7 +606,6 @@
 
     if (me && me.inventory) updateInventoryDisplay(me.inventory);
 
-    // 控制換隊按鈕啟用/停用
     const btnSwitchA = document.getElementById('btnSwitchTeamA');
     const btnSwitchB = document.getElementById('btnSwitchTeamB');
     if (me && roomState.status === 'waiting') {
@@ -634,7 +727,11 @@
         btn.disabled = me.mp < skill.mpCost || me.hp <= 0;
       }
 
-      btn.onclick = () => useSkill(skill);
+      btn.onclick = () => {
+        // 🔊 點擊技能時自動播放對應音效
+        playSound(skill.isHeal ? 'heal' : 'skill');
+        useSkill(skill);
+      };
       container.appendChild(btn);
     });
   }
@@ -663,6 +760,8 @@
 
   function usePotion(potionType) {
     if (!checkWsConnected()) return;
+    // 🔊 點擊藥水時播放音效
+    playSound('potion');
     ws.send(JSON.stringify({ type: 'use_potion', potionType }));
   }
 
@@ -679,6 +778,11 @@
   }
 
   function checkBattleLogForEffects(msg) {
+    // 🔊 當日誌出現傷害或攻擊時，自動播放受擊音效
+    if (msg.includes('造成') || msg.includes('傷害') || msg.includes('攻擊')) {
+      playSound('attack');
+    }
+
     if (msg.includes('【大招！】') || msg.includes('💥【暴擊！】') || msg.includes('⚡【麻痺】')) {
       triggerContainerShake();
     }
