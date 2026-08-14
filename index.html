@@ -45,6 +45,7 @@
     /* 背包與個人資訊 */
     .inventory-list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
     .inventory-item { background: #2a2a2a; padding: 8px 12px; border-radius: 4px; display: flex; justify-content: space-between; align-items: center; border-left: 4px solid #ff9800; }
+    .inventory-item.gold { border-left-color: #ffd700; }
     .rank-tag { font-size: 12px; padding: 2px 6px; border-radius: 4px; font-weight: bold; margin-left: 6px; }
 
     /* 隊伍區域與選擇按鈕 */
@@ -147,7 +148,7 @@
     <div class="lobby-header">
       <div>
         <h3 style="margin:0;">🧘‍♂️ 大廳 (修練中...)</h3>
-        <span id="idleStatusText" style="color: #aaa; font-size: 13px;">正在自動修練尋找藥水與道具...</span>
+        <span id="idleStatusText" style="color: #aaa; font-size: 13px;">正在自動修練尋找金幣與藥水...</span>
       </div>
       <!-- 👥 在線人數 -->
       <div class="online-badge">🟢 在線玩家：<span id="displayOnlineCount">---</span> 人</div>
@@ -194,6 +195,10 @@
 
         <h4 style="margin-top: 10px;">🎒 我的背包 (資料庫同步)</h4>
         <div class="inventory-list">
+          <div class="inventory-item gold">
+            <span> 金幣</span>
+            <strong id="lobbyGold" style="color: #ffd700;">0</strong>
+          </div>
           <div class="inventory-item">
             <span>🧪 HP 藥水</span>
             <strong id="lobbyHpPotion">0</strong>
@@ -562,6 +567,7 @@
 
   function updateInventoryDisplay(inv) {
     if (!inv) return;
+    document.getElementById('lobbyGold').innerText = inv.gold || 0;
     document.getElementById('lobbyHpPotion').innerText = inv.hpPotion || 0;
     document.getElementById('lobbyMpPotion').innerText = inv.mpPotion || 0;
     document.getElementById('lobbyExpScroll').innerText = inv.expScroll || 0;
