@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>多人線上 RPG 戰鬥房間 - 全功能增強版</title>
+  <title>多人線上 RPG 戰鬥房間 - 完整功能防護版</title>
   <style>
     * { box-sizing: border-box; font-family: "Segoe UI", Microsoft JhengHei, sans-serif; }
     body { background-color: #121212; color: #e0e0e0; margin: 0; padding: 20px; display: flex; justify-content: center; }
@@ -18,6 +18,15 @@
     input, select { background: #2a2a2a; color: #fff; border: 1px solid #444; padding: 8px; border-radius: 4px; font-size: 14px; }
 
     .hidden { display: none !important; }
+
+    /* 🔊 右上角音量控制面板樣式 */
+    #audioControlPanel {
+      position: fixed; top: 15px; right: 15px; z-index: 9999;
+      background: rgba(30, 30, 30, 0.9); backdrop-filter: blur(5px);
+      padding: 6px 12px; border-radius: 8px; display: flex; align-items: center; gap: 8px;
+      border: 1px solid #444; box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    }
+    #audioControlPanel input[type="range"] { width: 90px; cursor: pointer; accent-color: #4caf50; }
 
     /* 大廳標題與在線人數 */
     .lobby-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; padding-bottom: 10px; margin-bottom: 10px; }
@@ -70,7 +79,6 @@
     .btn-potion:hover { background-color: #03a9f4; }
 
     #battleLog { height: 180px; overflow-y: auto; background-color: #000; color: #00ff66; padding: 10px; font-family: monospace; font-size: 13px; border-radius: 4px; }
-    .queue-status { margin-top: 10px; padding: 8px; background: #332200; border: 1px dashed #ff9800; border-radius: 4px; color: #ffca28; }
     .target-indicator { font-size: 13px; color: #ffca28; font-weight: bold; margin-bottom: 5px; }
 
     /* 震動與傷害數字動畫 */
@@ -111,8 +119,15 @@
 </head>
 <body>
 
+<!-- 🔊 右上角音量控制面板 -->
+<div id="audioControlPanel">
+  <span style="font-size: 14px;">🔊</span>
+  <input type="range" id="volumeSlider" min="0" max="1" step="0.05" value="0.5">
+  <span id="volumeText" style="color: #aaa; font-size: 12px; width: 32px; text-align: right;">50%</span>
+</div>
+
 <div id="mainContainer" class="container">
-  <h2>⚔️ 線上 RPG 戰鬥與匹配系統</h2>
+  <h2>⚔️ 線上 RPG 戰鬥與房間系統</h2>
 
   <!-- 帳號登入 / 註冊區塊 -->
   <div id="authSection" class="card">
@@ -139,11 +154,11 @@
     </div>
     
     <div class="lobby-content">
-      <!-- 🎮 遊戲配對與自建房 -->
+      <!-- 🎮 遊戲房間操作選擇 -->
       <div class="lobby-box card">
         <h4>🎮 戰鬥選擇</h4>
-        <div style="display: flex; flex-direction: column; gap: 8px;">
-          <label>玩家暱稱：<input type="text" id="playerName" value="勇者"></label>
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+          <label>玩家暱稱：<input type="text" id="playerName" value="空白"></label>
           <label>選擇職業：
             <select id="playerRole">
               <option value="berserker">🩸 狂戰士 (16000 HP - 攻擊吸血)</option>
@@ -155,21 +170,12 @@
             </select>
           </label>
           
-          <div style="margin-top: 10px; display: flex; flex-direction: column; gap: 8px;">
-            <button id="btnJoinQueue" onclick="joinQueue()" style="background-color: #ff9800; font-weight: bold; font-size: 15px;">🎲 單人隨機匹配 (1v1)</button>
-            <button id="btnLeaveQueue" onclick="leaveQueue()" class="hidden" style="background-color: #d32f2f;">❌ 取消匹配</button>
-            
-            <div id="queueStatus" class="queue-status hidden">⏳ 正在尋找對手 (1v1) 中...</div>
-            <hr style="border-color: #333; width: 100%;">
-            
-            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-              <button onclick="createRoom('A')">🏠 建立隊伍 A 房</button>
-              <button onclick="createRoom('B')" style="background-color: #e53935;">🏠 建立隊伍 B 房</button>
-            </div>
-            <div style="display: flex; gap: 8px; margin-top: 5px;">
-              <input type="text" id="joinRoomId" placeholder="輸入房號" style="width: 110px;">
-              <button onclick="joinRoom('A')">加入隊伍 A</button>
-              <button onclick="joinRoom('B')" style="background-color: #e53935;">加入隊伍 B</button>
+          <div style="margin-top: 5px; display: flex; flex-direction: column; gap: 8px;">
+            <button onclick="quickMatch()" style="background-color: #ff9800; font-weight: bold; font-size: 15px;">🎲 單人隨機匹配 (1v1)</button>
+            <button onclick="createCustomRoom()" style="background-color: #4caf50; font-weight: bold;">🏠 建立自訂房間</button>
+            <div style="display: flex; gap: 6px; align-items: center; margin-top: 5px;">
+              <input type="text" id="roomInputId" placeholder="輸入房號..." style="flex: 1;">
+              <button onclick="joinCustomRoom()" style="background-color: #008cba; font-weight: bold;">🚪 加入房間</button>
             </div>
           </div>
         </div>
@@ -216,7 +222,7 @@
       </div>
     </div>
 
-    <!-- 🚩 隊伍列表與換隊按鍵 -->
+    <!-- 🚩 隊伍列表與房間內切換隊伍按鍵 -->
     <div class="teams-container">
       <div class="team-box team-a">
         <div class="team-header">
@@ -261,7 +267,107 @@
 </div>
 
 <script>
-  // 請替換為你的後端 WebSocket 網址
+  // 🛡️ 防護腳本：直接將右鍵功能無效化，不跳出任何警告提示
+  document.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'F12') {
+      e.preventDefault();
+      alert("⚠️ 禁止使用 F12 開發者工具！");
+      return false;
+    }
+    if (e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'i' || e.key === 'J' || e.key === 'j' || e.key === 'C' || e.key === 'c')) {
+      e.preventDefault();
+      alert("⚠️ 禁止快捷開啟開發者工具！");
+      return false;
+    }
+    if (e.ctrlKey && (e.key === 'U' || e.key === 'u')) {
+      e.preventDefault();
+      alert("⚠️ 禁止檢視網頁原始碼！");
+      return false;
+    }
+  });
+
+  // 🔊 音量與動態音效合成系統 (Web Audio API)
+  const volumeSlider = document.getElementById('volumeSlider');
+  const volumeText = document.getElementById('volumeText');
+  let masterVolume = 0.5;
+
+  if (volumeSlider) {
+    volumeSlider.addEventListener('input', (e) => {
+      masterVolume = parseFloat(e.target.value);
+      if (volumeText) {
+        volumeText.innerText = Math.round(masterVolume * 100) + '%';
+      }
+    });
+  }
+
+  let audioCtx = null;
+  function initAudio() {
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (audioCtx.state === 'suspended') {
+      audioCtx.resume();
+    }
+  }
+
+  function playSound(type) {
+    try {
+      initAudio();
+      if (!audioCtx || masterVolume <= 0) return;
+
+      const osc = audioCtx.createOscillator();
+      const gainNode = audioCtx.createGain();
+      const now = audioCtx.currentTime;
+
+      osc.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+
+      if (type === 'attack') {
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(150, now);
+        osc.frequency.exponentialRampToValueAtTime(40, now + 0.15);
+        gainNode.gain.setValueAtTime(masterVolume * 0.6, now);
+        gainNode.gain.linearRampToValueAtTime(0.01, now + 0.15);
+        osc.start(now);
+        osc.stop(now + 0.15);
+      } 
+      else if (type === 'skill') {
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(300, now);
+        osc.frequency.exponentialRampToValueAtTime(800, now + 0.3);
+        gainNode.gain.setValueAtTime(masterVolume * 0.4, now);
+        gainNode.gain.linearRampToValueAtTime(0.01, now + 0.3);
+        osc.start(now);
+        osc.stop(now + 0.3);
+      }
+      else if (type === 'heal') {
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(400, now);
+        osc.frequency.setValueAtTime(600, now + 0.1);
+        osc.frequency.setValueAtTime(800, now + 0.2);
+        gainNode.gain.setValueAtTime(masterVolume * 0.4, now);
+        gainNode.gain.linearRampToValueAtTime(0.01, now + 0.35);
+        osc.start(now);
+        osc.stop(now + 0.35);
+      }
+      else if (type === 'potion') {
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(600, now);
+        osc.frequency.exponentialRampToValueAtTime(200, now + 0.1);
+        gainNode.gain.setValueAtTime(masterVolume * 0.5, now);
+        gainNode.gain.linearRampToValueAtTime(0.01, now + 0.1);
+        osc.start(now);
+        osc.stop(now + 0.1);
+      }
+    } catch (e) {
+      console.log("音效播放失敗:", e);
+    }
+  }
+
   let ws = new WebSocket('wss://rpg-game-backend-vhag.onrender.com');
   let myPlayerId = null;
   let currentUser = null;
@@ -330,11 +436,9 @@
       document.getElementById('playerRole').value = data.user.role || 'berserker';
       updateInventoryDisplay(data.user.inventory);
     }
-    // 👥 接收擬真在線人數更新
     else if (data.type === 'online_count') {
       document.getElementById('displayOnlineCount').innerText = data.onlineCount;
     }
-    // 💬 接收大廳聊天訊息
     else if (data.type === 'lobby_chat') {
       appendLobbyChat(data.sender, data.message, data.time);
     }
@@ -342,23 +446,14 @@
       logMessage(data.message);
       updateInventoryDisplay(data.inventory);
     }
-    else if (data.type === 'queue_joined') {
-      logMessage("🎲 成功進入單人 1v1 匹配隊列...");
-      showQueueUI(true);
-    }
-    else if (data.type === 'queue_left') {
-      logMessage("❌ 已取消匹配。");
-      showQueueUI(false);
-    }
-    else if (data.type === 'match_found' || data.type === 'room_created' || data.type === 'room_joined') {
-      if (data.type === 'match_found') logMessage("🎉 匹配成功！即將進入戰鬥...");
+    else if (data.type === 'room_created' || data.type === 'room_joined') {
       myPlayerId = data.player.id;
       selectedTargetId = null;
       document.getElementById('displayRoomId').innerText = data.roomId;
       document.getElementById('lobbySection').classList.add('hidden');
       document.getElementById('roomSection').classList.remove('hidden');
-      showQueueUI(false);
       updateInventoryDisplay(data.player.inventory);
+      logMessage(`🏰 成功進入房間 [${data.roomId}]`);
     }
     else if (data.type === 'room_state') {
       currentRoomState = data;
@@ -404,7 +499,6 @@
     ws.send(JSON.stringify({ type: 'login', username: u, password: p }));
   }
 
-  // 💬 發送大廳聊天訊息
   function sendLobbyChat() {
     if (!checkWsConnected()) return;
     const input = document.getElementById('lobbyChatInput');
@@ -438,45 +532,29 @@
     return nameInput;
   }
 
-  function showQueueUI(inQueue) {
-    document.getElementById('btnJoinQueue').classList.toggle('hidden', inQueue);
-    document.getElementById('btnLeaveQueue').classList.toggle('hidden', !inQueue);
-    document.getElementById('queueStatus').classList.toggle('hidden', !inQueue);
-  }
-
-  function joinQueue() {
+  function quickMatch() {
     if (!checkWsConnected()) return;
     const name = getSafePlayerName();
     const role = document.getElementById('playerRole').value;
-    ws.send(JSON.stringify({ type: 'join_queue', name, role }));
-    showQueueUI(true);
+    ws.send(JSON.stringify({ type: 'quick_match', name, role }));
   }
 
-  function leaveQueue() {
+  function createCustomRoom() {
     if (!checkWsConnected()) return;
-    ws.send(JSON.stringify({ type: 'leave_queue' }));
-    showQueueUI(false);
-  }
-
-  function createRoom(team = 'A') {
-    if (!checkWsConnected()) return;
-    leaveQueue();
     const name = getSafePlayerName();
     const role = document.getElementById('playerRole').value;
-    ws.send(JSON.stringify({ type: 'create_room', name, role, team }));
+    ws.send(JSON.stringify({ type: 'create_room', name, role }));
   }
 
-  function joinRoom(targetTeam = 'A') {
+  function joinCustomRoom() {
     if (!checkWsConnected()) return;
-    leaveQueue();
+    const roomId = document.getElementById('roomInputId').value.trim();
+    if (!roomId) return alert("請輸入要加入的房號！");
     const name = getSafePlayerName();
     const role = document.getElementById('playerRole').value;
-    const roomId = document.getElementById('joinRoomId').value.trim();
-    if (!roomId) return alert("請輸入房號！");
-    ws.send(JSON.stringify({ type: 'join_room', name, role, roomId, targetTeam }));
+    ws.send(JSON.stringify({ type: 'join_room', roomId, name, role }));
   }
 
-  // 🚩 切換隊伍
   function switchTeam(targetTeam) {
     if (!checkWsConnected()) return;
     ws.send(JSON.stringify({ type: 'switch_team', targetTeam }));
@@ -512,7 +590,6 @@
 
     if (me && me.inventory) updateInventoryDisplay(me.inventory);
 
-    // 控制換隊按鈕啟用/停用
     const btnSwitchA = document.getElementById('btnSwitchTeamA');
     const btnSwitchB = document.getElementById('btnSwitchTeamB');
     if (me && roomState.status === 'waiting') {
@@ -634,14 +711,16 @@
         btn.disabled = me.mp < skill.mpCost || me.hp <= 0;
       }
 
-      btn.onclick = () => useSkill(skill);
+      btn.onclick = () => {
+        playSound(skill.isHeal ? 'heal' : 'skill');
+        useSkill(skill);
+      };
       container.appendChild(btn);
     });
   }
 
   function useSkill(skill) {
     if (!checkWsConnected()) return;
-
     if (skill.isRevive) reviveCooldownEndTime = Date.now() + (skill.cd * 1000);
 
     ws.send(JSON.stringify({
@@ -663,6 +742,7 @@
 
   function usePotion(potionType) {
     if (!checkWsConnected()) return;
+    playSound('potion');
     ws.send(JSON.stringify({ type: 'use_potion', potionType }));
   }
 
@@ -679,6 +759,9 @@
   }
 
   function checkBattleLogForEffects(msg) {
+    if (msg.includes('造成') || msg.includes('傷害') || msg.includes('攻擊')) {
+      playSound('attack');
+    }
     if (msg.includes('【大招！】') || msg.includes('💥【暴擊！】') || msg.includes('⚡【麻痺】')) {
       triggerContainerShake();
     }
