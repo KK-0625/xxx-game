@@ -89,7 +89,7 @@
     .shop-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #444; padding-bottom: 10px; margin-bottom: 15px; }
     .shop-item { display: flex; justify-content: space-between; align-items: center; background: #2a2a2a; padding: 10px; margin-bottom: 10px; border-radius: 6px; }
 
-    /* 🌟✨ 技能施放動畫容器 (縮小並固定在右上方) ✨🌟 */
+    /* 🌟✨ 技能施放動畫容器 ✨🌟 */
     #skillFxContainer {
       position: fixed; top: 25px; right: 25px;
       pointer-events: none; z-index: 9999;
@@ -110,7 +110,7 @@
       100% { opacity: 0; transform: translateY(-30px) scale(0.9); }
     }
 
-    /* 輕微震動與傷害/治癒數字動畫 */
+    /* 震動與飄字動畫 */
     @keyframes shake {
       0% { transform: translate(1px, 1px); }
       20% { transform: translate(-2px, 1px); }
@@ -148,7 +148,6 @@
 </head>
 <body>
 
-<!-- 技能動畫右上方懸浮容器 -->
 <div id="skillFxContainer"></div>
 
 <div id="mainContainer" class="container">
@@ -267,12 +266,10 @@
       <div style="display: flex; gap: 8px;">
         <button onclick="openShopModal()" style="background-color: #ff9800;">🛒 商店</button>
         <button id="btnStartGame" onclick="startGame()" class="hidden">⚔️ 開始遊戲</button>
-        <button id="btnRematch" onclick="rematch()" class="hidden">🔄 重新開局</button>
         <button onclick="leaveToIdle()" style="background-color: #d32f2f;">🚪 離開房間</button>
       </div>
     </div>
 
-    <!-- 🚩 隊伍列表與換隊按鍵 -->
     <div class="teams-container">
       <div class="team-box team-a">
         <div class="team-header">
@@ -291,7 +288,6 @@
       </div>
     </div>
 
-    <!-- ⚔️ 技能操作面板 -->
     <div id="actionPanel" class="action-panel hidden">
       <div id="currentTargetText" class="target-indicator">🎯 技能目標：[自動鎖定模式] (點擊上方玩家卡片可手動選擇)</div>
       <div>
@@ -309,7 +305,6 @@
     </div>
   </div>
 
-  <!-- 📜 日誌 -->
   <div class="card">
     <h3>📜 戰鬥與系統日誌</h3>
     <div id="battleLog"></div>
@@ -330,22 +325,22 @@
     <div class="shop-item">
       <div>
         <strong>🧪 HP 藥水</strong>
-        <div style="font-size: 12px; color: #aaa;">回復大量生命值</div>
+        <div style="font-size: 12px; color: #aaa;">回復 3000 生命值</div>
       </div>
       <div>
-        <span style="color: #ffd700; font-weight: bold; margin-right: 8px;">💰 50</span>
-        <button onclick="buyItem('hpPotion', 50)">購買</button>
+        <span style="color: #ffd700; font-weight: bold; margin-right: 8px;">💰 10</span>
+        <button onclick="buyItem('hp_potion', 10)">購買</button>
       </div>
     </div>
 
     <div class="shop-item">
       <div>
         <strong>🧪 MP 藥水</strong>
-        <div style="font-size: 12px; color: #aaa;">回復大量魔力值</div>
+        <div style="font-size: 12px; color: #aaa;">回復 1500 魔力值</div>
       </div>
       <div>
-        <span style="color: #ffd700; font-weight: bold; margin-right: 8px;">💰 50</span>
-        <button onclick="buyItem('mpPotion', 50)">購買</button>
+        <span style="color: #ffd700; font-weight: bold; margin-right: 8px;">💰 10</span>
+        <button onclick="buyItem('mp_potion', 10)">購買</button>
       </div>
     </div>
 
@@ -355,8 +350,8 @@
         <div style="font-size: 12px; color: #aaa;">獲得 +150 點經驗值</div>
       </div>
       <div>
-        <span style="color: #ffd700; font-weight: bold; margin-right: 8px;">💰 200</span>
-        <button onclick="buyItem('expScroll', 200)">購買</button>
+        <span style="color: #ffd700; font-weight: bold; margin-right: 8px;">💰 50</span>
+        <button onclick="buyItem('exp_scroll', 50)">購買</button>
       </div>
     </div>
   </div>
@@ -371,7 +366,6 @@
   let oldPlayerHpMap = {}; 
   let reviveCooldownEndTime = 0;
 
-  // Web Audio API 音效生成器 (無需外掛 MP3)
   const AudioFX = {
     ctx: null,
     init() {
@@ -382,7 +376,6 @@
         this.ctx.resume();
       }
     },
-    // 🗡️ 劍擊聲 / 戰士
     playSword() {
       this.init();
       const osc = this.ctx.createOscillator();
@@ -397,7 +390,6 @@
       osc.start();
       osc.stop(this.ctx.currentTime + 0.15);
     },
-    // 🔮 法術聲 / 法師
     playMagic() {
       this.init();
       const osc = this.ctx.createOscillator();
@@ -412,7 +404,6 @@
       osc.start();
       osc.stop(this.ctx.currentTime + 0.3);
     },
-    // 💚 治癒聲 / 牧師
     playHeal() {
       this.init();
       const now = this.ctx.currentTime;
@@ -429,7 +420,6 @@
         osc.stop(now + idx * 0.08 + 0.25);
       });
     },
-    // 🗡️ 刺擊聲 / 刺客
     playStab() {
       this.init();
       const osc = this.ctx.createOscillator();
@@ -444,7 +434,6 @@
       osc.start();
       osc.stop(this.ctx.currentTime + 0.08);
     },
-    // 🏹 弓箭聲 / 弓箭手
     playArrow() {
       this.init();
       const osc = this.ctx.createOscillator();
@@ -530,8 +519,8 @@
       document.getElementById('playerName').value = validName;
       document.getElementById('playerRole').value = data.user.role || 'berserker';
       
-      if (data.user.level) localUserData.level = data.user.level;
-      if (data.user.exp) localUserData.exp = data.user.exp;
+      localUserData.level = data.user.level || 1;
+      localUserData.exp = data.user.exp || 0;
       updateInventoryDisplay(data.user.inventory);
     }
     else if (data.type === 'online_count') {
@@ -542,7 +531,12 @@
     }
     else if (data.type === 'idle_reward') {
       logMessage(data.message);
-      if (data.gainedExp) addExp(data.gainedExp);
+      if (data.level) localUserData.level = data.level;
+      if (data.exp !== undefined) localUserData.exp = data.exp;
+      updateInventoryDisplay(data.inventory);
+    }
+    else if (data.type === 'shop_success') {
+      logMessage(data.message);
       updateInventoryDisplay(data.inventory);
     }
     else if (data.type === 'queue_joined') {
@@ -679,19 +673,9 @@
     ws.send(JSON.stringify({ type: 'switch_team', targetTeam }));
   }
 
-  function getMaxExp(level) { return level * 100; }
-
-  function addExp(amount) {
-    localUserData.exp += amount;
-    let maxExp = getMaxExp(localUserData.level);
-
-    while (localUserData.exp >= maxExp) {
-      localUserData.exp -= maxExp;
-      localUserData.level += 1;
-      maxExp = getMaxExp(localUserData.level);
-      logMessage(`🎉 恭喜升級！當前等級提升至 LV.${localUserData.level}！`);
-    }
-    updateExpUI();
+  // 🔥 與後端一致的等級門檻計算公式
+  function getMaxExp(level) { 
+    return Math.floor(100 * Math.pow(level || 1, 1.5)); 
   }
 
   function updateExpUI() {
@@ -709,18 +693,21 @@
       alert("⚠️ 背包中沒有經驗卷軸！");
       return;
     }
-    localUserData.expScroll -= 1;
-    addExp(150);
-    updateInventoryDisplay(localUserData);
-    logMessage("📜 使用了經驗卷軸，獲得了 150 點經驗值！");
+    // 未來後端新增經驗卷軸 WebSocket 接口時可直接進行整合
+    alert("ℹ️ 經驗卷軸可經由掛機修練獲得額外獎勵！");
   }
 
   function updateInventoryDisplay(inv) {
     if (!inv) return;
-    localUserData = Object.assign(localUserData, inv);
+    
+    // 兼顧後端駝峰 (hpPotion) 與下劃線 (hp_potion) 命名
+    localUserData.gold = inv.gold !== undefined ? inv.gold : localUserData.gold;
+    localUserData.hpPotion = inv.hpPotion !== undefined ? inv.hpPotion : (inv.hp_potion !== undefined ? inv.hp_potion : localUserData.hpPotion);
+    localUserData.mpPotion = inv.mpPotion !== undefined ? inv.mpPotion : (inv.mp_potion !== undefined ? inv.mp_potion : localUserData.mpPotion);
+    localUserData.expScroll = inv.expScroll !== undefined ? inv.expScroll : (inv.exp_scroll !== undefined ? inv.exp_scroll : localUserData.expScroll);
 
-    document.getElementById('lobbyGold').innerText = localUserData.gold !== undefined ? localUserData.gold : 0;
-    document.getElementById('shopGoldDisplay').innerText = localUserData.gold !== undefined ? localUserData.gold : 0;
+    document.getElementById('lobbyGold').innerText = localUserData.gold || 0;
+    document.getElementById('shopGoldDisplay').innerText = localUserData.gold || 0;
     document.getElementById('lobbyHpPotion').innerText = localUserData.hpPotion || 0;
     document.getElementById('lobbyMpPotion').innerText = localUserData.mpPotion || 0;
     document.getElementById('lobbyExpScroll').innerText = localUserData.expScroll || 0;
@@ -749,31 +736,16 @@
     document.getElementById('shopModal').classList.add('hidden');
   }
 
-  function buyItem(itemKey, price) {
+  // 🔥 修正：正確傳送與後端格式相同的 itemType
+  function buyItem(itemType, price) {
+    if (!checkWsConnected()) return;
     const currentGold = localUserData.gold || 0;
     if (currentGold < price) {
       alert("⚠️ 金幣不足，無法購買！");
       return;
     }
 
-    localUserData.gold -= price;
-    localUserData[itemKey] = (localUserData[itemKey] || 0) + 1;
-    
-    updateInventoryDisplay(localUserData);
-    logMessage(`🛒 成功購買了 ${getItemName(itemKey)}！消耗金幣: ${price}`);
-
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'buy_item', itemKey, price }));
-    }
-  }
-
-  function getItemName(key) {
-    switch (key) {
-      case 'hpPotion': return '🧪 HP 藥水';
-      case 'mpPotion': return '🧪 MP 藥水';
-      case 'expScroll': return '📜 經驗卷軸';
-      default: return '道具';
-    }
+    ws.send(JSON.stringify({ type: 'buy_item', itemType: itemType }));
   }
 
   function renderRoom(roomState) {
@@ -798,20 +770,16 @@
     }
 
     const btnStart = document.getElementById('btnStartGame');
-    const btnRematch = document.getElementById('btnRematch');
     
     if (roomState.status === 'waiting') {
       btnStart.classList.toggle('hidden', !isHost);
-      btnRematch.classList.add('hidden');
       document.getElementById('actionPanel').classList.add('hidden');
     } else if (roomState.status === 'playing') {
       btnStart.classList.add('hidden');
-      btnRematch.classList.add('hidden');
       document.getElementById('actionPanel').classList.remove('hidden');
       renderSkillButtons(me);
     } else if (roomState.status === 'game_over') {
       btnStart.classList.add('hidden');
-      btnRematch.classList.toggle('hidden', !isHost);
     }
 
     const targetText = document.getElementById('currentTargetText');
@@ -850,7 +818,7 @@
 
       pCard.innerHTML = `
         <div class="player-header">
-          <span>[LV.${pLevel}] ${p.name} (${p.role}) <span class="rank-tag">${rInfo.icon} ${rInfo.name}</span> ${p.id === myPlayerId ? '⭐我' : ''}</span>
+          <span>[LV.${pLevel}] ${p.name} (${p.role}) <span class="rank-tag" style="color:${rInfo.color}">${rInfo.icon} ${rInfo.name}</span> ${p.id === myPlayerId ? '⭐我' : ''}</span>
           <span>${isDead ? '💀 陣亡' : '存活'}</span>
         </div>
         <div class="bar-container">
@@ -914,9 +882,7 @@
     });
   }
 
-  /* 🌟 播放精簡版右上方技能動畫與專屬音效 🌟 */
   function playSkillAnimationAndSound(skill) {
-    // 1. 右上方浮現精緻 Toast 動畫
     const container = document.getElementById('skillFxContainer');
     const animEl = document.createElement('div');
     animEl.className = 'skill-toast-anim';
@@ -925,14 +891,12 @@
 
     setTimeout(() => animEl.remove(), 1200);
 
-    // 2. 播放專屬音效
     if (skill.sound === 'sword') AudioFX.playSword();
     else if (skill.sound === 'magic') AudioFX.playMagic();
     else if (skill.sound === 'heal') AudioFX.playHeal();
     else if (skill.sound === 'stab') AudioFX.playStab();
     else if (skill.sound === 'arrow') AudioFX.playArrow();
 
-    // 3. 戰鬥微震動
     triggerContainerShake();
   }
 
@@ -941,7 +905,6 @@
 
     if (skill.isRevive) reviveCooldownEndTime = Date.now() + (skill.cd * 1000);
 
-    // 觸發音效與視覺動畫
     playSkillAnimationAndSound(skill);
 
     ws.send(JSON.stringify({
@@ -969,7 +932,6 @@
   }
 
   function startGame() { if (checkWsConnected()) ws.send(JSON.stringify({ type: 'start_game' })); }
-  function rematch() { if (checkWsConnected()) ws.send(JSON.stringify({ type: 'rematch' })); }
   function leaveToIdle() { if (checkWsConnected()) ws.send(JSON.stringify({ type: 'go_idle' })); }
 
   function logMessage(msg) {
