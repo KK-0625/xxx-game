@@ -267,525 +267,527 @@
 </div>
 
 <script>
-  // 🛡️ 防護腳本：直接將右鍵功能無效化，不跳出任何警告提示
-  document.addEventListener('contextmenu', (e) => {
+// 🛡️ 防護腳本：直接將右鍵功能無效化，不跳出任何警告提示
+document.addEventListener('contextmenu', (e) => {
+  e.preventDefault();
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'F12') {
     e.preventDefault();
+    alert("⚠️ 禁止使用 F12 開發者工具！");
+    return false;
+  }
+  if (e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'i' || e.key === 'J' || e.key === 'j' || e.key === 'C' || e.key === 'c')) {
+    e.preventDefault();
+    alert("⚠️ 禁止快捷開啟開發者工具！");
+    return false;
+  }
+  if (e.ctrlKey && (e.key === 'U' || e.key === 'u')) {
+    e.preventDefault();
+    alert("⚠️ 禁止檢視網頁原始碼！");
+    return false;
+  }
+});
+
+// 🔊 音量與動態音效合成系統 (Web Audio API)
+const volumeSlider = document.getElementById('volumeSlider');
+const volumeText = document.getElementById('volumeText');
+let masterVolume = 0.5;
+
+if (volumeSlider) {
+  volumeSlider.addEventListener('input', (e) => {
+    masterVolume = parseFloat(e.target.value);
+    if (volumeText) {
+      volumeText.innerText = Math.round(masterVolume * 100) + '%';
+    }
   });
+}
 
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'F12') {
-      e.preventDefault();
-      alert("⚠️ 禁止使用 F12 開發者工具！");
-      return false;
-    }
-    if (e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'i' || e.key === 'J' || e.key === 'j' || e.key === 'C' || e.key === 'c')) {
-      e.preventDefault();
-      alert("⚠️ 禁止快捷開啟開發者工具！");
-      return false;
-    }
-    if (e.ctrlKey && (e.key === 'U' || e.key === 'u')) {
-      e.preventDefault();
-      alert("⚠️ 禁止檢視網頁原始碼！");
-      return false;
-    }
-  });
-
-  // 🔊 音量與動態音效合成系統 (Web Audio API)
-  const volumeSlider = document.getElementById('volumeSlider');
-  const volumeText = document.getElementById('volumeText');
-  let masterVolume = 0.5;
-
-  if (volumeSlider) {
-    volumeSlider.addEventListener('input', (e) => {
-      masterVolume = parseFloat(e.target.value);
-      if (volumeText) {
-        volumeText.innerText = Math.round(masterVolume * 100) + '%';
-      }
-    });
+let audioCtx = null;
+function initAudio() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   }
-
-  let audioCtx = null;
-  function initAudio() {
-    if (!audioCtx) {
-      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    }
-    if (audioCtx.state === 'suspended') {
-      audioCtx.resume();
-    }
+  if (audioCtx.state === 'suspended') {
+    audioCtx.resume();
   }
+}
 
-  function playSound(type) {
-    try {
-      initAudio();
-      if (!audioCtx || masterVolume <= 0) return;
+function playSound(type) {
+  try {
+    initAudio();
+    if (!audioCtx || masterVolume <= 0) return;
 
-      const osc = audioCtx.createOscillator();
-      const gainNode = audioCtx.createGain();
-      const now = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator();
+    const gainNode = audioCtx.createGain();
+    const now = audioCtx.currentTime;
 
-      osc.connect(gainNode);
-      gainNode.connect(audioCtx.destination);
+    osc.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
 
-      if (type === 'attack') {
-        osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(150, now);
-        osc.frequency.exponentialRampToValueAtTime(40, now + 0.15);
-        gainNode.gain.setValueAtTime(masterVolume * 0.6, now);
-        gainNode.gain.linearRampToValueAtTime(0.01, now + 0.15);
-        osc.start(now);
-        osc.stop(now + 0.15);
-      } 
-      else if (type === 'skill') {
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(300, now);
-        osc.frequency.exponentialRampToValueAtTime(800, now + 0.3);
-        gainNode.gain.setValueAtTime(masterVolume * 0.4, now);
-        gainNode.gain.linearRampToValueAtTime(0.01, now + 0.3);
-        osc.start(now);
-        osc.stop(now + 0.3);
-      }
-      else if (type === 'heal') {
-        osc.type = 'triangle';
-        osc.frequency.setValueAtTime(400, now);
-        osc.frequency.setValueAtTime(600, now + 0.1);
-        osc.frequency.setValueAtTime(800, now + 0.2);
-        gainNode.gain.setValueAtTime(masterVolume * 0.4, now);
-        gainNode.gain.linearRampToValueAtTime(0.01, now + 0.35);
-        osc.start(now);
-        osc.stop(now + 0.35);
-      }
-      else if (type === 'potion') {
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(600, now);
-        osc.frequency.exponentialRampToValueAtTime(200, now + 0.1);
-        gainNode.gain.setValueAtTime(masterVolume * 0.5, now);
-        gainNode.gain.linearRampToValueAtTime(0.01, now + 0.1);
-        osc.start(now);
-        osc.stop(now + 0.1);
-      }
-    } catch (e) {
-      console.log("音效播放失敗:", e);
+    if (type === 'attack') {
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(150, now);
+      osc.frequency.exponentialRampToValueAtTime(40, now + 0.15);
+      gainNode.gain.setValueAtTime(masterVolume * 0.6, now);
+      gainNode.gain.linearRampToValueAtTime(0.01, now + 0.15);
+      osc.start(now);
+      osc.stop(now + 0.15);
+    } 
+    else if (type === 'skill') {
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(300, now);
+      osc.frequency.exponentialRampToValueAtTime(800, now + 0.3);
+      gainNode.gain.setValueAtTime(masterVolume * 0.4, now);
+      gainNode.gain.linearRampToValueAtTime(0.01, now + 0.3);
+      osc.start(now);
+      osc.stop(now + 0.3);
     }
+    else if (type === 'heal') {
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(400, now);
+      osc.frequency.setValueAtTime(600, now + 0.1);
+      osc.frequency.setValueAtTime(800, now + 0.2);
+      gainNode.gain.setValueAtTime(masterVolume * 0.4, now);
+      gainNode.gain.linearRampToValueAtTime(0.01, now + 0.35);
+      osc.start(now);
+      osc.stop(now + 0.35);
+    }
+    else if (type === 'potion') {
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(600, now);
+      osc.frequency.exponentialRampToValueAtTime(200, now + 0.1);
+      gainNode.gain.setValueAtTime(masterVolume * 0.5, now);
+      gainNode.gain.linearRampToValueAtTime(0.01, now + 0.1);
+      osc.start(now);
+      osc.stop(now + 0.1);
+    }
+  } catch (e) {
+    console.log("音效播放失敗:", e);
   }
+}
 
-  let ws = new WebSocket('wss://rpg-game-backend-vhag.onrender.com');
-  let myPlayerId = null;
-  let currentUser = null;
-  let currentRoomState = null;
-  let selectedTargetId = null;
-  let oldPlayerHpMap = {}; 
-  let reviveCooldownEndTime = 0;
+let ws = new WebSocket('wss://rpg-game-backend-vhag.onrender.com');
+let myPlayerId = null;
+let currentUser = null;
+let currentRoomState = null;
+let selectedTargetId = null;
+let oldPlayerHpMap = {}; 
+let reviveCooldownEndTime = 0;
 
-  const SKILLS = {
-    mage: [
-      { name: '🔥 火球術', mpCost: 80, minVal: 220, maxVal: 350, isAoe: false, isHeal: false, effect: 'burn', chance: 0.3 },
-      { name: '⚡ 連鎖閃電', mpCost: 150, minVal: 180, maxVal: 280, isAoe: false, isHeal: false, effect: 'paralyze', chance: 0.25 },
-      { name: '❄️ 暴風雪', mpCost: 220, minVal: 150, maxVal: 250, isAoe: true, isHeal: false },
-      { name: '☄️ 隕石術', mpCost: 400, minVal: 500, maxVal: 850, isAoe: true, isHeal: false, isUlt: true }
-    ],
-    priest: [
-      { name: '💚 治癒術', mpCost: 70, minVal: 200, maxVal: 320, isAoe: false, isHeal: true },
-      { name: '✨ 聖光彈', mpCost: 90, minVal: 180, maxVal: 280, isAoe: false, isHeal: false },
-      { name: '🙏 神聖祈禱', mpCost: 180, minVal: 150, maxVal: 250, isAoe: true, isHeal: true },
-      { name: '🌟 復活術', mpCost: 300, minVal: 0, maxVal: 0, isAoe: false, isRevive: true, isUlt: true, cd: 300 }
-    ],
-    berserker: [
-      { name: '⚔️ 重擊', mpCost: 40, minVal: 180, maxVal: 300, isAoe: false, isHeal: false, lifesteal: 0.2 },
-      { name: '🌪️ 旋風斬', mpCost: 100, minVal: 130, maxVal: 220, isAoe: true, isHeal: false, lifesteal: 0.2 },
-      { name: '🩸 狂暴怒吼', mpCost: 120, minVal: 250, maxVal: 400, isAoe: false, isHeal: false, lifesteal: 0.2 },
-      { name: '💥 英雄一擊', mpCost: 300, minVal: 550, maxVal: 900, isAoe: false, isHeal: false, isUlt: true, lifesteal: 0.2 }
-    ],
-    knight: [
-      { name: '🛡️ 盾牌衝鋒', mpCost: 40, minVal: 150, maxVal: 240, isAoe: false, isHeal: false },
-      { name: '🔨 裁決之錘', mpCost: 80, minVal: 200, maxVal: 320, isAoe: false, isHeal: false },
-      { name: '🧱 堅守陣線', mpCost: 120, minVal: 120, maxVal: 200, isAoe: true, isHeal: true },
-      { name: '🏰 正義風暴', mpCost: 280, minVal: 400, maxVal: 650, isAoe: true, isHeal: false, isUlt: true }
-    ],
-    assassin: [
-      { name: '🗡️ 毒刃', mpCost: 50, minVal: 220, maxVal: 350, isAoe: false, isHeal: false, effect: 'poison', chance: 0.35 },
-      { name: '👣 影襲', mpCost: 90, minVal: 280, maxVal: 420, isAoe: false, isHeal: false, effect: 'poison', chance: 0.2 },
-      { name: '🔪 飛刀風暴', mpCost: 150, minVal: 160, maxVal: 280, isAoe: true, isHeal: false },
-      { name: '☠️ 瞬獄殺', mpCost: 350, minVal: 650, maxVal: 1100, isAoe: false, isHeal: false, isUlt: true, effect: 'poison', chance: 0.5 }
-    ],
-    archer: [
-      { name: '🏹 精準射擊', mpCost: 50, minVal: 200, maxVal: 320, isAoe: false, isHeal: false, effect: 'blind', chance: 0.25 },
-      { name: '🌧️ 箭雨', mpCost: 140, minVal: 140, maxVal: 240, isAoe: true, isHeal: false, effect: 'blind', chance: 0.15 },
-      { name: '🎯 貫穿箭', mpCost: 110, minVal: 260, maxVal: 400, isAoe: false, isHeal: false },
-      { name: '🦅 幻影神射', mpCost: 320, minVal: 580, maxVal: 950, isAoe: false, isHeal: false, isUlt: true, effect: 'blind', chance: 0.4 }
-    ]
-  };
+const SKILLS = {
+  mage: [
+    { name: '🔥 火球術', mpCost: 80, minVal: 220, maxVal: 350, isAoe: false, isHeal: false, effect: 'burn', chance: 0.3 },
+    { name: '⚡ 連鎖閃電', mpCost: 150, minVal: 180, maxVal: 280, isAoe: false, isHeal: false, effect: 'paralyze', chance: 0.25 },
+    { name: '❄️ 暴風雪', mpCost: 220, minVal: 150, maxVal: 250, isAoe: true, isHeal: false },
+    { name: '☄️ 隕石術', mpCost: 400, minVal: 500, maxVal: 850, isAoe: true, isHeal: false, isUlt: true }
+  ],
+  priest: [
+    { name: '💚 治癒術', mpCost: 70, minVal: 200, maxVal: 320, isAoe: false, isHeal: true },
+    { name: '✨ 聖光彈', mpCost: 90, minVal: 180, maxVal: 280, isAoe: false, isHeal: false },
+    { name: '🙏 神聖祈禱', mpCost: 180, minVal: 150, maxVal: 250, isAoe: true, isHeal: true },
+    { name: '🌟 復活術', mpCost: 300, minVal: 0, maxVal: 0, isAoe: false, isRevive: true, isUlt: true, cd: 300 }
+  ],
+  berserker: [
+    { name: '⚔️ 重擊', mpCost: 40, minVal: 180, maxVal: 300, isAoe: false, isHeal: false, lifesteal: 0.2 },
+    { name: '🌪️ 旋風斬', mpCost: 100, minVal: 130, maxVal: 220, isAoe: true, isHeal: false, lifesteal: 0.2 },
+    { name: '🩸 狂暴怒吼', mpCost: 120, minVal: 250, maxVal: 400, isAoe: false, isHeal: false, lifesteal: 0.2 },
+    { name: '💥 英雄一擊', mpCost: 300, minVal: 550, maxVal: 900, isAoe: false, isHeal: false, isUlt: true, lifesteal: 0.2 }
+  ],
+  knight: [
+    { name: '🛡️ 盾牌衝鋒', mpCost: 40, minVal: 150, maxVal: 240, isAoe: false, isHeal: false },
+    { name: '🔨 裁決之錘', mpCost: 80, minVal: 200, maxVal: 320, isAoe: false, isHeal: false },
+    { name: '🧱 堅守陣線', mpCost: 120, minVal: 120, maxVal: 200, isAoe: true, isHeal: true },
+    { name: '🏰 正義風暴', mpCost: 280, minVal: 400, maxVal: 650, isAoe: true, isHeal: false, isUlt: true }
+  ],
+  assassin: [
+    { name: '🗡️ 毒刃', mpCost: 50, minVal: 220, maxVal: 350, isAoe: false, isHeal: false, effect: 'poison', chance: 0.35 },
+    { name: '👣 影襲', mpCost: 90, minVal: 280, maxVal: 420, isAoe: false, isHeal: false, effect: 'poison', chance: 0.2 },
+    { name: '🔪 飛刀風暴', mpCost: 150, minVal: 160, maxVal: 280, isAoe: true, isHeal: false },
+    { name: '☠️ 瞬獄殺', mpCost: 350, minVal: 650, maxVal: 1100, isAoe: false, isHeal: false, isUlt: true, effect: 'poison', chance: 0.5 }
+  ],
+  archer: [
+    { name: '🏹 精準射擊', mpCost: 50, minVal: 200, maxVal: 320, isAoe: false, isHeal: false, effect: 'blind', chance: 0.25 },
+    { name: '🌧️ 箭雨', mpCost: 140, minVal: 140, maxVal: 240, isAoe: true, isHeal: false, effect: 'blind', chance: 0.15 },
+    { name: '🎯 貫穿箭', mpCost: 110, minVal: 260, maxVal: 400, isAoe: false, isHeal: false },
+    { name: '🦅 幻影神射', mpCost: 320, minVal: 580, maxVal: 950, isAoe: false, isHeal: false, isUlt: true, effect: 'blind', chance: 0.4 }
+  ]
+};
 
-  ws.onopen = () => { logMessage("🟢 成功連接伺服器！請先進行帳號登入或註冊。"); };
-  ws.onerror = () => { logMessage("🔴 伺服器連線失敗，請檢查網路或稍後重試。"); };
-  ws.onclose = () => { logMessage("🟡 與伺服器中斷連線。"); };
+ws.onopen = () => { logMessage("🟢 成功連接伺服器！請先進行帳號登入或註冊。"); };
+ws.onerror = () => { logMessage("🔴 伺服器連線失敗，請檢查網路或稍後重試。"); };
+ws.onclose = () => { logMessage("🟡 與伺服器中斷連線。"); };
 
-  ws.onmessage = (event) => {
-    const data = JSON.parse(event.data);
+ws.onmessage = (event) => {
+  const data = JSON.parse(event.data);
 
-    if (data.type === 'register_success') {
-      alert(data.message);
-    }
-    else if (data.type === 'login_success') {
-      currentUser = data.user;
-      logMessage(`🎉 登入成功！歡迎回來，${data.user.name}`);
-      document.getElementById('authSection').classList.add('hidden');
-      document.getElementById('lobbySection').classList.remove('hidden');
-      
-      const validName = (data.user.name && data.user.name !== "空白") ? data.user.name : "勇者";
-      document.getElementById('playerName').value = validName;
-      document.getElementById('playerRole').value = data.user.role || 'berserker';
-      updateInventoryDisplay(data.user.inventory);
-    }
-    else if (data.type === 'online_count') {
-      document.getElementById('displayOnlineCount').innerText = data.onlineCount;
-    }
-    else if (data.type === 'lobby_chat') {
-      appendLobbyChat(data.sender, data.message, data.time);
-    }
-    else if (data.type === 'idle_reward') {
-      logMessage(data.message);
-      updateInventoryDisplay(data.inventory);
-    }
-    else if (data.type === 'room_created' || data.type === 'room_joined') {
-      myPlayerId = data.player.id;
-      selectedTargetId = null;
-      document.getElementById('displayRoomId').innerText = data.roomId;
-      document.getElementById('lobbySection').classList.add('hidden');
-      document.getElementById('roomSection').classList.remove('hidden');
-      updateInventoryDisplay(data.player.inventory);
-      logMessage(`🏰 成功進入房間 [${data.roomId}]`);
-    }
-    else if (data.type === 'room_state') {
-      currentRoomState = data;
-      renderRoom(data);
-    }
-    else if (data.type === 'battle_log') {
-      logMessage(data.message);
-      checkBattleLogForEffects(data.message);
-    }
-    else if (data.type === 'returned_to_idle') {
-      logMessage(data.message);
-      selectedTargetId = null;
-      document.getElementById('lobbySection').classList.remove('hidden');
-      document.getElementById('roomSection').classList.add('hidden');
-      document.getElementById('actionPanel').classList.add('hidden');
-    }
-    else if (data.type === 'error') {
-      alert("❌ " + data.message);
-    }
-  };
-
-  function checkWsConnected() {
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
-      alert("⚠️ 伺服器連線尚未建立或中斷！");
-      return false;
-    }
-    return true;
+  if (data.type === 'register_success') {
+    alert(data.message);
   }
-
-  function register() {
-    if (!checkWsConnected()) return;
-    const u = document.getElementById('authUsername').value.trim();
-    const p = document.getElementById('authPassword').value.trim();
-    if (!u || !p) return alert("請輸入帳號與密碼！");
-    ws.send(JSON.stringify({ type: 'register', username: u, password: p }));
-  }
-
-  function login() {
-    if (!checkWsConnected()) return;
-    const u = document.getElementById('authUsername').value.trim();
-    const p = document.getElementById('authPassword').value.trim();
-    if (!u || !p) return alert("請輸入帳號與密碼！");
-    ws.send(JSON.stringify({ type: 'login', username: u, password: p }));
-  }
-
-  function sendLobbyChat() {
-    if (!checkWsConnected()) return;
-    const input = document.getElementById('lobbyChatInput');
-    const msg = input.value.trim();
-    if (!msg) return;
-
-    const senderName = getSafePlayerName();
-    ws.send(JSON.stringify({ type: 'send_lobby_chat', message: msg, name: senderName }));
-    input.value = '';
-  }
-
-  function appendLobbyChat(sender, message, time) {
-    const box = document.getElementById('lobbyChatBox');
-    const msgDiv = document.createElement('div');
-    msgDiv.className = 'chat-msg';
-    msgDiv.innerHTML = `<span class="chat-time">[${time}]</span><span class="chat-sender">${sender}:</span><span>${escapeHtml(message)}</span>`;
-    box.appendChild(msgDiv);
-    box.scrollTop = box.scrollHeight;
-  }
-
-  function escapeHtml(str) {
-    return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  }
-
-  function getSafePlayerName() {
-    let nameInput = document.getElementById('playerName').value.trim();
-    if (!nameInput || nameInput === "空白") {
-      nameInput = (currentUser && currentUser.name) ? currentUser.name : "勇者" + Math.floor(Math.random() * 899 + 100);
-      document.getElementById('playerName').value = nameInput;
-    }
-    return nameInput;
-  }
-
-  function quickMatch() {
-    if (!checkWsConnected()) return;
-    const name = getSafePlayerName();
-    const role = document.getElementById('playerRole').value;
-    ws.send(JSON.stringify({ type: 'quick_match', name, role }));
-  }
-
-  function createCustomRoom() {
-    if (!checkWsConnected()) return;
-    const name = getSafePlayerName();
-    const role = document.getElementById('playerRole').value;
-    ws.send(JSON.stringify({ type: 'create_room', name, role }));
-  }
-
-  function joinCustomRoom() {
-    if (!checkWsConnected()) return;
-    const roomId = document.getElementById('roomInputId').value.trim();
-    if (!roomId) return alert("請輸入要加入的房號！");
-    const name = getSafePlayerName();
-    const role = document.getElementById('playerRole').value;
-    ws.send(JSON.stringify({ type: 'join_room', roomId, name, role }));
-  }
-
-  function switchTeam(targetTeam) {
-    if (!checkWsConnected()) return;
-    ws.send(JSON.stringify({ type: 'switch_team', targetTeam }));
-  }
-
-  function updateInventoryDisplay(inv) {
-    if (!inv) return;
-    document.getElementById('lobbyHpPotion').innerText = inv.hpPotion || 0;
-    document.getElementById('lobbyMpPotion').innerText = inv.mpPotion || 0;
-    document.getElementById('lobbyExpScroll').innerText = inv.expScroll || 0;
-
-    const btnHp = document.getElementById('btnHpPotion');
-    const btnMp = document.getElementById('btnMpPotion');
-
-    const hpCount = inv.hpPotion || 0;
-    const mpCount = inv.mpPotion || 0;
-
-    btnHp.innerText = `🧪 HP 藥水 (剩餘: ${hpCount})`;
-    btnHp.disabled = hpCount <= 0;
-
-    btnMp.innerText = `🧪 MP 藥水 (剩餘: ${mpCount})`;
-    btnMp.disabled = mpCount <= 0;
-  }
-
-  function renderRoom(roomState) {
-    const teamA = document.getElementById('teamAPlayers');
-    const teamB = document.getElementById('teamBPlayers');
-    teamA.innerHTML = '';
-    teamB.innerHTML = '';
-
-    const me = roomState.players.find(p => p.id === myPlayerId);
-    const isHost = roomState.players[0] && roomState.players[0].id === myPlayerId;
-
-    if (me && me.inventory) updateInventoryDisplay(me.inventory);
-
-    const btnSwitchA = document.getElementById('btnSwitchTeamA');
-    const btnSwitchB = document.getElementById('btnSwitchTeamB');
-    if (me && roomState.status === 'waiting') {
-      btnSwitchA.disabled = (me.team === 'A');
-      btnSwitchB.disabled = (me.team === 'B');
-    } else {
-      btnSwitchA.disabled = true;
-      btnSwitchB.disabled = true;
-    }
-
-    const btnStart = document.getElementById('btnStartGame');
-    const btnRematch = document.getElementById('btnRematch');
+  else if (data.type === 'login_success') {
+    currentUser = data.user;
+    logMessage(`🎉 登入成功！歡迎回來，${data.user.name}`);
+    document.getElementById('authSection').classList.add('hidden');
+    document.getElementById('lobbySection').classList.remove('hidden');
     
-    if (roomState.status === 'waiting') {
-      btnStart.classList.toggle('hidden', !isHost);
-      btnRematch.classList.add('hidden');
-      document.getElementById('actionPanel').classList.add('hidden');
-    } else if (roomState.status === 'playing') {
-      btnStart.classList.add('hidden');
-      btnRematch.classList.add('hidden');
-      document.getElementById('actionPanel').classList.remove('hidden');
-      renderSkillButtons(me);
-    } else if (roomState.status === 'game_over') {
-      btnStart.classList.add('hidden');
-      btnRematch.classList.toggle('hidden', !isHost);
+    const validName = (data.user.name && data.user.name !== "空白") ? data.user.name : "勇者";
+    document.getElementById('playerName').value = validName;
+    document.getElementById('playerRole').value = data.user.role || 'berserker';
+    updateInventoryDisplay(data.user.inventory);
+  }
+  else if (data.type === 'online_count') {
+    document.getElementById('displayOnlineCount').innerText = data.onlineCount;
+  }
+  else if (data.type === 'lobby_chat') {
+    appendLobbyChat(data.sender, data.message, data.time);
+  }
+  else if (data.type === 'idle_reward') {
+    logMessage(data.message);
+    updateInventoryDisplay(data.inventory);
+  }
+  else if (data.type === 'room_created' || data.type === 'room_joined' || data.type === 'quick_matched') {
+    if (data.player) myPlayerId = data.player.id;
+    selectedTargetId = null;
+    document.getElementById('displayRoomId').innerText = data.roomId;
+    document.getElementById('lobbySection').classList.add('hidden');
+    document.getElementById('roomSection').classList.remove('hidden');
+    if (data.player && data.player.inventory) updateInventoryDisplay(data.player.inventory);
+    logMessage(`🏰 成功進入房間 [${data.roomId}]`);
+  }
+  else if (data.type === 'room_state') {
+    currentRoomState = data;
+    renderRoom(data);
+  }
+  else if (data.type === 'battle_log') {
+    logMessage(data.message);
+    checkBattleLogForEffects(data.message);
+  }
+  else if (data.type === 'returned_to_idle') {
+    logMessage(data.message);
+    selectedTargetId = null;
+    document.getElementById('lobbySection').classList.remove('hidden');
+    document.getElementById('roomSection').classList.add('hidden');
+    document.getElementById('actionPanel').classList.add('hidden');
+  }
+  else if (data.type === 'error') {
+    alert("❌ " + data.message);
+  }
+};
+
+function checkWsConnected() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    alert("⚠️ 伺服器連線尚未建立或中斷！");
+    return false;
+  }
+  return true;
+}
+
+function register() {
+  if (!checkWsConnected()) return;
+  const u = document.getElementById('authUsername').value.trim();
+  const p = document.getElementById('authPassword').value.trim();
+  if (!u || !p) return alert("請輸入帳號與密碼！");
+  ws.send(JSON.stringify({ type: 'register', username: u, password: p }));
+}
+
+function login() {
+  if (!checkWsConnected()) return;
+  const u = document.getElementById('authUsername').value.trim();
+  const p = document.getElementById('authPassword').value.trim();
+  if (!u || !p) return alert("請輸入帳號與密碼！");
+  ws.send(JSON.stringify({ type: 'login', username: u, password: p }));
+}
+
+function sendLobbyChat() {
+  if (!checkWsConnected()) return;
+  const input = document.getElementById('lobbyChatInput');
+  const msg = input.value.trim();
+  if (!msg) return;
+
+  const senderName = getSafePlayerName();
+  ws.send(JSON.stringify({ type: 'send_lobby_chat', message: msg, name: senderName }));
+  input.value = '';
+}
+
+function appendLobbyChat(sender, message, time) {
+  const box = document.getElementById('lobbyChatBox');
+  const msgDiv = document.createElement('div');
+  msgDiv.className = 'chat-msg';
+  msgDiv.innerHTML = `<span class="chat-time">[${time}]</span><span class="chat-sender">${sender}:</span><span>${escapeHtml(message)}</span>`;
+  box.appendChild(msgDiv);
+  box.scrollTop = box.scrollHeight;
+}
+
+function escapeHtml(str) {
+  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function getSafePlayerName() {
+  let nameInput = document.getElementById('playerName').value.trim();
+  if (!nameInput || nameInput === "空白") {
+    nameInput = (currentUser && currentUser.name) ? currentUser.name : "勇者" + Math.floor(Math.random() * 899 + 100);
+    document.getElementById('playerName').value = nameInput;
+  }
+  return nameInput;
+}
+
+function quickMatch() {
+  if (!checkWsConnected()) return;
+  const name = getSafePlayerName();
+  const role = document.getElementById('playerRole').value;
+  ws.send(JSON.stringify({ type: 'quick_match', name, role }));
+}
+
+function createCustomRoom() {
+  if (!checkWsConnected()) return;
+  const name = getSafePlayerName();
+  const role = document.getElementById('playerRole').value;
+  ws.send(JSON.stringify({ type: 'create_room', name, role }));
+}
+
+function joinCustomRoom() {
+  if (!checkWsConnected()) return;
+  const roomId = document.getElementById('roomInputId').value.trim();
+  if (!roomId) return alert("請輸入要加入的房號！");
+  const name = getSafePlayerName();
+  const role = document.getElementById('playerRole').value;
+  ws.send(JSON.stringify({ type: 'join_room', roomId, name, role }));
+}
+
+function switchTeam(targetTeam) {
+  if (!checkWsConnected()) return;
+  ws.send(JSON.stringify({ type: 'switch_team', targetTeam }));
+}
+
+function updateInventoryDisplay(inv) {
+  if (!inv) return;
+  document.getElementById('lobbyHpPotion').innerText = inv.hpPotion || 0;
+  document.getElementById('lobbyMpPotion').innerText = inv.mpPotion || 0;
+  document.getElementById('lobbyExpScroll').innerText = inv.expScroll || 0;
+
+  const btnHp = document.getElementById('btnHpPotion');
+  const btnMp = document.getElementById('btnMpPotion');
+
+  const hpCount = inv.hpPotion || 0;
+  const mpCount = inv.mpPotion || 0;
+
+  btnHp.innerText = `🧪 HP 藥水 (剩餘: ${hpCount})`;
+  btnHp.disabled = hpCount <= 0;
+
+  btnMp.innerText = `🧪 MP 藥水 (剩餘: ${mpCount})`;
+  btnMp.disabled = mpCount <= 0;
+}
+
+function renderRoom(roomState) {
+  const teamA = document.getElementById('teamAPlayers');
+  const teamB = document.getElementById('teamBPlayers');
+  teamA.innerHTML = '';
+  teamB.innerHTML = '';
+
+  if (!roomState || !roomState.players) return;
+
+  const me = roomState.players.find(p => p.id === myPlayerId);
+  const isHost = roomState.players[0] && roomState.players[0].id === myPlayerId;
+
+  if (me && me.inventory) updateInventoryDisplay(me.inventory);
+
+  const btnSwitchA = document.getElementById('btnSwitchTeamA');
+  const btnSwitchB = document.getElementById('btnSwitchTeamB');
+  if (me && roomState.status === 'waiting') {
+    btnSwitchA.disabled = (me.team === 'A');
+    btnSwitchB.disabled = (me.team === 'B');
+  } else {
+    btnSwitchA.disabled = true;
+    btnSwitchB.disabled = true;
+  }
+
+  const btnStart = document.getElementById('btnStartGame');
+  const btnRematch = document.getElementById('btnRematch');
+  
+  if (roomState.status === 'waiting') {
+    btnStart.classList.toggle('hidden', !isHost);
+    btnRematch.classList.add('hidden');
+    document.getElementById('actionPanel').classList.add('hidden');
+  } else if (roomState.status === 'playing') {
+    btnStart.classList.add('hidden');
+    btnRematch.classList.add('hidden');
+    document.getElementById('actionPanel').classList.remove('hidden');
+    if (me) renderSkillButtons(me);
+  } else if (roomState.status === 'game_over') {
+    btnStart.classList.add('hidden');
+    btnRematch.classList.toggle('hidden', !isHost);
+  }
+
+  const targetText = document.getElementById('currentTargetText');
+  if (selectedTargetId) {
+    const targetPlayer = roomState.players.find(p => p.id === selectedTargetId);
+    targetText.innerText = targetPlayer ? `🎯 目前鎖定目標：${targetPlayer.name} (${targetPlayer.team}隊)` : `🎯 技能目標：[自動鎖定模式]`;
+  } else {
+    targetText.innerText = `🎯 技能目標：[自動鎖定模式] (點擊玩家卡片可鎖定單體標的)`;
+  }
+
+  roomState.players.forEach(p => {
+    const isDead = p.hp <= 0;
+    const hpPercent = Math.max(0, (p.hp / p.maxHp) * 100);
+    const mpPercent = Math.max(0, (p.mp / p.maxMp) * 100);
+
+    const pCard = document.createElement('div');
+    pCard.id = `player-card-${p.id}`;
+    const isSelected = selectedTargetId === p.id;
+    pCard.className = `player-card ${isDead ? 'dead' : ''} ${isSelected ? 'selected' : ''}`;
+    
+    if (roomState.status === 'playing') {
+      pCard.style.cursor = 'pointer';
+      pCard.onclick = () => selectTarget(p.id);
     }
 
-    const targetText = document.getElementById('currentTargetText');
-    if (selectedTargetId) {
-      const targetPlayer = roomState.players.find(p => p.id === selectedTargetId);
-      targetText.innerText = targetPlayer ? `🎯 目前鎖定目標：${targetPlayer.name} (${targetPlayer.team}隊)` : `🎯 技能目標：[自動鎖定模式]`;
+    let statusHtml = '';
+    if (p.statusEffects) {
+      if (p.statusEffects.burn) statusHtml += `<span class="status-badge badge-burn">🔥 灼燒</span>`;
+      if (p.statusEffects.paralyze) statusHtml += `<span class="status-badge badge-paralyze">⚡ 麻痺</span>`;
+      if (p.statusEffects.poison) statusHtml += `<span class="status-badge badge-poison">☠️ 中毒</span>`;
+      if (p.statusEffects.blind) statusHtml += `<span class="status-badge badge-blind">👁️ 致盲</span>`;
+    }
+
+    const rInfo = p.rankInfo || { icon: '🥉', name: '青銅' };
+
+    pCard.innerHTML = `
+      <div class="player-header">
+        <span>${p.name} (${p.role}) <span class="rank-tag">${rInfo.icon} ${rInfo.name}</span> ${p.id === myPlayerId ? '⭐我' : ''}</span>
+        <span>${isDead ? '💀 陣亡' : '存活'}</span>
+      </div>
+      <div class="bar-container">
+        <div class="hp-bar" style="width: ${hpPercent}%;"></div>
+        <div class="bar-text">HP: ${p.hp} / ${p.maxHp}</div>
+      </div>
+      <div class="bar-container">
+        <div class="mp-bar" style="width: ${mpPercent}%;"></div>
+        <div class="bar-text">MP: ${p.mp} / ${p.maxMp}</div>
+      </div>
+      <div class="status-tags">${statusHtml}</div>
+    `;
+
+    if (p.team === 'A') teamA.appendChild(pCard);
+    else teamB.appendChild(pCard);
+
+    if (oldPlayerHpMap[p.id] !== undefined) {
+      const hpDiff = p.hp - oldPlayerHpMap[p.id];
+      if (hpDiff < 0) {
+        pCard.classList.add('flash-red');
+        showFloatingText(pCard, `${hpDiff}`, false);
+        setTimeout(() => pCard.classList.remove('flash-red'), 400);
+      } else if (hpDiff > 0) {
+        pCard.classList.add('flash-green');
+        showFloatingText(pCard, `+${hpDiff}`, true);
+        setTimeout(() => pCard.classList.remove('flash-green'), 400);
+      }
+    }
+    oldPlayerHpMap[p.id] = p.hp;
+  });
+}
+
+function selectTarget(playerId) {
+  selectedTargetId = (selectedTargetId === playerId) ? null : playerId;
+  if (currentRoomState) renderRoom(currentRoomState);
+}
+
+function renderSkillButtons(me) {
+  if (!me || !me.role) return;
+  const container = document.getElementById('skillButtons');
+  container.innerHTML = '';
+
+  const mySkills = SKILLS[me.role] || [];
+  const now = Date.now();
+
+  mySkills.forEach(skill => {
+    const btn = document.createElement('button');
+    if (skill.isRevive) {
+      const remainingCd = Math.max(0, Math.ceil((reviveCooldownEndTime - now) / 1000));
+      btn.innerText = `${skill.name} (MP: ${skill.mpCost})${remainingCd > 0 ? ` CD:${remainingCd}s` : ''}`;
+      if (skill.isUlt) btn.className = 'btn-ult';
+      btn.disabled = me.mp < skill.mpCost || me.hp <= 0 || remainingCd > 0;
     } else {
-      targetText.innerText = `🎯 技能目標：[自動鎖定模式] (點擊玩家卡片可鎖定單體標的)`;
+      btn.innerText = `${skill.name} (MP: ${skill.mpCost})`;
+      if (skill.isUlt) btn.className = 'btn-ult';
+      btn.disabled = me.mp < skill.mpCost || me.hp <= 0;
     }
 
-    roomState.players.forEach(p => {
-      const isDead = p.hp <= 0;
-      const hpPercent = Math.max(0, (p.hp / p.maxHp) * 100);
-      const mpPercent = Math.max(0, (p.mp / p.maxMp) * 100);
+    btn.onclick = () => {
+      playSound(skill.isHeal ? 'heal' : 'skill');
+      useSkill(skill);
+    };
+    container.appendChild(btn);
+  });
+}
 
-      const pCard = document.createElement('div');
-      pCard.id = `player-card-${p.id}`;
-      const isSelected = selectedTargetId === p.id;
-      pCard.className = `player-card ${isDead ? 'dead' : ''} ${isSelected ? 'selected' : ''}`;
-      
-      if (roomState.status === 'playing') {
-        pCard.style.cursor = 'pointer';
-        pCard.onclick = () => selectTarget(p.id);
-      }
+function useSkill(skill) {
+  if (!checkWsConnected()) return;
+  if (skill.isRevive) reviveCooldownEndTime = Date.now() + (skill.cd * 1000);
 
-      let statusHtml = '';
-      if (p.statusEffects) {
-        if (p.statusEffects.burn) statusHtml += `<span class="status-badge badge-burn">🔥 灼燒</span>`;
-        if (p.statusEffects.paralyze) statusHtml += `<span class="status-badge badge-paralyze">⚡ 麻痺</span>`;
-        if (p.statusEffects.poison) statusHtml += `<span class="status-badge badge-poison">☠️ 中毒</span>`;
-        if (p.statusEffects.blind) statusHtml += `<span class="status-badge badge-blind">👁️ 致盲</span>`;
-      }
+  ws.send(JSON.stringify({
+    type: 'use_skill',
+    skillName: skill.name,
+    mpCost: skill.mpCost,
+    minVal: skill.minVal,
+    maxVal: skill.maxVal,
+    isAoe: skill.isAoe,
+    isHeal: skill.isHeal,
+    isRevive: skill.isRevive || false,
+    lifesteal: skill.lifesteal || 0,
+    effect: skill.effect || null,
+    chance: skill.chance || 0,
+    isUlt: skill.isUlt || false,
+    targetId: selectedTargetId
+  }));
+}
 
-      const rInfo = p.rankInfo || { icon: '🥉', name: '青銅' };
+function usePotion(potionType) {
+  if (!checkWsConnected()) return;
+  playSound('potion');
+  ws.send(JSON.stringify({ type: 'use_potion', potionType }));
+}
 
-      pCard.innerHTML = `
-        <div class="player-header">
-          <span>${p.name} (${p.role}) <span class="rank-tag">${rInfo.icon} ${rInfo.name}</span> ${p.id === myPlayerId ? '⭐我' : ''}</span>
-          <span>${isDead ? '💀 陣亡' : '存活'}</span>
-        </div>
-        <div class="bar-container">
-          <div class="hp-bar" style="width: ${hpPercent}%;"></div>
-          <div class="bar-text">HP: ${p.hp} / ${p.maxHp}</div>
-        </div>
-        <div class="bar-container">
-          <div class="mp-bar" style="width: ${mpPercent}%;"></div>
-          <div class="bar-text">MP: ${p.mp} / ${p.maxMp}</div>
-        </div>
-        <div class="status-tags">${statusHtml}</div>
-      `;
+function startGame() { if (checkWsConnected()) ws.send(JSON.stringify({ type: 'start_game' })); }
+function rematch() { if (checkWsConnected()) ws.send(JSON.stringify({ type: 'rematch' })); }
+function leaveToIdle() { if (checkWsConnected()) ws.send(JSON.stringify({ type: 'go_idle' })); }
 
-      if (p.team === 'A') teamA.appendChild(pCard);
-      else teamB.appendChild(pCard);
+function logMessage(msg) {
+  const log = document.getElementById('battleLog');
+  const item = document.createElement('div');
+  item.innerText = `[${new Date().toLocaleTimeString()}] ${msg}`;
+  log.appendChild(item);
+  log.scrollTop = log.scrollHeight;
+}
 
-      if (oldPlayerHpMap[p.id] !== undefined) {
-        const hpDiff = p.hp - oldPlayerHpMap[p.id];
-        if (hpDiff < 0) {
-          pCard.classList.add('flash-red');
-          showFloatingText(pCard, `${hpDiff}`, false);
-          setTimeout(() => pCard.classList.remove('flash-red'), 400);
-        } else if (hpDiff > 0) {
-          pCard.classList.add('flash-green');
-          showFloatingText(pCard, `+${hpDiff}`, true);
-          setTimeout(() => pCard.classList.remove('flash-green'), 400);
-        }
-      }
-      oldPlayerHpMap[p.id] = p.hp;
-    });
+function checkBattleLogForEffects(msg) {
+  if (msg.includes('造成') || msg.includes('傷害') || msg.includes('攻擊')) {
+    playSound('attack');
   }
-
-  function selectTarget(playerId) {
-    selectedTargetId = (selectedTargetId === playerId) ? null : playerId;
-    if (currentRoomState) renderRoom(currentRoomState);
+  if (msg.includes('【大招！】') || msg.includes('💥【暴擊！】') || msg.includes('⚡【麻痺】')) {
+    triggerContainerShake();
   }
+}
 
-  function renderSkillButtons(me) {
-    if (!me) return;
-    const container = document.getElementById('skillButtons');
-    container.innerHTML = '';
+function triggerContainerShake() {
+  const container = document.getElementById('mainContainer');
+  container.classList.add('shake-effect');
+  setTimeout(() => container.classList.remove('shake-effect'), 300);
+}
 
-    const mySkills = SKILLS[me.role] || [];
-    const now = Date.now();
+function showFloatingText(targetCard, text, isHeal = false) {
+  if (!targetCard) return;
+  const el = document.createElement('div');
+  el.className = `floating-number ${isHeal ? 'heal-num' : 'damage-num'}`;
+  el.innerText = text;
 
-    mySkills.forEach(skill => {
-      const btn = document.createElement('button');
-      if (skill.isRevive) {
-        const remainingCd = Math.max(0, Math.ceil((reviveCooldownEndTime - now) / 1000));
-        btn.innerText = `${skill.name} (MP: ${skill.mpCost})${remainingCd > 0 ? ` CD:${remainingCd}s` : ''}`;
-        if (skill.isUlt) btn.className = 'btn-ult';
-        btn.disabled = me.mp < skill.mpCost || me.hp <= 0 || remainingCd > 0;
-      } else {
-        btn.innerText = `${skill.name} (MP: ${skill.mpCost})`;
-        if (skill.isUlt) btn.className = 'btn-ult';
-        btn.disabled = me.mp < skill.mpCost || me.hp <= 0;
-      }
+  const randomX = Math.floor(Math.random() * 40) - 20;
+  el.style.left = `calc(50% + ${randomX}px)`;
+  el.style.top = '10px';
 
-      btn.onclick = () => {
-        playSound(skill.isHeal ? 'heal' : 'skill');
-        useSkill(skill);
-      };
-      container.appendChild(btn);
-    });
-  }
-
-  function useSkill(skill) {
-    if (!checkWsConnected()) return;
-    if (skill.isRevive) reviveCooldownEndTime = Date.now() + (skill.cd * 1000);
-
-    ws.send(JSON.stringify({
-      type: 'use_skill',
-      skillName: skill.name,
-      mpCost: skill.mpCost,
-      minVal: skill.minVal,
-      maxVal: skill.maxVal,
-      isAoe: skill.isAoe,
-      isHeal: skill.isHeal,
-      isRevive: skill.isRevive || false,
-      lifesteal: skill.lifesteal || 0,
-      effect: skill.effect || null,
-      chance: skill.chance || 0,
-      isUlt: skill.isUlt || false,
-      targetId: selectedTargetId
-    }));
-  }
-
-  function usePotion(potionType) {
-    if (!checkWsConnected()) return;
-    playSound('potion');
-    ws.send(JSON.stringify({ type: 'use_potion', potionType }));
-  }
-
-  function startGame() { if (checkWsConnected()) ws.send(JSON.stringify({ type: 'start_game' })); }
-  function rematch() { if (checkWsConnected()) ws.send(JSON.stringify({ type: 'rematch' })); }
-  function leaveToIdle() { if (checkWsConnected()) ws.send(JSON.stringify({ type: 'go_idle' })); }
-
-  function logMessage(msg) {
-    const log = document.getElementById('battleLog');
-    const item = document.createElement('div');
-    item.innerText = `[${new Date().toLocaleTimeString()}] ${msg}`;
-    log.appendChild(item);
-    log.scrollTop = log.scrollHeight;
-  }
-
-  function checkBattleLogForEffects(msg) {
-    if (msg.includes('造成') || msg.includes('傷害') || msg.includes('攻擊')) {
-      playSound('attack');
-    }
-    if (msg.includes('【大招！】') || msg.includes('💥【暴擊！】') || msg.includes('⚡【麻痺】')) {
-      triggerContainerShake();
-    }
-  }
-
-  function triggerContainerShake() {
-    const container = document.getElementById('mainContainer');
-    container.classList.add('shake-effect');
-    setTimeout(() => container.classList.remove('shake-effect'), 300);
-  }
-
-  function showFloatingText(targetCard, text, isHeal = false) {
-    if (!targetCard) return;
-    const el = document.createElement('div');
-    el.className = `floating-number ${isHeal ? 'heal-num' : 'damage-num'}`;
-    el.innerText = text;
-
-    const randomX = Math.floor(Math.random() * 40) - 20;
-    el.style.left = `calc(50% + ${randomX}px)`;
-    el.style.top = '10px';
-
-    targetCard.appendChild(el);
-    setTimeout(() => el.remove(), 800);
-  }
+  targetCard.appendChild(el);
+  setTimeout(() => el.remove(), 800);
+}
 </script>
 
 </body>
