@@ -36,6 +36,7 @@ async function initDB() {
         hp_potion INT DEFAULT 5,
         mp_potion INT DEFAULT 5,
         exp_scroll INT DEFAULT 1,
+        gold INT DEFAULT 0,
         rank_points INT DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
@@ -43,6 +44,10 @@ async function initDB() {
     
     await pool.query(`
       ALTER TABLE users ADD COLUMN IF NOT EXISTS rank_points INT DEFAULT 0;
+    `);
+    
+    await pool.query(`
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS gold INT DEFAULT 0;
     `);
 
     console.log("🟢 資料庫連線並初始化成功！");
@@ -177,30 +182,35 @@ wss.on('close', () => {
   clearInterval(heartbeatInterval);
 });
 
-// 🧘 掛機獎勵計時器
-setInterval(async () => {
-  for (let client of wss.clients) {
+// 🧘 遞迴動態掛機獎勵 (每 1~5 分鐘隨機給予 1 瓶藥水與 1~5 金幣)
+function scheduleIdleReward(client) {
+  // 1 到 5 分鐘隨機毫秒數 (60,000ms ~ 300,000ms)
+  const randomDelay = Math.floor(Math.random() * (300000 - 60000 + 1)) + 60000;
+
+  client.idleTimer = setTimeout(async () => {
     if (client.readyState === WebSocket.OPEN && client.user && client.isIdle) {
       const isHp = Math.random() > 0.5;
-      const col = isHp ? 'hp_potion' : 'mp_potion';
-      const itemText = isHp ? 'HP 藥水 x1' : 'MP 藥水 x1';
+      const potionCol = isHp ? 'hp_potion' : 'mp_potion';
+      const potionName = isHp ? 'HP 藥水 x1' : 'MP 藥水 x1';
+      const goldEarned = Math.floor(Math.random() * 5) + 1; // 隨機 1 ~ 5 金幣
 
       try {
         const res = await pool.query(
-          `UPDATE users SET ${col} = ${col} + 1 WHERE id = $1 RETURNING hp_potion, mp_potion, exp_scroll, rank_points`,
-          [client.user.id]
+          `UPDATE users SET ${potionCol} = ${potionCol} + 1, gold = gold + $1 WHERE id = $2 RETURNING hp_potion, mp_potion, exp_scroll, gold, rank_points`,
+          [goldEarned, client.user.id]
         );
         const inv = res.rows[0];
         client.user.inventory = {
           hpPotion: inv.hp_potion,
           mpPotion: inv.mp_potion,
-          expScroll: inv.exp_scroll
+          expScroll: inv.exp_scroll,
+          gold: inv.gold
         };
         client.user.rankPoints = inv.rank_points;
 
         client.send(JSON.stringify({
           type: 'idle_reward',
-          message: `🧘 修練中... 獲得了 🧪 ${itemText}！`,
+          message: `🧘 修練中... 獲得了 🧪 ${potionName} 與 🪙 ${goldEarned} 金幣！`,
           inventory: client.user.inventory,
           rankPoints: client.user.rankPoints,
           rankInfo: getRankInfo(client.user.rankPoints)
@@ -209,8 +219,12 @@ setInterval(async () => {
         console.error("掛機獎勵更新失敗:", err);
       }
     }
-  }
-}, 10000);
+    // 繼續循環下一次隨機掛機計時
+    if (client.readyState === WebSocket.OPEN && client.isIdle) {
+      scheduleIdleReward(client);
+    }
+  }, randomDelay);
+}
 
 // 🤖 建立 AI 玩家與房間邏輯
 function createMatchWithAI(p1) {
@@ -234,13 +248,13 @@ function createMatchWithAI(p1) {
         id: p1.id, ws: p1.ws, name: p1.name, role: p1.role, team: 'A',
         hp: stats1.hp, maxHp: stats1.hp, mp: stats1.mp, maxMp: stats1.mp,
         rankPoints: p1.rankPoints, statusEffects: {}, isAi: false,
-        inventory: p1.user ? p1.user.inventory : { hpPotion: 5, mpPotion: 5, expScroll: 1 }
+        inventory: p1.user ? p1.user.inventory : { hpPotion: 5, mpPotion: 5, expScroll: 1, gold: 0 }
       },
       {
         id: aiPlayerId, ws: null, name: aiName, role: aiRole, team: 'B',
         hp: aiStats.hp, maxHp: aiStats.hp, mp: aiStats.mp, maxMp: aiStats.mp,
         rankPoints: p1.rankPoints + (Math.floor(Math.random() * 100) - 50), statusEffects: {}, isAi: true,
-        inventory: { hpPotion: 5, mpPotion: 5, expScroll: 1 }
+        inventory: { hpPotion: 5, mpPotion: 5, expScroll: 1, gold: 0 }
       }
     ]
   };
@@ -264,14 +278,12 @@ function startAIBattleLoop(roomId) {
     const ai = room.players.find(p => p.isAi && p.hp > 0);
     if (!ai) return;
 
-    // AI 自動恢復 MP
     ai.mp = Math.min(ai.maxMp, ai.mp + 80);
 
     const enemies = room.players.filter(p => p.team !== ai.team && p.hp > 0);
     if (enemies.length === 0) return;
     const target = enemies[Math.floor(Math.random() * enemies.length)];
 
-    // AI 血量低於 40% 時隨機喝水
     if (ai.hp < ai.maxHp * 0.4 && ai.inventory.hpPotion > 0 && Math.random() < 0.6) {
       ai.inventory.hpPotion--;
       ai.hp = Math.min(ai.maxHp, ai.hp + 3000);
@@ -280,12 +292,10 @@ function startAIBattleLoop(roomId) {
       return;
     }
 
-    // AI 進行攻擊
     const dmg = Math.floor(Math.random() * 150) + 180;
     target.hp = Math.max(0, target.hp - dmg);
     broadcastBattleLog(roomId, `💥 ${ai.name} 對 ${target.name} 發動攻擊，造成 ${dmg} 傷害！`);
 
-    // 檢查勝負
     const teamAAlive = room.players.some(p => p.team === 'A' && p.hp > 0);
     const teamBAlive = room.players.some(p => p.team === 'B' && p.hp > 0);
 
@@ -327,6 +337,7 @@ wss.on('connection', (ws) => {
   ws.id = 'PLAYER_' + Math.random().toString(36).substr(2, 9);
   ws.isIdle = true;
   ws.isAlive = true;
+  ws.idleTimer = null;
 
   ws.send(JSON.stringify({ type: 'online_count', onlineCount: simulatedOnlineCount + wss.clients.size }));
 
@@ -341,7 +352,7 @@ wss.on('connection', (ws) => {
         const { username, password } = data;
         const hash = await bcrypt.hash(password, 10);
         try {
-          await pool.query('INSERT INTO users (username, password_hash, rank_points) VALUES ($1, $2, 0)', [username, hash]);
+          await pool.query('INSERT INTO users (username, password_hash, rank_points, gold) VALUES ($1, $2, 0, 0)', [username, hash]);
           ws.send(JSON.stringify({ type: 'register_success', message: '🎉 註冊成功！預設段位為【🥉 青銅】。' }));
         } catch (e) {
           ws.send(JSON.stringify({ type: 'error', message: '⚠️ 帳號名稱已被使用！' }));
@@ -363,9 +374,13 @@ wss.on('connection', (ws) => {
           role: user.role,
           rankPoints: user.rank_points || 0,
           rankInfo: getRankInfo(user.rank_points || 0),
-          inventory: { hpPotion: user.hp_potion, mpPotion: user.mp_potion, expScroll: user.exp_scroll }
+          inventory: { hpPotion: user.hp_potion, mpPotion: user.mp_potion, expScroll: user.exp_scroll, gold: user.gold || 0 }
         };
         ws.isIdle = true;
+
+        // 啟動掛機獎勵計時
+        if (ws.idleTimer) clearTimeout(ws.idleTimer);
+        scheduleIdleReward(ws);
 
         ws.send(JSON.stringify({ type: 'login_success', user: ws.user }));
       }
@@ -389,9 +404,10 @@ wss.on('connection', (ws) => {
         const queuePlayer = { ws, id: ws.id, name, role, rankPoints: rankPts, user: ws.user };
         matchQueue.push(queuePlayer);
         ws.isIdle = false;
+        if (ws.idleTimer) clearTimeout(ws.idleTimer);
+
         ws.send(JSON.stringify({ type: 'queue_joined' }));
 
-        // 檢查是否有其他真人玩家
         if (matchQueue.length >= 2) {
           const p1 = matchQueue.shift();
           const p2 = matchQueue.shift();
@@ -409,13 +425,13 @@ wss.on('connection', (ws) => {
                 id: p1.id, ws: p1.ws, name: p1.name, role: p1.role, team: 'A',
                 hp: stats1.hp, maxHp: stats1.hp, mp: stats1.mp, maxMp: stats1.mp,
                 rankPoints: p1.rankPoints, statusEffects: {}, isAi: false,
-                inventory: p1.user ? p1.user.inventory : { hpPotion: 5, mpPotion: 5, expScroll: 1 }
+                inventory: p1.user ? p1.user.inventory : { hpPotion: 5, mpPotion: 5, expScroll: 1, gold: 0 }
               },
               {
                 id: p2.id, ws: p2.ws, name: p2.name, role: p2.role, team: 'B',
                 hp: stats2.hp, maxHp: stats2.hp, mp: stats2.mp, maxMp: stats2.mp,
                 rankPoints: p2.rankPoints, statusEffects: {}, isAi: false,
-                inventory: p2.user ? p2.user.inventory : { hpPotion: 5, mpPotion: 5, expScroll: 1 }
+                inventory: p2.user ? p2.user.inventory : { hpPotion: 5, mpPotion: 5, expScroll: 1, gold: 0 }
               }
             ]
           };
@@ -427,7 +443,6 @@ wss.on('connection', (ws) => {
           p2.ws.send(JSON.stringify({ type: 'match_found', roomId, player: rooms[roomId].players[1] }));
           broadcastRoomState(roomId);
         } else {
-          // ⏱️ 超過 3 秒若無真人，自動召喚 AI 對手，玩家完全不會發現
           setTimeout(() => {
             const index = matchQueue.findIndex(p => p.ws === ws);
             if (index !== -1) {
@@ -442,6 +457,8 @@ wss.on('connection', (ws) => {
       else if (data.type === 'leave_queue') {
         matchQueue = matchQueue.filter(p => p.ws !== ws);
         ws.isIdle = true;
+        if (ws.idleTimer) clearTimeout(ws.idleTimer);
+        scheduleIdleReward(ws);
         ws.send(JSON.stringify({ type: 'queue_left' }));
       }
 
@@ -464,12 +481,14 @@ wss.on('connection', (ws) => {
             id: ws.id, ws, name, role, team,
             hp: stats.hp, maxHp: stats.hp, mp: stats.mp, maxMp: stats.mp,
             rankPoints: rankPts, statusEffects: {}, isAi: false,
-            inventory: ws.user ? ws.user.inventory : { hpPotion: 5, mpPotion: 5, expScroll: 1 }
+            inventory: ws.user ? ws.user.inventory : { hpPotion: 5, mpPotion: 5, expScroll: 1, gold: 0 }
           }]
         };
 
         ws.roomId = roomId;
         ws.isIdle = false;
+        if (ws.idleTimer) clearTimeout(ws.idleTimer);
+
         ws.send(JSON.stringify({ type: 'room_created', roomId, player: rooms[roomId].players[0] }));
         broadcastRoomState(roomId);
       }
@@ -496,12 +515,13 @@ wss.on('connection', (ws) => {
           id: ws.id, ws, name: name || '勇者', role, team: assignedTeam,
           hp: stats.hp, maxHp: stats.hp, mp: stats.mp, maxMp: stats.mp,
           rankPoints: rankPts, statusEffects: {}, isAi: false,
-          inventory: ws.user ? ws.user.inventory : { hpPotion: 5, mpPotion: 5, expScroll: 1 }
+          inventory: ws.user ? ws.user.inventory : { hpPotion: 5, mpPotion: 5, expScroll: 1, gold: 0 }
         };
 
         room.players.push(newPlayer);
         ws.roomId = roomId;
         ws.isIdle = false;
+        if (ws.idleTimer) clearTimeout(ws.idleTimer);
 
         ws.send(JSON.stringify({ type: 'room_joined', roomId, player: newPlayer }));
         broadcastRoomState(roomId);
@@ -550,7 +570,6 @@ wss.on('connection', (ws) => {
             }
           }, 1000);
 
-          // 如果是 AI 匹配房，自動啟動 AI 對戰迴圈
           if (room.isAiMatch) {
             startAIBattleLoop(room.id);
           }
@@ -720,6 +739,8 @@ wss.on('connection', (ws) => {
           ws.roomId = null;
         }
         ws.isIdle = true;
+        if (ws.idleTimer) clearTimeout(ws.idleTimer);
+        scheduleIdleReward(ws);
         ws.send(JSON.stringify({ type: 'returned_to_idle', message: '🧘 已回到大廳修練...' }));
       }
 
@@ -730,6 +751,7 @@ wss.on('connection', (ws) => {
 
   ws.on('close', () => {
     matchQueue = matchQueue.filter(p => p.ws !== ws);
+    if (ws.idleTimer) clearTimeout(ws.idleTimer);
     if (ws.roomId && rooms[ws.roomId]) {
       const room = rooms[ws.roomId];
       room.players = room.players.filter(p => p.id !== ws.id);
