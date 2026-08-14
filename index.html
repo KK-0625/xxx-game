@@ -47,7 +47,6 @@
     .inventory-list, .shop-list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
     .inventory-item, .shop-item { background: #2a2a2a; padding: 8px 12px; border-radius: 4px; display: flex; justify-content: space-between; align-items: center; border-left: 4px solid #ff9800; }
     .shop-item { border-left-color: #00bcd4; }
-    .rank-tag { font-size: 12px; padding: 2px 6px; border-radius: 4px; font-weight: bold; margin-left: 6px; }
 
     /* 隊伍與卡片 */
     .teams-container { display: flex; gap: 15px; margin-top: 10px; }
@@ -56,17 +55,10 @@
     .team-box.team-b { border-top: 4px solid #f44336; }
     .team-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
 
-    .player-card { background: #333; border-radius: 6px; padding: 10px; margin-bottom: 10px; position: relative; border: 2px solid transparent; transition: 0.2s; }
+    .player-card { background: #333; border-radius: 6px; padding: 10px; margin-bottom: 10px; position: relative; border: 2px solid transparent; transition: 0.2s; cursor: pointer; }
     .player-card.selected { border-color: #ffca28; background: #3d3b2a; }
     .player-card.dead { opacity: 0.5; filter: grayscale(1); }
     .player-header { display: flex; justify-content: space-between; font-weight: bold; margin-bottom: 6px; }
-    
-    .status-tags { font-size: 11px; margin-top: 4px; display: flex; gap: 4px; flex-wrap: wrap; }
-    .status-badge { padding: 2px 5px; border-radius: 3px; font-weight: bold; color: #fff; }
-    .badge-burn { background-color: #ff5722; }
-    .badge-paralyze { background-color: #ffeb3b; color: #000; }
-    .badge-poison { background-color: #9c27b0; }
-    .badge-blind { background-color: #607d8b; }
 
     .bar-container { background: #555; height: 14px; border-radius: 7px; overflow: hidden; margin-bottom: 4px; position: relative; }
     .hp-bar { background: linear-gradient(90deg, #e53935, #ef5350); height: 100%; width: 100%; transition: width 0.3s; }
@@ -75,27 +67,10 @@
 
     .action-panel { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
     .skill-btns, .item-btns { display: flex; gap: 8px; flex-wrap: wrap; }
-    .btn-ult { background: linear-gradient(135deg, #d32f2f, #7b1fa2); font-weight: bold; border: 1px solid #ff4081; }
     .btn-potion { background-color: #0288d1; }
 
     #battleLog { height: 180px; overflow-y: auto; background-color: #000; color: #00ff66; padding: 10px; font-family: monospace; font-size: 13px; border-radius: 4px; }
     .target-indicator { font-size: 13px; color: #ffca28; font-weight: bold; margin-bottom: 5px; }
-
-    /* 動畫特效 */
-    @keyframes shake {
-      0% { transform: translate(1px, 1px); }
-      20% { transform: translate(-3px, 0px); }
-      40% { transform: translate(1px, -1px); }
-      100% { transform: translate(0px, 0px); }
-    }
-    .shake-effect { animation: shake 0.3s ease-in-out; }
-    .floating-number { position: absolute; font-weight: 900; font-size: 22px; pointer-events: none; animation: floatUp 0.8s ease-out forwards; z-index: 999; }
-    @keyframes floatUp {
-      0% { opacity: 1; transform: translateY(0) scale(1.2); }
-      100% { opacity: 0; transform: translateY(-50px) scale(1); }
-    }
-    .damage-num { color: #ff3333; }
-    .heal-num { color: #33ff33; }
   </style>
 </head>
 <body>
@@ -131,11 +106,10 @@
         <span id="idleStatusText" style="color: #aaa; font-size: 13px;">正在自動修練尋找藥水與道具...</span>
       </div>
       <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
-        <!-- 🌟 新增：角色等級、經驗與金幣顯示 -->
         <div class="player-stats-badge">
           <span>⭐ Lv.<span id="displayLevel">1</span></span>
           <span>✨ EXP: <span id="displayExp">0</span></span>
-          <span>💰 金幣: <span id="displayGold">500</span></span>
+          <span>💰 金幣: <span id="displayGold">0</span></span>
         </div>
         <div class="online-badge">🟢 在線：<span id="displayOnlineCount">---</span> 人</div>
       </div>
@@ -187,20 +161,20 @@
           <div class="inventory-item"><span>📜 經驗卷軸</span><strong id="lobbyExpScroll">0</strong></div>
         </div>
 
-        <!-- 🌟 新增：道具商店介面 -->
+        <!-- 🌟 道具商店介面 -->
         <h4 style="margin-top: 5px;">🏪 道具商店</h4>
         <div class="shop-list">
           <div class="shop-item">
-            <span>🧪 HP 藥水 (💰 50金幣)</span>
-            <button onclick="buyShopItem('hpPotion')" style="background-color: #008cba; padding: 4px 10px;">購買</button>
+            <span>🧪 HP 藥水 (💰 10金幣)</span>
+            <button onclick="buyShopItem('hp_potion')" style="background-color: #008cba; padding: 4px 10px;">購買</button>
           </div>
           <div class="shop-item">
-            <span>🧪 MP 藥水 (💰 50金幣)</span>
-            <button onclick="buyShopItem('mpPotion')" style="background-color: #008cba; padding: 4px 10px;">購買</button>
+            <span>🧪 MP 藥水 (💰 10金幣)</span>
+            <button onclick="buyShopItem('mp_potion')" style="background-color: #008cba; padding: 4px 10px;">購買</button>
           </div>
           <div class="shop-item">
-            <span>📜 經驗卷軸 (💰 200金幣)</span>
-            <button onclick="buyShopItem('expScroll')" style="background-color: #008cba; padding: 4px 10px;">購買</button>
+            <span>📜 經驗卷軸 (💰 50金幣)</span>
+            <button onclick="buyShopItem('exp_scroll')" style="background-color: #008cba; padding: 4px 10px;">購買</button>
           </div>
         </div>
       </div>
@@ -212,8 +186,7 @@
     <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
       <h3>🏰 戰鬥房間 - 房號: <span id="displayRoomId" style="color: #ff9800;">-</span></h3>
       <div>
-        <button id="btnStartGame" onclick="startGame()" class="hidden">⚔️ 開始遊戲</button>
-        <button id="btnRematch" onclick="rematch()" class="hidden">🔄 重新開局</button>
+        <button id="btnStartGame" onclick="startGame()">⚔️ 開始遊戲</button>
         <button onclick="leaveToIdle()" style="background-color: #d32f2f;">🚪 離開房間</button>
       </div>
     </div>
@@ -222,7 +195,7 @@
       <div class="team-box team-a">
         <div class="team-header">
           <h4 style="color: #2196f3; margin: 0;">🔵 隊伍 A</h4>
-          <button id="btnSwitchTeamA" onclick="switchTeam('A')" style="font-size: 12px; padding: 4px 8px; background: #1976d2;">切換至 A 隊</button>
+          <button onclick="switchTeam('A')" style="font-size: 12px; padding: 4px 8px; background: #1976d2;">切換至 A 隊</button>
         </div>
         <div id="teamAPlayers"></div>
       </div>
@@ -230,7 +203,7 @@
       <div class="team-box team-b">
         <div class="team-header">
           <h4 style="color: #f44336; margin: 0;">🔴 隊伍 B</h4>
-          <button id="btnSwitchTeamB" onclick="switchTeam('B')" style="font-size: 12px; padding: 4px 8px; background: #d32f2f;">切換至 B 隊</button>
+          <button onclick="switchTeam('B')" style="font-size: 12px; padding: 4px 8px; background: #d32f2f;">切換至 B 隊</button>
         </div>
         <div id="teamBPlayers"></div>
       </div>
@@ -310,23 +283,31 @@
   let ws = new WebSocket('wss://rpg-game-backend-vhag.onrender.com');
   let myPlayerId = null;
   let currentUser = null;
-  let currentRoomState = null;
   let selectedTargetId = null;
-  let oldPlayerHpMap = {};
 
+  // 技能完整設定（包含後端運算所需的屬性對接）
   const SKILLS = {
     mage: [
-      { name: '🔥 火球術', mpCost: 80, minVal: 220, maxVal: 350 },
-      { name: '⚡ 連鎖閃電', mpCost: 150, minVal: 180, maxVal: 280 }
+      { skillName: '🔥 火球術', mpCost: 80, minVal: 220, maxVal: 350, effect: 'burn', chance: 0.4 },
+      { skillName: '⚡ 連鎖閃電', mpCost: 150, minVal: 180, maxVal: 280, effect: 'paralyze', chance: 0.3 }
     ],
     berserker: [
-      { name: '⚔️ 重擊', mpCost: 40, minVal: 180, maxVal: 300, lifesteal: 0.2 },
-      { name: '💥 英雄一擊', mpCost: 300, minVal: 550, maxVal: 900, isUlt: true }
+      { skillName: '⚔️ 重擊', mpCost: 40, minVal: 180, maxVal: 300, lifesteal: 0.2 },
+      { skillName: '💥 英雄一擊', mpCost: 300, minVal: 550, maxVal: 900 }
     ],
-    priest: [{ name: '💚 治癒術', mpCost: 70, minVal: 200, maxVal: 320, isHeal: true }],
-    knight: [{ name: '🛡️ 盾牌衝鋒', mpCost: 40, minVal: 150, maxVal: 240 }],
-    assassin: [{ name: '🗡️ 毒刃', mpCost: 50, minVal: 220, maxVal: 350 }],
-    archer: [{ name: '🏹 精準射擊', mpCost: 50, minVal: 200, maxVal: 320 }]
+    priest: [
+      { skillName: '💚 治癒術', mpCost: 70, minVal: 200, maxVal: 320, isHeal: true },
+      { skillName: '🌟 復活術', mpCost: 200, isRevive: true }
+    ],
+    knight: [
+      { skillName: '🛡️ 盾牌衝鋒', mpCost: 40, minVal: 150, maxVal: 240 }
+    ],
+    assassin: [
+      { skillName: '🗡️ 毒刃', mpCost: 50, minVal: 220, maxVal: 350, effect: 'poison', chance: 0.5 }
+    ],
+    archer: [
+      { skillName: '🏹 精準射擊', mpCost: 50, minVal: 200, maxVal: 320, effect: 'blind', chance: 0.4 }
+    ]
   };
 
   ws.onmessage = (event) => {
@@ -334,7 +315,7 @@
 
     if (data.type === 'register_success' || data.type === 'shop_success') {
       alert(data.message);
-      if (data.inventory) updateUserDataDisplay(data);
+      if (data.inventory) updateUserDataDisplay({ inventory: data.inventory });
     }
     else if (data.type === 'login_success') {
       currentUser = data.user;
@@ -349,11 +330,11 @@
     else if (data.type === 'lobby_chat') {
       appendLobbyChat(data.sender, data.message, data.time);
     }
-    else if (data.type === 'battle_reward') {
+    else if (data.type === 'idle_reward') {
       logMessage(data.message);
       updateUserDataDisplay(data);
     }
-    else if (data.type === 'room_created' || data.type === 'room_joined') {
+    else if (data.type === 'match_found' || data.type === 'room_created' || data.type === 'room_joined') {
       myPlayerId = data.player.id;
       document.getElementById('displayRoomId').innerText = data.roomId;
       document.getElementById('lobbySection').classList.add('hidden');
@@ -361,7 +342,6 @@
       updateUserDataDisplay(data.player);
     }
     else if (data.type === 'room_state') {
-      currentRoomState = data;
       renderRoom(data);
     }
     else if (data.type === 'battle_log') {
@@ -377,7 +357,6 @@
     }
   };
 
-  // 🌟 更新前端金幣、等級、經驗與背包顯示
   function updateUserDataDisplay(userObj) {
     if (!userObj) return;
     if (userObj.level !== undefined) document.getElementById('displayLevel').innerText = userObj.level;
@@ -402,7 +381,7 @@
   function buyShopItem(itemType) {
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
     playSound('buy');
-    ws.send(JSON.stringify({ type: 'buy_shop_item', itemType }));
+    ws.send(JSON.stringify({ type: 'buy_item', itemType }));
   }
 
   function register() {
@@ -430,8 +409,9 @@
     box.scrollTop = box.scrollHeight;
   }
 
+  // 對接後端的 join_queue 型態
   function quickMatch() {
-    ws.send(JSON.stringify({ type: 'quick_match', name: document.getElementById('playerName').value, role: document.getElementById('playerRole').value }));
+    ws.send(JSON.stringify({ type: 'join_queue', name: document.getElementById('playerName').value, role: document.getElementById('playerRole').value }));
   }
   function createCustomRoom() {
     ws.send(JSON.stringify({ type: 'create_room', name: document.getElementById('playerName').value, role: document.getElementById('playerRole').value }));
@@ -442,8 +422,8 @@
   }
   function switchTeam(team) { ws.send(JSON.stringify({ type: 'switch_team', targetTeam: team })); }
   function startGame() { ws.send(JSON.stringify({ type: 'start_game' })); }
-  function rematch() { ws.send(JSON.stringify({ type: 'rematch' })); }
   function leaveToIdle() { ws.send(JSON.stringify({ type: 'go_idle' })); }
+  function usePotion(potionType) { ws.send(JSON.stringify({ type: 'use_potion', potionType })); }
 
   function renderRoom(roomState) {
     const teamA = document.getElementById('teamAPlayers');
@@ -460,8 +440,8 @@
       
       card.innerHTML = `
         <div class="player-header"><span>${p.name} (Lv.${p.level || 1})</span><span>${p.hp <= 0 ? '💀 陣亡' : '存活'}</span></div>
-        <div class="bar-container"><div class="hp-bar" style="width: ${(p.hp/p.maxHp)*100}%;"></div><div class="bar-text">HP: ${p.hp}/${p.maxHp}</div></div>
-        <div class="bar-container"><div class="mp-bar" style="width: ${(p.mp/p.maxMp)*100}%;"></div><div class="bar-text">MP: ${p.mp}/${p.maxMp}</div></div>
+        <div class="bar-container"><div class="hp-bar" style="width: ${Math.max(0, (p.hp/p.maxHp)*100)}%;"></div><div class="bar-text">HP: ${p.hp}/${p.maxHp}</div></div>
+        <div class="bar-container"><div class="mp-bar" style="width: ${Math.max(0, (p.mp/p.maxMp)*100)}%;"></div><div class="bar-text">MP: ${p.mp}/${p.maxMp}</div></div>
       `;
       if (p.team === 'A') teamA.appendChild(card); else teamB.appendChild(card);
     });
@@ -472,7 +452,7 @@
       skillContainer.innerHTML = '';
       (SKILLS[me.role] || []).forEach(skill => {
         const btn = document.createElement('button');
-        btn.innerText = `${skill.name} (MP:${skill.mpCost})`;
+        btn.innerText = `${skill.skillName} (MP:${skill.mpCost})`;
         btn.onclick = () => ws.send(JSON.stringify({ type: 'use_skill', ...skill, targetId: selectedTargetId }));
         skillContainer.appendChild(btn);
       });
