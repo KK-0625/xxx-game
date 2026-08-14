@@ -146,7 +146,7 @@
           <label>玩家暱稱：<input type="text" id="playerName" value="勇者"></label>
           <label>選擇職業：
             <select id="playerRole">
-              <option value="berserker">🩸 狂戰士 (16000 HP - 攻擊吸血)</option>
+              <option value="berserker" selected>🩸 狂戰士 (16000 HP - 攻擊吸血)</option>
               <option value="mage">🔮 法師 (9000 HP - 灼燒/麻痺)</option>
               <option value="priest">💚 牧師 (10000 HP - 專屬復活)</option>
               <option value="knight">🏰 騎士 (20000 HP - 5% 荊棘反傷)</option>
@@ -156,20 +156,17 @@
           </label>
           
           <div style="margin-top: 10px; display: flex; flex-direction: column; gap: 8px;">
+            <!-- 保留單人隨機匹配 -->
             <button id="btnJoinQueue" onclick="joinQueue()" style="background-color: #ff9800; font-weight: bold; font-size: 15px;">🎲 單人隨機匹配 (1v1)</button>
             <button id="btnLeaveQueue" onclick="leaveQueue()" class="hidden" style="background-color: #d32f2f;">❌ 取消匹配</button>
             
             <div id="queueStatus" class="queue-status hidden">⏳ 正在尋找對手 (1v1) 中...</div>
             <hr style="border-color: #333; width: 100%;">
             
-            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-              <button onclick="createRoom('A')">🏠 建立隊伍 A 房</button>
-              <button onclick="createRoom('B')" style="background-color: #e53935;">🏠 建立隊伍 B 房</button>
-            </div>
-            <div style="display: flex; gap: 8px; margin-top: 5px;">
-              <input type="text" id="joinRoomId" placeholder="輸入房號" style="width: 110px;">
-              <button onclick="joinRoom('A')">加入隊伍 A</button>
-              <button onclick="joinRoom('B')" style="background-color: #e53935;">加入隊伍 B</button>
+            <!-- 整合為單一自訂房間按鈕 -->
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <input type="text" id="joinRoomId" placeholder="房號 (留空則建立新房)" style="flex: 1;">
+              <button onclick="handleCustomRoom()" style="background-color: #2196f3; font-weight: bold;">🏠 自訂房間 (建立/加入)</button>
             </div>
           </div>
         </div>
@@ -327,6 +324,7 @@
       
       const validName = (data.user.name && data.user.name !== "空白") ? data.user.name : "勇者";
       document.getElementById('playerName').value = validName;
+      // 登入後預設職業為狂戰士 (berserker)
       document.getElementById('playerRole').value = data.user.role || 'berserker';
       updateInventoryDisplay(data.user.inventory);
     }
@@ -458,22 +456,21 @@
     showQueueUI(false);
   }
 
-  function createRoom(team = 'A') {
-    if (!checkWsConnected()) return;
-    leaveQueue();
-    const name = getSafePlayerName();
-    const role = document.getElementById('playerRole').value;
-    ws.send(JSON.stringify({ type: 'create_room', name, role, team }));
-  }
-
-  function joinRoom(targetTeam = 'A') {
+  // 🏠 整合自訂房間邏輯（有填房號就加入，沒填則建立）
+  function handleCustomRoom() {
     if (!checkWsConnected()) return;
     leaveQueue();
     const name = getSafePlayerName();
     const role = document.getElementById('playerRole').value;
     const roomId = document.getElementById('joinRoomId').value.trim();
-    if (!roomId) return alert("請輸入房號！");
-    ws.send(JSON.stringify({ type: 'join_room', name, role, roomId, targetTeam }));
+
+    if (roomId) {
+      // 輸入房號 -> 加入隊伍 A (進房後可自由切換)
+      ws.send(JSON.stringify({ type: 'join_room', name, role, roomId, targetTeam: 'A' }));
+    } else {
+      // 未輸入房號 -> 自動開立隊伍 A 房
+      ws.send(JSON.stringify({ type: 'create_room', name, role, team: 'A' }));
+    }
   }
 
   // 🚩 切換隊伍
