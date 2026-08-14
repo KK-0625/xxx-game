@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>多人線上 RPG 戰鬥房間 - 戰鬥時請勿跳窗</title>
+  <title>多人線上 RPG 戰鬥房間 - 完整功能版</title>
   <style>
     * { box-sizing: border-box; font-family: "Segoe UI", Microsoft JhengHei, sans-serif; }
     body { background-color: #121212; color: #e0e0e0; margin: 0; padding: 20px; display: flex; justify-content: center; }
@@ -79,7 +79,6 @@
     .btn-potion:hover { background-color: #03a9f4; }
 
     #battleLog { height: 180px; overflow-y: auto; background-color: #000; color: #00ff66; padding: 10px; font-family: monospace; font-size: 13px; border-radius: 4px; }
-    .queue-status { margin-top: 10px; padding: 8px; background: #332200; border: 1px dashed #ff9800; border-radius: 4px; color: #ffca28; }
     .target-indicator { font-size: 13px; color: #ffca28; font-weight: bold; margin-bottom: 5px; }
 
     /* 震動與傷害數字動畫 */
@@ -128,7 +127,7 @@
 </div>
 
 <div id="mainContainer" class="container">
-  <h2>⚔️ 線上 RPG 戰鬥與匹配系統</h2>
+  <h2>⚔️ 線上 RPG 戰鬥與房間系統</h2>
 
   <!-- 帳號登入 / 註冊區塊 -->
   <div id="authSection" class="card">
@@ -155,10 +154,10 @@
     </div>
     
     <div class="lobby-content">
-      <!-- 🎮 遊戲配對與自建房 -->
+      <!-- 🎮 遊戲房間操作選擇 -->
       <div class="lobby-box card">
         <h4>🎮 戰鬥選擇</h4>
-        <div style="display: flex; flex-direction: column; gap: 8px;">
+        <div style="display: flex; flex-direction: column; gap: 10px;">
           <label>玩家暱稱：<input type="text" id="playerName" value="勇者"></label>
           <label>選擇職業：
             <select id="playerRole">
@@ -171,21 +170,12 @@
             </select>
           </label>
           
-          <div style="margin-top: 10px; display: flex; flex-direction: column; gap: 8px;">
-            <button id="btnJoinQueue" onclick="joinQueue()" style="background-color: #ff9800; font-weight: bold; font-size: 15px;">🎲 單人隨機匹配 (1v1)</button>
-            <button id="btnLeaveQueue" onclick="leaveQueue()" class="hidden" style="background-color: #d32f2f;">❌ 取消匹配</button>
-            
-            <div id="queueStatus" class="queue-status hidden">⏳ 正在尋找對手 (1v1) 中...</div>
-            <hr style="border-color: #333; width: 100%;">
-            
-            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-              <button onclick="createRoom('A')">🏠 建立隊伍 A 房</button>
-              <button onclick="createRoom('B')" style="background-color: #e53935;">🏠 建立隊伍 B 房</button>
-            </div>
-            <div style="display: flex; gap: 8px; margin-top: 5px;">
-              <input type="text" id="joinRoomId" placeholder="輸入房號" style="width: 110px;">
-              <button onclick="joinRoom('A')">加入隊伍 A</button>
-              <button onclick="joinRoom('B')" style="background-color: #e53935;">加入隊伍 B</button>
+          <div style="margin-top: 5px; display: flex; flex-direction: column; gap: 8px;">
+            <button onclick="quickMatch()" style="background-color: #ff9800; font-weight: bold; font-size: 15px;">🎲 單人隨機匹配 (1v1)</button>
+            <button onclick="createCustomRoom()" style="background-color: #4caf50; font-weight: bold;">🏠 建立自訂房間</button>
+            <div style="display: flex; gap: 6px; align-items: center; margin-top: 5px;">
+              <input type="text" id="roomInputId" placeholder="輸入房號..." style="flex: 1;">
+              <button onclick="joinCustomRoom()" style="background-color: #008cba; font-weight: bold;">🚪 加入房間</button>
             </div>
           </div>
         </div>
@@ -232,7 +222,7 @@
       </div>
     </div>
 
-    <!-- 🚩 隊伍列表與換隊按鍵 -->
+    <!-- 🚩 隊伍列表與房間內切換隊伍按鍵 -->
     <div class="teams-container">
       <div class="team-box team-a">
         <div class="team-header">
@@ -280,7 +270,7 @@
   // 🔊 音量與動態音效合成系統 (Web Audio API)
   const volumeSlider = document.getElementById('volumeSlider');
   const volumeText = document.getElementById('volumeText');
-  let masterVolume = 0.5; // 預設音量 50%
+  let masterVolume = 0.5;
 
   if (volumeSlider) {
     volumeSlider.addEventListener('input', (e) => {
@@ -314,7 +304,6 @@
       gainNode.connect(audioCtx.destination);
 
       if (type === 'attack') {
-        // 💥 物理攻擊：低沉打擊音
         osc.type = 'sawtooth';
         osc.frequency.setValueAtTime(150, now);
         osc.frequency.exponentialRampToValueAtTime(40, now + 0.15);
@@ -324,7 +313,6 @@
         osc.stop(now + 0.15);
       } 
       else if (type === 'skill') {
-        // ✨ 魔法施放：高頻閃爍音
         osc.type = 'sine';
         osc.frequency.setValueAtTime(300, now);
         osc.frequency.exponentialRampToValueAtTime(800, now + 0.3);
@@ -334,7 +322,6 @@
         osc.stop(now + 0.3);
       }
       else if (type === 'heal') {
-        // 💚 治療回復：輕快上升音階
         osc.type = 'triangle';
         osc.frequency.setValueAtTime(400, now);
         osc.frequency.setValueAtTime(600, now + 0.1);
@@ -345,7 +332,6 @@
         osc.stop(now + 0.35);
       }
       else if (type === 'potion') {
-        // 🧪 喝水音效：短促啵啵聲
         osc.type = 'sine';
         osc.frequency.setValueAtTime(600, now);
         osc.frequency.exponentialRampToValueAtTime(200, now + 0.1);
@@ -359,7 +345,6 @@
     }
   }
 
-  // 請替換為你的後端 WebSocket 網址
   let ws = new WebSocket('wss://rpg-game-backend-vhag.onrender.com');
   let myPlayerId = null;
   let currentUser = null;
@@ -438,23 +423,14 @@
       logMessage(data.message);
       updateInventoryDisplay(data.inventory);
     }
-    else if (data.type === 'queue_joined') {
-      logMessage("🎲 成功進入單人 1v1 匹配隊列...");
-      showQueueUI(true);
-    }
-    else if (data.type === 'queue_left') {
-      logMessage("❌ 已取消匹配。");
-      showQueueUI(false);
-    }
-    else if (data.type === 'match_found' || data.type === 'room_created' || data.type === 'room_joined') {
-      if (data.type === 'match_found') logMessage("🎉 匹配成功！即將進入戰鬥...");
+    else if (data.type === 'room_created' || data.type === 'room_joined') {
       myPlayerId = data.player.id;
       selectedTargetId = null;
       document.getElementById('displayRoomId').innerText = data.roomId;
       document.getElementById('lobbySection').classList.add('hidden');
       document.getElementById('roomSection').classList.remove('hidden');
-      showQueueUI(false);
       updateInventoryDisplay(data.player.inventory);
+      logMessage(`🏰 成功進入房間 [${data.roomId}]`);
     }
     else if (data.type === 'room_state') {
       currentRoomState = data;
@@ -533,42 +509,27 @@
     return nameInput;
   }
 
-  function showQueueUI(inQueue) {
-    document.getElementById('btnJoinQueue').classList.toggle('hidden', inQueue);
-    document.getElementById('btnLeaveQueue').classList.toggle('hidden', !inQueue);
-    document.getElementById('queueStatus').classList.toggle('hidden', !inQueue);
-  }
-
-  function joinQueue() {
+  function quickMatch() {
     if (!checkWsConnected()) return;
     const name = getSafePlayerName();
     const role = document.getElementById('playerRole').value;
-    ws.send(JSON.stringify({ type: 'join_queue', name, role }));
-    showQueueUI(true);
+    ws.send(JSON.stringify({ type: 'quick_match', name, role }));
   }
 
-  function leaveQueue() {
+  function createCustomRoom() {
     if (!checkWsConnected()) return;
-    ws.send(JSON.stringify({ type: 'leave_queue' }));
-    showQueueUI(false);
-  }
-
-  function createRoom(team = 'A') {
-    if (!checkWsConnected()) return;
-    leaveQueue();
     const name = getSafePlayerName();
     const role = document.getElementById('playerRole').value;
-    ws.send(JSON.stringify({ type: 'create_room', name, role, team }));
+    ws.send(JSON.stringify({ type: 'create_room', name, role }));
   }
 
-  function joinRoom(targetTeam = 'A') {
+  function joinCustomRoom() {
     if (!checkWsConnected()) return;
-    leaveQueue();
+    const roomId = document.getElementById('roomInputId').value.trim();
+    if (!roomId) return alert("請輸入要加入的房號！");
     const name = getSafePlayerName();
     const role = document.getElementById('playerRole').value;
-    const roomId = document.getElementById('joinRoomId').value.trim();
-    if (!roomId) return alert("請輸入房號！");
-    ws.send(JSON.stringify({ type: 'join_room', name, role, roomId, targetTeam }));
+    ws.send(JSON.stringify({ type: 'join_room', roomId, name, role }));
   }
 
   function switchTeam(targetTeam) {
@@ -728,7 +689,6 @@
       }
 
       btn.onclick = () => {
-        // 🔊 點擊技能時自動播放對應音效
         playSound(skill.isHeal ? 'heal' : 'skill');
         useSkill(skill);
       };
@@ -738,7 +698,6 @@
 
   function useSkill(skill) {
     if (!checkWsConnected()) return;
-
     if (skill.isRevive) reviveCooldownEndTime = Date.now() + (skill.cd * 1000);
 
     ws.send(JSON.stringify({
@@ -760,7 +719,6 @@
 
   function usePotion(potionType) {
     if (!checkWsConnected()) return;
-    // 🔊 點擊藥水時播放音效
     playSound('potion');
     ws.send(JSON.stringify({ type: 'use_potion', potionType }));
   }
@@ -778,11 +736,9 @@
   }
 
   function checkBattleLogForEffects(msg) {
-    // 🔊 當日誌出現傷害或攻擊時，自動播放受擊音效
     if (msg.includes('造成') || msg.includes('傷害') || msg.includes('攻擊')) {
       playSound('attack');
     }
-
     if (msg.includes('【大招！】') || msg.includes('💥【暴擊！】') || msg.includes('⚡【麻痺】')) {
       triggerContainerShake();
     }
