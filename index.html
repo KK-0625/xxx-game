@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>多人線上 RPG 戰鬥房間 - 完整功能版</title>
+  <title>多人線上 RPG 戰鬥房間 - 完整功能防護版</title>
   <style>
     * { box-sizing: border-box; font-family: "Segoe UI", Microsoft JhengHei, sans-serif; }
     body { background-color: #121212; color: #e0e0e0; margin: 0; padding: 20px; display: flex; justify-content: center; }
@@ -267,6 +267,32 @@
 </div>
 
 <script>
+  // 🛡️ 防護腳本：防止右鍵、F12 與開發者工具快捷鍵
+  document.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    alert("⚠️ 本系統已啟動保護，禁止使用右鍵選單！");
+  });
+
+  document.addEventListener('keydown', (e) => {
+    // 攔截 F12
+    if (e.key === 'F12') {
+      e.preventDefault();
+      alert("⚠️ 禁止使用 F12 開發者工具！");
+      return false;
+    }
+    // 攔截 Ctrl + Shift + I / J / C 或 Ctrl + U (檢視原始碼)
+    if (e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'i' || e.key === 'J' || e.key === 'j' || e.key === 'C' || e.key === 'c')) {
+      e.preventDefault();
+      alert("⚠️ 禁止快捷開啟開發者工具！");
+      return false;
+    }
+    if (e.ctrlKey && (e.key === 'U' || e.key === 'u')) {
+      e.preventDefault();
+      alert("⚠️ 禁止檢視網頁原始碼！");
+      return false;
+    }
+  });
+
   // 🔊 音量與動態音效合成系統 (Web Audio API)
   const volumeSlider = document.getElementById('volumeSlider');
   const volumeText = document.getElementById('volumeText');
