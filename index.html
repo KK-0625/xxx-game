@@ -36,14 +36,6 @@
     .lobby-content { display: flex; gap: 15px; flex-wrap: wrap; }
     .lobby-box { flex: 1; min-width: 280px; }
 
-    /* 🏆 排行榜樣式 */
-    .ranking-box { margin-top: 15px; background: #161616; border: 1px solid #333; border-radius: 6px; padding: 10px; }
-    .ranking-list { max-height: 140px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; font-size: 13px; margin-top: 6px; }
-    .ranking-item { display: flex; justify-content: space-between; padding: 4px 8px; background: #222; border-radius: 4px; border-left: 3px solid #ffca28; }
-    .ranking-item.top-1 { border-left-color: #ffd700; background: #2d2b1e; }
-    .ranking-item.top-2 { border-left-color: #c0c0c0; }
-    .ranking-item.top-3 { border-left-color: #cd7f32; }
-
     /* 大廳聊天室 */
     .chat-box { height: 160px; overflow-y: auto; background-color: #141414; border: 1px solid #333; border-radius: 4px; padding: 8px; font-size: 13px; display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
     .chat-msg { word-break: break-all; }
@@ -89,6 +81,7 @@
     #battleLog { height: 180px; overflow-y: auto; background-color: #000; color: #00ff66; padding: 10px; font-family: monospace; font-size: 13px; border-radius: 4px; }
     .target-indicator { font-size: 13px; color: #ffca28; font-weight: bold; margin-bottom: 5px; }
 
+    /* 震動與傷害數字動畫 */
     @keyframes shake {
       0% { transform: translate(1px, 1px) rotate(0deg); }
       20% { transform: translate(-3px, 0px) rotate(1deg); }
@@ -178,22 +171,13 @@
           </label>
           
           <div style="margin-top: 5px; display: flex; flex-direction: column; gap: 8px;">
-            <button onclick="quickMatch()" style="background-color: #ff9800; font-weight: bold; font-size: 15px;">🎲 單人隨機匹配 (1v1 + 500 AI)</button>
+            <button onclick="quickMatch()" style="background-color: #ff9800; font-weight: bold; font-size: 15px;">🎲 單人隨機匹配 (1v1)</button>
             <button onclick="createCustomRoom()" style="background-color: #4caf50; font-weight: bold;">🏠 建立自訂房間</button>
             <div style="display: flex; gap: 6px; align-items: center; margin-top: 5px;">
               <input type="text" id="roomInputId" placeholder="輸入房號..." style="flex: 1;">
               <button onclick="joinCustomRoom()" style="background-color: #008cba; font-weight: bold;">🚪 加入房間</button>
             </div>
           </div>
-
-          <!-- 🏆 積分排行榜 1~10 名 (放置於輸入房號下方空間) -->
-          <div class="ranking-box">
-            <h4 style="margin: 0 0 5px 0; font-size: 14px; color: #ffca28;">🏆 積分排行榜 (Top 10 - 即時更新)</h4>
-            <div id="rankingList" class="ranking-list">
-              <div style="color: #777; text-align: center; padding: 10px;">載入中...</div>
-            </div>
-          </div>
-
         </div>
       </div>
 
@@ -291,39 +275,20 @@
   document.addEventListener('keydown', (e) => {
     if (e.key === 'F12') {
       e.preventDefault();
+      alert("⚠️ 禁止使用 F12 開發者工具！");
       return false;
     }
     if (e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'i' || e.key === 'J' || e.key === 'j' || e.key === 'C' || e.key === 'c')) {
       e.preventDefault();
+      alert("⚠️ 禁止快捷開啟開發者工具！");
       return false;
     }
     if (e.ctrlKey && (e.key === 'U' || e.key === 'u')) {
       e.preventDefault();
+      alert("⚠️ 禁止檢視網頁原始碼！");
       return false;
     }
   });
-
-  // 🤖 初始化 500 名強化版 AI 玩家清單
-  const ROLES = ['berserker', 'mage', 'priest', 'knight', 'assassin', 'archer'];
-  const SURNAMES = ['暗影', '聖光', '神域', '狂暴', '蒼穹', '疾風', '烈火', '冰霜', '虛空', '天尊', '龍神', '戰神', '魂魄', '星辰', '幻影'];
-  const TITLES = ['劍聖', '法神', '魔導士', '刺客大師', '守護者', '狙擊手', '狂戰', '審判長', '元素使', '執行者', '宗師', '霸主'];
-
-  const AI_PLAYERS = [];
-  for (let i = 1; i <= 500; i++) {
-    const randomSurname = SURNAMES[Math.floor(Math.random() * SURNAMES.length)];
-    const randomTitle = TITLES[Math.floor(Math.random() * TITLES.length)];
-    const aiName = `[AI]${randomSurname}${randomTitle}#${i}`;
-    const aiRole = ROLES[Math.floor(Math.random() * ROLES.length)];
-    
-    // 強化版 AI 基礎戰力與積分設定
-    AI_PLAYERS.push({
-      id: `ai_${i}`,
-      name: aiName,
-      role: aiRole,
-      isAi: true,
-      score: Math.floor(Math.random() * 8000) + 1200 // 初始高積分
-    });
-  }
 
   // 🔊 音量與動態音效合成系統 (Web Audio API)
   const volumeSlider = document.getElementById('volumeSlider');
@@ -411,50 +376,46 @@
   let oldPlayerHpMap = {}; 
   let reviveCooldownEndTime = 0;
 
-  // ⚡ 強化版 AI 專屬技能模組（數值較高且具備智慧連招）
   const SKILLS = {
     mage: [
-      { name: '🔥 毀滅火球', mpCost: 60, minVal: 380, maxVal: 520, isAoe: false, isHeal: false, effect: 'burn', chance: 0.5 },
-      { name: '⚡ 迅雷天劫', mpCost: 100, minVal: 320, maxVal: 450, isAoe: false, isHeal: false, effect: 'paralyze', chance: 0.4 },
-      { name: '❄️ 絕對零度', mpCost: 150, minVal: 280, maxVal: 400, isAoe: true, isHeal: false },
-      { name: '☄️ 域外流星雨', mpCost: 250, minVal: 750, maxVal: 1150, isAoe: true, isHeal: false, isUlt: true }
+      { name: '🔥 火球術', mpCost: 80, minVal: 220, maxVal: 350, isAoe: false, isHeal: false, effect: 'burn', chance: 0.3 },
+      { name: '⚡ 連鎖閃電', mpCost: 150, minVal: 180, maxVal: 280, isAoe: false, isHeal: false, effect: 'paralyze', chance: 0.25 },
+      { name: '❄️ 暴風雪', mpCost: 220, minVal: 150, maxVal: 250, isAoe: true, isHeal: false },
+      { name: '☄️ 隕石術', mpCost: 400, minVal: 500, maxVal: 850, isAoe: true, isHeal: false, isUlt: true }
     ],
     priest: [
-      { name: '💚 神聖之泉', mpCost: 50, minVal: 350, maxVal: 480, isAoe: false, isHeal: true },
-      { name: '✨ 懲戒聖光', mpCost: 70, minVal: 300, maxVal: 420, isAoe: false, isHeal: false },
-      { name: '🙏 天使降臨', mpCost: 120, minVal: 280, maxVal: 380, isAoe: true, isHeal: true },
-      { name: '🌟 神聖復活', mpCost: 200, minVal: 0, maxVal: 0, isAoe: false, isRevive: true, isUlt: true, cd: 150 }
+      { name: '💚 治癒術', mpCost: 70, minVal: 200, maxVal: 320, isAoe: false, isHeal: true },
+      { name: '✨ 聖光彈', mpCost: 90, minVal: 180, maxVal: 280, isAoe: false, isHeal: false },
+      { name: '🙏 神聖祈禱', mpCost: 180, minVal: 150, maxVal: 250, isAoe: true, isHeal: true },
+      { name: '🌟 復活術', mpCost: 300, minVal: 0, maxVal: 0, isAoe: false, isRevive: true, isUlt: true, cd: 300 }
     ],
     berserker: [
-      { name: '⚔️ 裂地猛擊', mpCost: 30, minVal: 350, maxVal: 480, isAoe: false, isHeal: false, lifesteal: 0.35 },
-      { name: '🌪️ 狂風血刃', mpCost: 80, minVal: 280, maxVal: 390, isAoe: true, isHeal: false, lifesteal: 0.3 },
-      { name: '🩸 嗜血狂怒', mpCost: 90, minVal: 420, maxVal: 580, isAoe: false, isHeal: false, lifesteal: 0.4 },
-      { name: '💥 毀滅霸王斬', mpCost: 220, minVal: 850, maxVal: 1300, isAoe: false, isHeal: false, isUlt: true, lifesteal: 0.5 }
+      { name: '⚔️ 重擊', mpCost: 40, minVal: 180, maxVal: 300, isAoe: false, isHeal: false, lifesteal: 0.2 },
+      { name: '🌪️ 旋風斬', mpCost: 100, minVal: 130, maxVal: 220, isAoe: true, isHeal: false, lifesteal: 0.2 },
+      { name: '🩸 狂暴怒吼', mpCost: 120, minVal: 250, maxVal: 400, isAoe: false, isHeal: false, lifesteal: 0.2 },
+      { name: '💥 英雄一擊', mpCost: 300, minVal: 550, maxVal: 900, isAoe: false, isHeal: false, isUlt: true, lifesteal: 0.2 }
     ],
     knight: [
-      { name: '🛡️ 金剛衝撞', mpCost: 30, minVal: 280, maxVal: 380, isAoe: false, isHeal: false },
-      { name: '🔨 神聖審判', mpCost: 60, minVal: 350, maxVal: 480, isAoe: false, isHeal: false },
-      { name: '🧱 不朽壁壘', mpCost: 90, minVal: 250, maxVal: 350, isAoe: true, isHeal: true },
-      { name: '🏰 聖盾審判陣', mpCost: 200, minVal: 650, maxVal: 980, isAoe: true, isHeal: false, isUlt: true }
+      { name: '🛡️ 盾牌衝鋒', mpCost: 40, minVal: 150, maxVal: 240, isAoe: false, isHeal: false },
+      { name: '🔨 裁決之錘', mpCost: 80, minVal: 200, maxVal: 320, isAoe: false, isHeal: false },
+      { name: '🧱 堅守陣線', mpCost: 120, minVal: 120, maxVal: 200, isAoe: true, isHeal: true },
+      { name: '🏰 正義風暴', mpCost: 280, minVal: 400, maxVal: 650, isAoe: true, isHeal: false, isUlt: true }
     ],
     assassin: [
-      { name: '🗡️ 致命剧毒刃', mpCost: 40, minVal: 400, maxVal: 550, isAoe: false, isHeal: false, effect: 'poison', chance: 0.6 },
-      { name: '👣 鬼影迷蹤襲', mpCost: 70, minVal: 450, maxVal: 620, isAoe: false, isHeal: false, effect: 'poison', chance: 0.4 },
-      { name: '🔪 暴雨梨花針', mpCost: 110, minVal: 300, maxVal: 450, isAoe: true, isHeal: false },
-      { name: '☠️ 黯滅瞬獄殺', mpCost: 250, minVal: 950, maxVal: 1450, isAoe: false, isHeal: false, isUlt: true, effect: 'poison', chance: 0.8 }
+      { name: '🗡️ 毒刃', mpCost: 50, minVal: 220, maxVal: 350, isAoe: false, isHeal: false, effect: 'poison', chance: 0.35 },
+      { name: '👣 影襲', mpCost: 90, minVal: 280, maxVal: 420, isAoe: false, isHeal: false, effect: 'poison', chance: 0.2 },
+      { name: '🔪 飛刀風暴', mpCost: 150, minVal: 160, maxVal: 280, isAoe: true, isHeal: false },
+      { name: '☠️ 瞬獄殺', mpCost: 350, minVal: 650, maxVal: 1100, isAoe: false, isHeal: false, isUlt: true, effect: 'poison', chance: 0.5 }
     ],
     archer: [
-      { name: '🏹 穿心迅箭', mpCost: 40, minVal: 360, maxVal: 500, isAoe: false, isHeal: false, effect: 'blind', chance: 0.45 },
-      { name: '🌧️ 萬箭齊發', mpCost: 100, minVal: 280, maxVal: 390, isAoe: true, isHeal: false, effect: 'blind', chance: 0.3 },
-      { name: '🎯 鷹眼狙擊', mpCost: 80, minVal: 450, maxVal: 620, isAoe: false, isHeal: false },
-      { name: '🦅 虛空神影箭', mpCost: 240, minVal: 880, maxVal: 1350, isAoe: false, isHeal: false, isUlt: true, effect: 'blind', chance: 0.6 }
+      { name: '🏹 精準射擊', mpCost: 50, minVal: 200, maxVal: 320, isAoe: false, isHeal: false, effect: 'blind', chance: 0.25 },
+      { name: '🌧️ 箭雨', mpCost: 140, minVal: 140, maxVal: 240, isAoe: true, isHeal: false, effect: 'blind', chance: 0.15 },
+      { name: '🎯 貫穿箭', mpCost: 110, minVal: 260, maxVal: 400, isAoe: false, isHeal: false },
+      { name: '🦅 幻影神射', mpCost: 320, minVal: 580, maxVal: 950, isAoe: false, isHeal: false, isUlt: true, effect: 'blind', chance: 0.4 }
     ]
   };
 
-  ws.onopen = () => { 
-    logMessage("🟢 成功連接伺服器！請先進行帳號登入或註冊。"); 
-    startRankingUpdater(); // 啟動排行榜自動更新
-  };
+  ws.onopen = () => { logMessage("🟢 成功連接伺服器！請先進行帳號登入或註冊。"); };
   ws.onerror = () => { logMessage("🔴 伺服器連線失敗，請檢查網路或稍後重試。"); };
   ws.onclose = () => { logMessage("🟡 與伺服器中斷連線。"); };
 
@@ -476,8 +437,7 @@
       updateInventoryDisplay(data.user.inventory);
     }
     else if (data.type === 'online_count') {
-      // 顯示在線人數加上 500 名 AI
-      document.getElementById('displayOnlineCount').innerText = parseInt(data.onlineCount || 1) + 500;
+      document.getElementById('displayOnlineCount').innerText = data.onlineCount;
     }
     else if (data.type === 'lobby_chat') {
       appendLobbyChat(data.sender, data.message, data.time);
@@ -572,16 +532,10 @@
     return nameInput;
   }
 
-  // 🎲 隨機匹配系統：自動從 500 名強化 AI 中挑選一位作為對手
   function quickMatch() {
     if (!checkWsConnected()) return;
     const name = getSafePlayerName();
     const role = document.getElementById('playerRole').value;
-    
-    // 隨機挑選一位 AI 對手
-    const randomAi = AI_PLAYERS[Math.floor(Math.random() * AI_PLAYERS.length)];
-    logMessage(`🎲 隨機匹配成功！對手為頂尖強化 AI：${randomAi.name} (${randomAi.role})`);
-
     ws.send(JSON.stringify({ type: 'quick_match', name, role }));
   }
 
@@ -623,50 +577,6 @@
 
     btnMp.innerText = `🧪 MP 藥水 (剩餘: ${mpCount})`;
     btnMp.disabled = mpCount <= 0;
-  }
-
-  // 🏆 排行榜自動更新邏輯（含玩家與 500 名 AI 共同競逐）
-  function startRankingUpdater() {
-    setInterval(() => {
-      // 隨機動態浮動 AI 積分模擬即時排位變動
-      AI_PLAYERS.forEach(ai => {
-        ai.score += Math.floor(Math.random() * 50) - 20;
-        if (ai.score < 500) ai.score = 500;
-      });
-
-      // 建立包含目前玩家與所有 AI 的排行榜清單
-      const allRankList = [...AI_PLAYERS];
-      if (currentUser) {
-        allRankList.push({
-          id: currentUser.id || 'me',
-          name: document.getElementById('playerName').value || currentUser.name || '我',
-          role: document.getElementById('playerRole').value || 'berserker',
-          score: (currentUser.score || 5000) + Math.floor(Math.random() * 30) // 即時積分
-        });
-      }
-
-      // 依積分由高到低排序並取前 10 名
-      allRankList.sort((a, b) => b.score - a.score);
-      const top10 = allRankList.slice(0, 10);
-
-      const rankingListEl = document.getElementById('rankingList');
-      if (rankingListEl) {
-        rankingListEl.innerHTML = '';
-        top10.forEach((p, index) => {
-          const rankNum = index + 1;
-          const item = document.createElement('div');
-          item.className = `ranking-item ${rankNum === 1 ? 'top-1' : rankNum === 2 ? 'top-2' : rankNum === 3 ? 'top-3' : ''}`;
-          
-          let medal = `${rankNum}.`;
-          if (rankNum === 1) medal = '🥇 1.';
-          if (rankNum === 2) medal = '🥈 2.';
-          if (rankNum === 3) medal = '🥉 3.';
-
-          item.innerHTML = `<span>${medal} <strong>${p.name}</strong> (${p.role})</span> <span style="color: #ffca28; font-weight: bold;">⭐ ${p.score}分</span>`;
-          rankingListEl.appendChild(item);
-        });
-      }
-    }, 2000); // 每 2 秒自動更新一次排行
   }
 
   function renderRoom(roomState) {
@@ -738,7 +648,7 @@
         if (p.statusEffects.blind) statusHtml += `<span class="status-badge badge-blind">👁️ 致盲</span>`;
       }
 
-      const rInfo = p.rankInfo || { icon: '🥇', name: '王者' };
+      const rInfo = p.rankInfo || { icon: '🥉', name: '青銅' };
 
       pCard.innerHTML = `
         <div class="player-header">
