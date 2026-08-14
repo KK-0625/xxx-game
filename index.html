@@ -38,6 +38,11 @@
     .inventory-item { background: #2a2a2a; padding: 8px 12px; border-radius: 4px; display: flex; justify-content: space-between; align-items: center; border-left: 4px solid #ff9800; }
     .rank-tag { font-size: 12px; padding: 2px 6px; border-radius: 4px; font-weight: bold; margin-left: 6px; }
 
+    /* 經驗值條樣式 */
+    .exp-container { background: #333; height: 16px; border-radius: 8px; overflow: hidden; position: relative; margin-top: 4px; border: 1px solid #555; }
+    .exp-bar { background: linear-gradient(90deg, #9c27b0, #ba68c8); height: 100%; width: 0%; transition: width 0.3s; }
+    .exp-text { position: absolute; top: 0; left: 0; width: 100%; height: 100%; font-size: 10px; text-align: center; line-height: 16px; color: #fff; text-shadow: 1px 1px 2px #000; font-weight: bold; }
+
     /* 隊伍區域與選擇按鈕 */
     .teams-container { display: flex; gap: 15px; margin-top: 10px; }
     .team-box { flex: 1; background: #252525; padding: 10px; border-radius: 6px; }
@@ -84,7 +89,7 @@
     .shop-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #444; padding-bottom: 10px; margin-bottom: 15px; }
     .shop-item { display: flex; justify-content: space-between; align-items: center; background: #2a2a2a; padding: 10px; margin-bottom: 10px; border-radius: 6px; }
 
-    /* 震動與傷害數字動畫 */
+    /* 動畫 */
     @keyframes shake {
       0% { transform: translate(1px, 1px) rotate(0deg); }
       20% { transform: translate(-3px, 0px) rotate(1deg); }
@@ -145,7 +150,6 @@
         <h3 style="margin:0;">🧘‍♂️ 大廳 (修練中...)</h3>
         <span id="idleStatusText" style="color: #aaa; font-size: 13px;">正在自動修練尋找藥水與道具...</span>
       </div>
-      <!-- 👥 在線人數與商店按鈕 -->
       <div style="display: flex; gap: 10px; align-items: center;">
         <button onclick="openShopModal()" style="background-color: #ff9800; font-weight: bold;">🛒 道具商店</button>
         <div class="online-badge">🟢 在線玩家：<span id="displayOnlineCount">---</span> 人</div>
@@ -170,14 +174,12 @@
           </label>
           
           <div style="margin-top: 10px; display: flex; flex-direction: column; gap: 8px;">
-            <!-- 保留單人隨機匹配 -->
             <button id="btnJoinQueue" onclick="joinQueue()" style="background-color: #ff9800; font-weight: bold; font-size: 15px;">🎲 單人隨機匹配 (1v1)</button>
             <button id="btnLeaveQueue" onclick="leaveQueue()" class="hidden" style="background-color: #d32f2f;">❌ 取消匹配</button>
             
             <div id="queueStatus" class="queue-status hidden">⏳ 正在尋找對手 (1v1) 中...</div>
             <hr style="border-color: #333; width: 100%;">
             
-            <!-- 整合為單一自訂房間按鈕 -->
             <div style="display: flex; gap: 8px; align-items: center;">
               <input type="text" id="joinRoomId" placeholder="房號 (留空則建立新房)" style="flex: 1;">
               <button onclick="handleCustomRoom()" style="background-color: #2196f3; font-weight: bold;">🏠 自訂房間 (建立/加入)</button>
@@ -186,7 +188,7 @@
         </div>
       </div>
 
-      <!-- 💬 大廳聊天室與背包 -->
+      <!-- 💬 大廳聊天室與個人資訊/背包 -->
       <div class="lobby-box card" style="display: flex; flex-direction: column; gap: 10px;">
         <h4>💬 大廳公眾聊天室</h4>
         <div id="lobbyChatBox" class="chat-box">
@@ -197,9 +199,20 @@
           <button onclick="sendLobbyChat()" style="background-color: #008cba;">發送</button>
         </div>
 
-        <h4 style="margin-top: 10px;">🎒 我的背包 (資料庫同步)</h4>
+        <h4 style="margin-top: 10px;">🎒 個人資訊與背包</h4>
         <div class="inventory-list">
-          <!-- 新增金幣顯示 -->
+          <!-- 新增等級與經驗值 display -->
+          <div class="inventory-item" style="border-left-color: #ab47bc; flex-direction: column; align-items: stretch; gap: 4px;">
+            <div style="display: flex; justify-content: space-between;">
+              <span>⭐ 等級：<strong id="lobbyLevel" style="color: #ba68c8;">LV.1</strong></span>
+              <span style="font-size: 12px; color: #ccc;">EXP: <span id="lobbyExpText">0 / 100</span></span>
+            </div>
+            <div class="exp-container">
+              <div id="lobbyExpBar" class="exp-bar"></div>
+              <div id="lobbyExpPercentText" class="exp-text">0%</div>
+            </div>
+          </div>
+
           <div class="inventory-item" style="border-left-color: #ffd700;">
             <span>💰 持有金幣</span>
             <strong id="lobbyGold" style="color: #ffd700;">0</strong>
@@ -214,7 +227,10 @@
           </div>
           <div class="inventory-item">
             <span>📜 經驗卷軸</span>
-            <strong id="lobbyExpScroll">0</strong>
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <strong id="lobbyExpScroll">0</strong>
+              <button onclick="useExpScroll()" style="font-size: 11px; padding: 2px 8px; background: #ab47bc;">使用 (+150 EXP)</button>
+            </div>
           </div>
         </div>
       </div>
@@ -313,7 +329,7 @@
     <div class="shop-item">
       <div>
         <strong>📜 經驗卷軸</strong>
-        <div style="font-size: 12px; color: #aaa;">獲得大量經驗值</div>
+        <div style="font-size: 12px; color: #aaa;">獲得 +150 點經驗值</div>
       </div>
       <div>
         <span style="color: #ffd700; font-weight: bold; margin-right: 8px;">💰 200</span>
@@ -324,7 +340,6 @@
 </div>
 
 <script>
-  // 請替換為你的後端 WebSocket 網址
   let ws = new WebSocket('wss://rpg-game-backend-vhag.onrender.com');
   let myPlayerId = null;
   let currentUser = null;
@@ -333,8 +348,15 @@
   let oldPlayerHpMap = {}; 
   let reviveCooldownEndTime = 0;
 
-  // 本地背包與金幣資料備份（用於更新顯示）
-  let localInventory = { gold: 500, hpPotion: 0, mpPotion: 0, expScroll: 0 };
+  // 本地玩家角色資料 (包含 Level 與 EXP)
+  let localUserData = {
+    level: 1,
+    exp: 0,
+    gold: 0,
+    hpPotion: 0,
+    mpPotion: 0,
+    expScroll: 0
+  };
 
   const SKILLS = {
     mage: [
@@ -394,6 +416,10 @@
       const validName = (data.user.name && data.user.name !== "空白") ? data.user.name : "勇者";
       document.getElementById('playerName').value = validName;
       document.getElementById('playerRole').value = data.user.role || 'berserker';
+      
+      // 初始化玩家數據
+      if (data.user.level) localUserData.level = data.user.level;
+      if (data.user.exp) localUserData.exp = data.user.exp;
       updateInventoryDisplay(data.user.inventory);
     }
     else if (data.type === 'online_count') {
@@ -404,6 +430,9 @@
     }
     else if (data.type === 'idle_reward') {
       logMessage(data.message);
+      if (data.gainedExp) {
+        addExp(data.gainedExp);
+      }
       updateInventoryDisplay(data.inventory);
     }
     else if (data.type === 'queue_joined') {
@@ -511,7 +540,7 @@
     if (!checkWsConnected()) return;
     const name = getSafePlayerName();
     const role = document.getElementById('playerRole').value;
-    ws.send(JSON.stringify({ type: 'join_queue', name, role }));
+    ws.send(JSON.stringify({ type: 'join_queue', name, role, level: localUserData.level }));
     showQueueUI(true);
   }
 
@@ -529,9 +558,9 @@
     const roomId = document.getElementById('joinRoomId').value.trim();
 
     if (roomId) {
-      ws.send(JSON.stringify({ type: 'join_room', name, role, roomId, targetTeam: 'A' }));
+      ws.send(JSON.stringify({ type: 'join_room', name, role, roomId, targetTeam: 'A', level: localUserData.level }));
     } else {
-      ws.send(JSON.stringify({ type: 'create_room', name, role, team: 'A' }));
+      ws.send(JSON.stringify({ type: 'create_room', name, role, team: 'A', level: localUserData.level }));
     }
   }
 
@@ -540,34 +569,75 @@
     ws.send(JSON.stringify({ type: 'switch_team', targetTeam }));
   }
 
+  /* ⭐ 等級與經驗值系統邏輯 */
+  function getMaxExp(level) {
+    return level * 100; // 每升一級所需經驗增加 100
+  }
+
+  function addExp(amount) {
+    localUserData.exp += amount;
+    let maxExp = getMaxExp(localUserData.level);
+
+    while (localUserData.exp >= maxExp) {
+      localUserData.exp -= maxExp;
+      localUserData.level += 1;
+      maxExp = getMaxExp(localUserData.level);
+      logMessage(`🎉 恭喜升級！當前等級提升至 LV.${localUserData.level}！`);
+    }
+
+    updateExpUI();
+  }
+
+  function updateExpUI() {
+    const maxExp = getMaxExp(localUserData.level);
+    const percent = Math.min(100, Math.floor((localUserData.exp / maxExp) * 100));
+
+    document.getElementById('lobbyLevel').innerText = `LV.${localUserData.level}`;
+    document.getElementById('lobbyExpText').innerText = `${localUserData.exp} / ${maxExp}`;
+    document.getElementById('lobbyExpBar').style.width = `${percent}%`;
+    document.getElementById('lobbyExpPercentText').innerText = `${percent}%`;
+  }
+
+  function useExpScroll() {
+    if ((localUserData.expScroll || 0) <= 0) {
+      alert("⚠️ 背包中沒有經驗卷軸！");
+      return;
+    }
+    localUserData.expScroll -= 1;
+    addExp(150);
+    updateInventoryDisplay(localUserData);
+    logMessage("📜 使用了經驗卷軸，獲得了 150 點經驗值！");
+  }
+
   function updateInventoryDisplay(inv) {
     if (!inv) return;
-    // 備份並更新本地資料
-    localInventory = Object.assign(localInventory, inv);
+    localUserData = Object.assign(localUserData, inv);
 
-    document.getElementById('lobbyGold').innerText = localInventory.gold !== undefined ? localInventory.gold : 0;
-    document.getElementById('shopGoldDisplay').innerText = localInventory.gold !== undefined ? localInventory.gold : 0;
-    document.getElementById('lobbyHpPotion').innerText = localInventory.hpPotion || 0;
-    document.getElementById('lobbyMpPotion').innerText = localInventory.mpPotion || 0;
-    document.getElementById('lobbyExpScroll').innerText = localInventory.expScroll || 0;
+    document.getElementById('lobbyGold').innerText = localUserData.gold !== undefined ? localUserData.gold : 0;
+    document.getElementById('shopGoldDisplay').innerText = localUserData.gold !== undefined ? localUserData.gold : 0;
+    document.getElementById('lobbyHpPotion').innerText = localUserData.hpPotion || 0;
+    document.getElementById('lobbyMpPotion').innerText = localUserData.mpPotion || 0;
+    document.getElementById('lobbyExpScroll').innerText = localUserData.expScroll || 0;
 
     const btnHp = document.getElementById('btnHpPotion');
     const btnMp = document.getElementById('btnMpPotion');
 
-    const hpCount = localInventory.hpPotion || 0;
-    const mpCount = localInventory.mpPotion || 0;
+    const hpCount = localUserData.hpPotion || 0;
+    const mpCount = localUserData.mpPotion || 0;
 
     btnHp.innerText = `🧪 HP 藥水 (剩餘: ${hpCount})`;
     btnHp.disabled = hpCount <= 0;
 
     btnMp.innerText = `🧪 MP 藥水 (剩餘: ${mpCount})`;
     btnMp.disabled = mpCount <= 0;
+
+    updateExpUI();
   }
 
   /* 🛒 商店邏輯 */
   function openShopModal() {
     document.getElementById('shopModal').classList.remove('hidden');
-    document.getElementById('shopGoldDisplay').innerText = localInventory.gold || 0;
+    document.getElementById('shopGoldDisplay').innerText = localUserData.gold || 0;
   }
 
   function closeShopModal() {
@@ -575,19 +645,18 @@
   }
 
   function buyItem(itemKey, price) {
-    const currentGold = localInventory.gold || 0;
+    const currentGold = localUserData.gold || 0;
     if (currentGold < price) {
       alert("⚠️ 金幣不足，無法購買！");
       return;
     }
 
-    localInventory.gold -= price;
-    localInventory[itemKey] = (localInventory[itemKey] || 0) + 1;
+    localUserData.gold -= price;
+    localUserData[itemKey] = (localUserData[itemKey] || 0) + 1;
     
-    updateInventoryDisplay(localInventory);
+    updateInventoryDisplay(localUserData);
     logMessage(`🛒 成功購買了 ${getItemName(itemKey)}！消耗金幣: ${price}`);
 
-    // 若後端有實作 shop 訊息，可將購買同步發送給伺服器
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: 'buy_item', itemKey, price }));
     }
@@ -672,10 +741,11 @@
       }
 
       const rInfo = p.rankInfo || { icon: '🥉', name: '青銅' };
+      const pLevel = p.level || 1;
 
       pCard.innerHTML = `
         <div class="player-header">
-          <span>${p.name} (${p.role}) <span class="rank-tag">${rInfo.icon} ${rInfo.name}</span> ${p.id === myPlayerId ? '⭐我' : ''}</span>
+          <span>[LV.${pLevel}] ${p.name} (${p.role}) <span class="rank-tag">${rInfo.icon} ${rInfo.name}</span> ${p.id === myPlayerId ? '⭐我' : ''}</span>
           <span>${isDead ? '💀 陣亡' : '存活'}</span>
         </div>
         <div class="bar-container">
@@ -805,30 +875,15 @@
   }
 </script>
 <script>
-  // 防簡化開發者檢測等防護
-  document.addEventListener('contextmenu', function(e) {
-    e.preventDefault();
-  }, false);
+  document.addEventListener('contextmenu', function(e) { e.preventDefault(); }, false);
 
   document.addEventListener('keydown', function(e) {
-    if (e.key === 'F12' || e.keyCode === 123) {
-      e.preventDefault();
-      return false;
-    }
-
+    if (e.key === 'F12' || e.keyCode === 123) { e.preventDefault(); return false; }
     if (e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'i' || e.key === 'J' || e.key === 'j' || e.key === 'C' || e.key === 'c')) {
-      e.preventDefault();
-      return false;
+      e.preventDefault(); return false;
     }
-
-    if (e.ctrlKey && (e.key === 'U' || e.key === 'u')) {
-      e.preventDefault();
-      return false;
-    }
-
-    if (e.ctrlKey && (e.key === 'S' || e.key === 's')) {
-      e.preventDefault();
-      return false;
+    if (e.ctrlKey && (e.key === 'U' || e.key === 'u' || e.key === 'S' || e.key === 's')) {
+      e.preventDefault(); return false;
     }
   }, false);
 
