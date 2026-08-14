@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>多人線上 RPG 戰鬥房間 - 完整功能防護版</title>
+  <title>多人線上 RPG 戰鬥房間 - 全功能增強版</title>
   <style>
     * { box-sizing: border-box; font-family: "Segoe UI", Microsoft JhengHei, sans-serif; }
     body { background-color: #121212; color: #e0e0e0; margin: 0; padding: 20px; display: flex; justify-content: center; }
@@ -19,19 +19,9 @@
 
     .hidden { display: none !important; }
 
-    /* 🔊 右上角音量控制面板樣式 */
-    #audioControlPanel {
-      position: fixed; top: 15px; right: 15px; z-index: 9999;
-      background: rgba(30, 30, 30, 0.9); backdrop-filter: blur(5px);
-      padding: 6px 12px; border-radius: 8px; display: flex; align-items: center; gap: 8px;
-      border: 1px solid #444; box-shadow: 0 4px 12px rgba(0,0,0,0.4);
-    }
-    #audioControlPanel input[type="range"] { width: 90px; cursor: pointer; accent-color: #4caf50; }
-
-    /* 大廳標題與狀態 */
-    .lobby-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; padding-bottom: 10px; margin-bottom: 10px; flex-wrap: wrap; gap: 10px; }
+    /* 大廳標題與在線人數 */
+    .lobby-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; padding-bottom: 10px; margin-bottom: 10px; }
     .online-badge { background: #2a3a2a; color: #66bb6a; border: 1px solid #4caf50; padding: 4px 12px; border-radius: 20px; font-weight: bold; font-size: 13px; }
-    .player-stats-badge { background: #332a2a; color: #ffca28; border: 1px solid #ff9800; padding: 4px 12px; border-radius: 20px; font-weight: bold; font-size: 13px; display: flex; gap: 10px; }
 
     .lobby-panel { display: flex; flex-direction: column; gap: 15px; }
     .lobby-content { display: flex; gap: 15px; flex-wrap: wrap; }
@@ -43,22 +33,29 @@
     .chat-time { color: #666; font-size: 11px; margin-right: 5px; }
     .chat-sender { color: #ffca28; font-weight: bold; margin-right: 5px; }
 
-    /* 背包與商店 */
-    .inventory-list, .shop-list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
-    .inventory-item, .shop-item { background: #2a2a2a; padding: 8px 12px; border-radius: 4px; display: flex; justify-content: space-between; align-items: center; border-left: 4px solid #ff9800; }
-    .shop-item { border-left-color: #00bcd4; }
+    /* 背包與個人資訊 */
+    .inventory-list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+    .inventory-item { background: #2a2a2a; padding: 8px 12px; border-radius: 4px; display: flex; justify-content: space-between; align-items: center; border-left: 4px solid #ff9800; }
+    .rank-tag { font-size: 12px; padding: 2px 6px; border-radius: 4px; font-weight: bold; margin-left: 6px; }
 
-    /* 隊伍與卡片 */
+    /* 隊伍區域與選擇按鈕 */
     .teams-container { display: flex; gap: 15px; margin-top: 10px; }
     .team-box { flex: 1; background: #252525; padding: 10px; border-radius: 6px; }
     .team-box.team-a { border-top: 4px solid #2196f3; }
     .team-box.team-b { border-top: 4px solid #f44336; }
     .team-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
 
-    .player-card { background: #333; border-radius: 6px; padding: 10px; margin-bottom: 10px; position: relative; border: 2px solid transparent; transition: 0.2s; cursor: pointer; }
+    .player-card { background: #333; border-radius: 6px; padding: 10px; margin-bottom: 10px; position: relative; border: 2px solid transparent; transition: 0.2s; }
     .player-card.selected { border-color: #ffca28; background: #3d3b2a; }
     .player-card.dead { opacity: 0.5; filter: grayscale(1); }
     .player-header { display: flex; justify-content: space-between; font-weight: bold; margin-bottom: 6px; }
+    
+    .status-tags { font-size: 11px; margin-top: 4px; display: flex; gap: 4px; flex-wrap: wrap; }
+    .status-badge { padding: 2px 5px; border-radius: 3px; font-weight: bold; color: #fff; }
+    .badge-burn { background-color: #ff5722; }
+    .badge-paralyze { background-color: #ffeb3b; color: #000; }
+    .badge-poison { background-color: #9c27b0; }
+    .badge-blind { background-color: #607d8b; }
 
     .bar-container { background: #555; height: 14px; border-radius: 7px; overflow: hidden; margin-bottom: 4px; position: relative; }
     .hp-bar { background: linear-gradient(90deg, #e53935, #ef5350); height: 100%; width: 100%; transition: width 0.3s; }
@@ -67,23 +64,55 @@
 
     .action-panel { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
     .skill-btns, .item-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+    .btn-ult { background: linear-gradient(135deg, #d32f2f, #7b1fa2); font-weight: bold; border: 1px solid #ff4081; }
+    .btn-ult:hover { background: linear-gradient(135deg, #f44336, #9c27b0); }
     .btn-potion { background-color: #0288d1; }
+    .btn-potion:hover { background-color: #03a9f4; }
 
     #battleLog { height: 180px; overflow-y: auto; background-color: #000; color: #00ff66; padding: 10px; font-family: monospace; font-size: 13px; border-radius: 4px; }
+    .queue-status { margin-top: 10px; padding: 8px; background: #332200; border: 1px dashed #ff9800; border-radius: 4px; color: #ffca28; }
     .target-indicator { font-size: 13px; color: #ffca28; font-weight: bold; margin-bottom: 5px; }
+
+    /* 震動與傷害數字動畫 */
+    @keyframes shake {
+      0% { transform: translate(1px, 1px) rotate(0deg); }
+      20% { transform: translate(-3px, 0px) rotate(1deg); }
+      40% { transform: translate(1px, -1px) rotate(1deg); }
+      60% { transform: translate(-3px, 1px) rotate(0deg); }
+      80% { transform: translate(-1px, -1px) rotate(1deg); }
+      100% { transform: translate(0px, 0px) rotate(0deg); }
+    }
+    .shake-effect { animation: shake 0.3s ease-in-out; }
+
+    @keyframes damage-flash {
+      0% { background-color: rgba(255, 0, 0, 0.7); box-shadow: 0 0 15px #ff0000; }
+      100% { background-color: #333; box-shadow: none; }
+    }
+    .flash-red { animation: damage-flash 0.4s ease-out; }
+
+    @keyframes heal-flash {
+      0% { background-color: rgba(0, 255, 0, 0.7); box-shadow: 0 0 15px #00ff00; }
+      100% { background-color: #333; box-shadow: none; }
+    }
+    .flash-green { animation: heal-flash 0.4s ease-out; }
+
+    .floating-number {
+      position: absolute; font-weight: 900; font-size: 22px; pointer-events: none;
+      animation: floatUp 0.8s ease-out forwards; z-index: 999; text-shadow: 2px 2px 4px #000;
+    }
+    @keyframes floatUp {
+      0% { opacity: 1; transform: translateY(0) scale(1.2); }
+      50% { transform: translateY(-25px) scale(1.4); }
+      100% { opacity: 0; transform: translateY(-50px) scale(1); }
+    }
+    .damage-num { color: #ff3333; }
+    .heal-num { color: #33ff33; }
   </style>
 </head>
 <body>
 
-<!-- 🔊 右上角音量控制面板 -->
-<div id="audioControlPanel">
-  <span style="font-size: 14px;">🔊</span>
-  <input type="range" id="volumeSlider" min="0" max="1" step="0.05" value="0.5">
-  <span id="volumeText" style="color: #aaa; font-size: 12px; width: 32px; text-align: right;">50%</span>
-</div>
-
 <div id="mainContainer" class="container">
-  <h2>⚔️ 線上 RPG 戰鬥與房間系統</h2>
+  <h2>⚔️ 線上 RPG 戰鬥與匹配系統</h2>
 
   <!-- 帳號登入 / 註冊區塊 -->
   <div id="authSection" class="card">
@@ -105,21 +134,15 @@
         <h3 style="margin:0;">🧘‍♂️ 大廳 (修練中...)</h3>
         <span id="idleStatusText" style="color: #aaa; font-size: 13px;">正在自動修練尋找藥水與道具...</span>
       </div>
-      <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
-        <div class="player-stats-badge">
-          <span>⭐ Lv.<span id="displayLevel">1</span></span>
-          <span>✨ EXP: <span id="displayExp">0</span></span>
-          <span>💰 金幣: <span id="displayGold">0</span></span>
-        </div>
-        <div class="online-badge">🟢 在線：<span id="displayOnlineCount">---</span> 人</div>
-      </div>
+      <!-- 👥 在線人數 -->
+      <div class="online-badge">🟢 在線玩家：<span id="displayOnlineCount">---</span> 人</div>
     </div>
     
     <div class="lobby-content">
-      <!-- 🎮 遊戲房間操作選擇 -->
+      <!-- 🎮 遊戲配對與自建房 -->
       <div class="lobby-box card">
         <h4>🎮 戰鬥選擇</h4>
-        <div style="display: flex; flex-direction: column; gap: 10px;">
+        <div style="display: flex; flex-direction: column; gap: 8px;">
           <label>玩家暱稱：<input type="text" id="playerName" value="勇者"></label>
           <label>選擇職業：
             <select id="playerRole">
@@ -132,18 +155,27 @@
             </select>
           </label>
           
-          <div style="margin-top: 5px; display: flex; flex-direction: column; gap: 8px;">
-            <button onclick="quickMatch()" style="background-color: #ff9800; font-weight: bold; font-size: 15px;">🎲 單人隨機匹配 (1v1)</button>
-            <button onclick="createCustomRoom()" style="background-color: #4caf50; font-weight: bold;">🏠 建立自訂房間</button>
-            <div style="display: flex; gap: 6px; align-items: center; margin-top: 5px;">
-              <input type="text" id="roomInputId" placeholder="輸入房號..." style="flex: 1;">
-              <button onclick="joinCustomRoom()" style="background-color: #008cba; font-weight: bold;">🚪 加入房間</button>
+          <div style="margin-top: 10px; display: flex; flex-direction: column; gap: 8px;">
+            <button id="btnJoinQueue" onclick="joinQueue()" style="background-color: #ff9800; font-weight: bold; font-size: 15px;">🎲 單人隨機匹配 (1v1)</button>
+            <button id="btnLeaveQueue" onclick="leaveQueue()" class="hidden" style="background-color: #d32f2f;">❌ 取消匹配</button>
+            
+            <div id="queueStatus" class="queue-status hidden">⏳ 正在尋找對手 (1v1) 中...</div>
+            <hr style="border-color: #333; width: 100%;">
+            
+            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+              <button onclick="createRoom('A')">🏠 建立隊伍 A 房</button>
+              <button onclick="createRoom('B')" style="background-color: #e53935;">🏠 建立隊伍 B 房</button>
+            </div>
+            <div style="display: flex; gap: 8px; margin-top: 5px;">
+              <input type="text" id="joinRoomId" placeholder="輸入房號" style="width: 110px;">
+              <button onclick="joinRoom('A')">加入隊伍 A</button>
+              <button onclick="joinRoom('B')" style="background-color: #e53935;">加入隊伍 B</button>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- 💬 聊天室、背包與 🌟 商店系統 -->
+      <!-- 💬 大廳聊天室與背包 -->
       <div class="lobby-box card" style="display: flex; flex-direction: column; gap: 10px;">
         <h4>💬 大廳公眾聊天室</h4>
         <div id="lobbyChatBox" class="chat-box">
@@ -154,27 +186,19 @@
           <button onclick="sendLobbyChat()" style="background-color: #008cba;">發送</button>
         </div>
 
-        <h4 style="margin-top: 5px;">🎒 我的背包</h4>
+        <h4 style="margin-top: 10px;">🎒 我的背包 (資料庫同步)</h4>
         <div class="inventory-list">
-          <div class="inventory-item"><span>🧪 HP 藥水</span><strong id="lobbyHpPotion">0</strong></div>
-          <div class="inventory-item"><span>🧪 MP 藥水</span><strong id="lobbyMpPotion">0</strong></div>
-          <div class="inventory-item"><span>📜 經驗卷軸</span><strong id="lobbyExpScroll">0</strong></div>
-        </div>
-
-        <!-- 🌟 道具商店介面 -->
-        <h4 style="margin-top: 5px;">🏪 道具商店</h4>
-        <div class="shop-list">
-          <div class="shop-item">
-            <span>🧪 HP 藥水 (💰 10金幣)</span>
-            <button onclick="buyShopItem('hp_potion')" style="background-color: #008cba; padding: 4px 10px;">購買</button>
+          <div class="inventory-item">
+            <span>🧪 HP 藥水</span>
+            <strong id="lobbyHpPotion">0</strong>
           </div>
-          <div class="shop-item">
-            <span>🧪 MP 藥水 (💰 10金幣)</span>
-            <button onclick="buyShopItem('mp_potion')" style="background-color: #008cba; padding: 4px 10px;">購買</button>
+          <div class="inventory-item">
+            <span>🧪 MP 藥水</span>
+            <strong id="lobbyMpPotion">0</strong>
           </div>
-          <div class="shop-item">
-            <span>📜 經驗卷軸 (💰 50金幣)</span>
-            <button onclick="buyShopItem('exp_scroll')" style="background-color: #008cba; padding: 4px 10px;">購買</button>
+          <div class="inventory-item">
+            <span>📜 經驗卷軸</span>
+            <strong id="lobbyExpScroll">0</strong>
           </div>
         </div>
       </div>
@@ -186,16 +210,18 @@
     <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
       <h3>🏰 戰鬥房間 - 房號: <span id="displayRoomId" style="color: #ff9800;">-</span></h3>
       <div>
-        <button id="btnStartGame" onclick="startGame()">⚔️ 開始遊戲</button>
+        <button id="btnStartGame" onclick="startGame()" class="hidden">⚔️ 開始遊戲</button>
+        <button id="btnRematch" onclick="rematch()" class="hidden">🔄 重新開局</button>
         <button onclick="leaveToIdle()" style="background-color: #d32f2f;">🚪 離開房間</button>
       </div>
     </div>
 
+    <!-- 🚩 隊伍列表與換隊按鍵 -->
     <div class="teams-container">
       <div class="team-box team-a">
         <div class="team-header">
           <h4 style="color: #2196f3; margin: 0;">🔵 隊伍 A</h4>
-          <button onclick="switchTeam('A')" style="font-size: 12px; padding: 4px 8px; background: #1976d2;">切換至 A 隊</button>
+          <button id="btnSwitchTeamA" onclick="switchTeam('A')" style="font-size: 12px; padding: 4px 8px; background: #1976d2;">切換至 A 隊</button>
         </div>
         <div id="teamAPlayers"></div>
       </div>
@@ -203,18 +229,20 @@
       <div class="team-box team-b">
         <div class="team-header">
           <h4 style="color: #f44336; margin: 0;">🔴 隊伍 B</h4>
-          <button onclick="switchTeam('B')" style="font-size: 12px; padding: 4px 8px; background: #d32f2f;">切換至 B 隊</button>
+          <button id="btnSwitchTeamB" onclick="switchTeam('B')" style="font-size: 12px; padding: 4px 8px; background: #d32f2f;">切換至 B 隊</button>
         </div>
         <div id="teamBPlayers"></div>
       </div>
     </div>
 
+    <!-- ⚔️ 技能操作面板 -->
     <div id="actionPanel" class="action-panel hidden">
       <div id="currentTargetText" class="target-indicator">🎯 技能目標：[自動鎖定模式] (點擊上方玩家卡片可手動選擇)</div>
       <div>
-        <span style="font-weight: bold; font-size: 14px;">✨ 釋放技能：</span>
+        <span style="font-weight: bold; font-size: 14px;">✨ 釋放技能 (💧 每秒自動回復 50 MP)：</span>
         <div id="skillButtons" class="skill-btns" style="margin-top: 5px;"></div>
       </div>
+      
       <div>
         <span style="font-weight: bold; font-size: 14px;">🧪 快捷藥水：</span>
         <div class="item-btns" style="margin-top: 5px;">
@@ -233,239 +261,449 @@
 </div>
 
 <script>
-  // 🛡️ 防右鍵與開發者工具封鎖
-  document.addEventListener('contextmenu', (e) => e.preventDefault());
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'F12' || (e.ctrlKey && e.shiftKey && ['I','i','J','j','C','c'].includes(e.key)) || (e.ctrlKey && ['U','u'].includes(e.key))) {
-      e.preventDefault();
-      return false;
-    }
-  });
-
-  // 音效系統
-  let audioCtx = null;
-  let masterVolume = 0.5;
-  document.getElementById('volumeSlider').addEventListener('input', (e) => {
-    masterVolume = parseFloat(e.target.value);
-    document.getElementById('volumeText').innerText = Math.round(masterVolume * 100) + '%';
-  });
-
-  function playSound(type) {
-    try {
-      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      if (audioCtx.state === 'suspended') audioCtx.resume();
-      if (masterVolume <= 0) return;
-
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      const now = audioCtx.currentTime;
-      osc.connect(gain);
-      gain.connect(audioCtx.destination);
-
-      if (type === 'buy') {
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(500, now);
-        osc.frequency.exponentialRampToValueAtTime(1000, now + 0.2);
-        gain.gain.setValueAtTime(masterVolume * 0.4, now);
-        gain.gain.linearRampToValueAtTime(0.01, now + 0.2);
-        osc.start(now); osc.stop(now + 0.2);
-      } else {
-        osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(200, now);
-        osc.frequency.exponentialRampToValueAtTime(50, now + 0.1);
-        gain.gain.setValueAtTime(masterVolume * 0.4, now);
-        gain.gain.linearRampToValueAtTime(0.01, now + 0.1);
-        osc.start(now); osc.stop(now + 0.1);
-      }
-    } catch(e) {}
-  }
-
+  // 請替換為你的後端 WebSocket 網址
   let ws = new WebSocket('wss://rpg-game-backend-vhag.onrender.com');
   let myPlayerId = null;
   let currentUser = null;
+  let currentRoomState = null;
   let selectedTargetId = null;
+  let oldPlayerHpMap = {}; 
+  let reviveCooldownEndTime = 0;
 
-  // 技能完整設定（包含後端運算所需的屬性對接）
   const SKILLS = {
     mage: [
-      { skillName: '🔥 火球術', mpCost: 80, minVal: 220, maxVal: 350, effect: 'burn', chance: 0.4 },
-      { skillName: '⚡ 連鎖閃電', mpCost: 150, minVal: 180, maxVal: 280, effect: 'paralyze', chance: 0.3 }
-    ],
-    berserker: [
-      { skillName: '⚔️ 重擊', mpCost: 40, minVal: 180, maxVal: 300, lifesteal: 0.2 },
-      { skillName: '💥 英雄一擊', mpCost: 300, minVal: 550, maxVal: 900 }
+      { name: '🔥 火球術', mpCost: 80, minVal: 220, maxVal: 350, isAoe: false, isHeal: false, effect: 'burn', chance: 0.3 },
+      { name: '⚡ 連鎖閃電', mpCost: 150, minVal: 180, maxVal: 280, isAoe: false, isHeal: false, effect: 'paralyze', chance: 0.25 },
+      { name: '❄️ 暴風雪', mpCost: 220, minVal: 150, maxVal: 250, isAoe: true, isHeal: false },
+      { name: '☄️ 隕石術', mpCost: 400, minVal: 500, maxVal: 850, isAoe: true, isHeal: false, isUlt: true }
     ],
     priest: [
-      { skillName: '💚 治癒術', mpCost: 70, minVal: 200, maxVal: 320, isHeal: true },
-      { skillName: '🌟 復活術', mpCost: 200, isRevive: true }
+      { name: '💚 治癒術', mpCost: 70, minVal: 200, maxVal: 320, isAoe: false, isHeal: true },
+      { name: '✨ 聖光彈', mpCost: 90, minVal: 180, maxVal: 280, isAoe: false, isHeal: false },
+      { name: '🙏 神聖祈禱', mpCost: 180, minVal: 150, maxVal: 250, isAoe: true, isHeal: true },
+      { name: '🌟 復活術', mpCost: 300, minVal: 0, maxVal: 0, isAoe: false, isRevive: true, isUlt: true, cd: 300 }
+    ],
+    berserker: [
+      { name: '⚔️ 重擊', mpCost: 40, minVal: 180, maxVal: 300, isAoe: false, isHeal: false, lifesteal: 0.2 },
+      { name: '🌪️ 旋風斬', mpCost: 100, minVal: 130, maxVal: 220, isAoe: true, isHeal: false, lifesteal: 0.2 },
+      { name: '🩸 狂暴怒吼', mpCost: 120, minVal: 250, maxVal: 400, isAoe: false, isHeal: false, lifesteal: 0.2 },
+      { name: '💥 英雄一擊', mpCost: 300, minVal: 550, maxVal: 900, isAoe: false, isHeal: false, isUlt: true, lifesteal: 0.2 }
     ],
     knight: [
-      { skillName: '🛡️ 盾牌衝鋒', mpCost: 40, minVal: 150, maxVal: 240 }
+      { name: '🛡️ 盾牌衝鋒', mpCost: 40, minVal: 150, maxVal: 240, isAoe: false, isHeal: false },
+      { name: '🔨 裁決之錘', mpCost: 80, minVal: 200, maxVal: 320, isAoe: false, isHeal: false },
+      { name: '🧱 堅守陣線', mpCost: 120, minVal: 120, maxVal: 200, isAoe: true, isHeal: true },
+      { name: '🏰 正義風暴', mpCost: 280, minVal: 400, maxVal: 650, isAoe: true, isHeal: false, isUlt: true }
     ],
     assassin: [
-      { skillName: '🗡️ 毒刃', mpCost: 50, minVal: 220, maxVal: 350, effect: 'poison', chance: 0.5 }
+      { name: '🗡️ 毒刃', mpCost: 50, minVal: 220, maxVal: 350, isAoe: false, isHeal: false, effect: 'poison', chance: 0.35 },
+      { name: '👣 影襲', mpCost: 90, minVal: 280, maxVal: 420, isAoe: false, isHeal: false, effect: 'poison', chance: 0.2 },
+      { name: '🔪 飛刀風暴', mpCost: 150, minVal: 160, maxVal: 280, isAoe: true, isHeal: false },
+      { name: '☠️ 瞬獄殺', mpCost: 350, minVal: 650, maxVal: 1100, isAoe: false, isHeal: false, isUlt: true, effect: 'poison', chance: 0.5 }
     ],
     archer: [
-      { skillName: '🏹 精準射擊', mpCost: 50, minVal: 200, maxVal: 320, effect: 'blind', chance: 0.4 }
+      { name: '🏹 精準射擊', mpCost: 50, minVal: 200, maxVal: 320, isAoe: false, isHeal: false, effect: 'blind', chance: 0.25 },
+      { name: '🌧️ 箭雨', mpCost: 140, minVal: 140, maxVal: 240, isAoe: true, isHeal: false, effect: 'blind', chance: 0.15 },
+      { name: '🎯 貫穿箭', mpCost: 110, minVal: 260, maxVal: 400, isAoe: false, isHeal: false },
+      { name: '🦅 幻影神射', mpCost: 320, minVal: 580, maxVal: 950, isAoe: false, isHeal: false, isUlt: true, effect: 'blind', chance: 0.4 }
     ]
   };
+
+  ws.onopen = () => { logMessage("🟢 成功連接伺服器！請先進行帳號登入或註冊。"); };
+  ws.onerror = () => { logMessage("🔴 伺服器連線失敗，請檢查網路或稍後重試。"); };
+  ws.onclose = () => { logMessage("🟡 與伺服器中斷連線。"); };
 
   ws.onmessage = (event) => {
     const data = JSON.parse(event.data);
 
-    if (data.type === 'register_success' || data.type === 'shop_success') {
+    if (data.type === 'register_success') {
       alert(data.message);
-      if (data.inventory) updateUserDataDisplay({ inventory: data.inventory });
     }
     else if (data.type === 'login_success') {
       currentUser = data.user;
-      logMessage(`🎉 歡迎回來，${data.user.name}`);
+      logMessage(`🎉 登入成功！歡迎回來，${data.user.name}`);
       document.getElementById('authSection').classList.add('hidden');
       document.getElementById('lobbySection').classList.remove('hidden');
-      updateUserDataDisplay(data.user);
+      
+      const validName = (data.user.name && data.user.name !== "空白") ? data.user.name : "勇者";
+      document.getElementById('playerName').value = validName;
+      document.getElementById('playerRole').value = data.user.role || 'berserker';
+      updateInventoryDisplay(data.user.inventory);
     }
+    // 👥 接收擬真在線人數更新
     else if (data.type === 'online_count') {
       document.getElementById('displayOnlineCount').innerText = data.onlineCount;
     }
+    // 💬 接收大廳聊天訊息
     else if (data.type === 'lobby_chat') {
       appendLobbyChat(data.sender, data.message, data.time);
     }
     else if (data.type === 'idle_reward') {
       logMessage(data.message);
-      updateUserDataDisplay(data);
+      updateInventoryDisplay(data.inventory);
+    }
+    else if (data.type === 'queue_joined') {
+      logMessage("🎲 成功進入單人 1v1 匹配隊列...");
+      showQueueUI(true);
+    }
+    else if (data.type === 'queue_left') {
+      logMessage("❌ 已取消匹配。");
+      showQueueUI(false);
     }
     else if (data.type === 'match_found' || data.type === 'room_created' || data.type === 'room_joined') {
+      if (data.type === 'match_found') logMessage("🎉 匹配成功！即將進入戰鬥...");
       myPlayerId = data.player.id;
+      selectedTargetId = null;
       document.getElementById('displayRoomId').innerText = data.roomId;
       document.getElementById('lobbySection').classList.add('hidden');
       document.getElementById('roomSection').classList.remove('hidden');
-      updateUserDataDisplay(data.player);
+      showQueueUI(false);
+      updateInventoryDisplay(data.player.inventory);
     }
     else if (data.type === 'room_state') {
+      currentRoomState = data;
       renderRoom(data);
     }
     else if (data.type === 'battle_log') {
       logMessage(data.message);
+      checkBattleLogForEffects(data.message);
     }
     else if (data.type === 'returned_to_idle') {
       logMessage(data.message);
+      selectedTargetId = null;
       document.getElementById('lobbySection').classList.remove('hidden');
       document.getElementById('roomSection').classList.add('hidden');
+      document.getElementById('actionPanel').classList.add('hidden');
     }
     else if (data.type === 'error') {
       alert("❌ " + data.message);
     }
   };
 
-  function updateUserDataDisplay(userObj) {
-    if (!userObj) return;
-    if (userObj.level !== undefined) document.getElementById('displayLevel').innerText = userObj.level;
-    if (userObj.exp !== undefined) document.getElementById('displayExp').innerText = userObj.exp;
-    if (userObj.gold !== undefined) document.getElementById('displayGold').innerText = userObj.gold;
-
-    const inv = userObj.inventory;
-    if (inv) {
-      document.getElementById('lobbyHpPotion').innerText = inv.hpPotion || 0;
-      document.getElementById('lobbyMpPotion').innerText = inv.mpPotion || 0;
-      document.getElementById('lobbyExpScroll').innerText = inv.expScroll || 0;
-
-      const btnHp = document.getElementById('btnHpPotion');
-      const btnMp = document.getElementById('btnMpPotion');
-      btnHp.innerText = `🧪 HP 藥水 (剩餘: ${inv.hpPotion || 0})`;
-      btnHp.disabled = (inv.hpPotion || 0) <= 0;
-      btnMp.innerText = `🧪 MP 藥水 (剩餘: ${inv.mpPotion || 0})`;
-      btnMp.disabled = (inv.mpPotion || 0) <= 0;
+  function checkWsConnected() {
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      alert("⚠️ 伺服器連線尚未建立或中斷！");
+      return false;
     }
-  }
-
-  function buyShopItem(itemType) {
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    playSound('buy');
-    ws.send(JSON.stringify({ type: 'buy_item', itemType }));
+    return true;
   }
 
   function register() {
+    if (!checkWsConnected()) return;
     const u = document.getElementById('authUsername').value.trim();
     const p = document.getElementById('authPassword').value.trim();
-    if (u && p) ws.send(JSON.stringify({ type: 'register', username: u, password: p }));
+    if (!u || !p) return alert("請輸入帳號與密碼！");
+    ws.send(JSON.stringify({ type: 'register', username: u, password: p }));
   }
 
   function login() {
+    if (!checkWsConnected()) return;
     const u = document.getElementById('authUsername').value.trim();
     const p = document.getElementById('authPassword').value.trim();
-    if (u && p) ws.send(JSON.stringify({ type: 'login', username: u, password: p }));
+    if (!u || !p) return alert("請輸入帳號與密碼！");
+    ws.send(JSON.stringify({ type: 'login', username: u, password: p }));
   }
 
+  // 💬 發送大廳聊天訊息
   function sendLobbyChat() {
+    if (!checkWsConnected()) return;
     const input = document.getElementById('lobbyChatInput');
-    if (!input.value.trim()) return;
-    ws.send(JSON.stringify({ type: 'send_lobby_chat', message: input.value.trim(), name: document.getElementById('playerName').value }));
+    const msg = input.value.trim();
+    if (!msg) return;
+
+    const senderName = getSafePlayerName();
+    ws.send(JSON.stringify({ type: 'send_lobby_chat', message: msg, name: senderName }));
     input.value = '';
   }
 
   function appendLobbyChat(sender, message, time) {
     const box = document.getElementById('lobbyChatBox');
-    box.innerHTML += `<div class="chat-msg"><span class="chat-time">[${time}]</span><span class="chat-sender">${sender}:</span><span>${message}</span></div>`;
+    const msgDiv = document.createElement('div');
+    msgDiv.className = 'chat-msg';
+    msgDiv.innerHTML = `<span class="chat-time">[${time}]</span><span class="chat-sender">${sender}:</span><span>${escapeHtml(message)}</span>`;
+    box.appendChild(msgDiv);
     box.scrollTop = box.scrollHeight;
   }
 
-  // 對接後端的 join_queue 型態
-  function quickMatch() {
-    ws.send(JSON.stringify({ type: 'join_queue', name: document.getElementById('playerName').value, role: document.getElementById('playerRole').value }));
+  function escapeHtml(str) {
+    return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   }
-  function createCustomRoom() {
-    ws.send(JSON.stringify({ type: 'create_room', name: document.getElementById('playerName').value, role: document.getElementById('playerRole').value }));
+
+  function getSafePlayerName() {
+    let nameInput = document.getElementById('playerName').value.trim();
+    if (!nameInput || nameInput === "空白") {
+      nameInput = (currentUser && currentUser.name) ? currentUser.name : "勇者" + Math.floor(Math.random() * 899 + 100);
+      document.getElementById('playerName').value = nameInput;
+    }
+    return nameInput;
   }
-  function joinCustomRoom() {
-    const roomId = document.getElementById('roomInputId').value.trim();
-    if (roomId) ws.send(JSON.stringify({ type: 'join_room', roomId, name: document.getElementById('playerName').value, role: document.getElementById('playerRole').value }));
+
+  function showQueueUI(inQueue) {
+    document.getElementById('btnJoinQueue').classList.toggle('hidden', inQueue);
+    document.getElementById('btnLeaveQueue').classList.toggle('hidden', !inQueue);
+    document.getElementById('queueStatus').classList.toggle('hidden', !inQueue);
   }
-  function switchTeam(team) { ws.send(JSON.stringify({ type: 'switch_team', targetTeam: team })); }
-  function startGame() { ws.send(JSON.stringify({ type: 'start_game' })); }
-  function leaveToIdle() { ws.send(JSON.stringify({ type: 'go_idle' })); }
-  function usePotion(potionType) { ws.send(JSON.stringify({ type: 'use_potion', potionType })); }
+
+  function joinQueue() {
+    if (!checkWsConnected()) return;
+    const name = getSafePlayerName();
+    const role = document.getElementById('playerRole').value;
+    ws.send(JSON.stringify({ type: 'join_queue', name, role }));
+    showQueueUI(true);
+  }
+
+  function leaveQueue() {
+    if (!checkWsConnected()) return;
+    ws.send(JSON.stringify({ type: 'leave_queue' }));
+    showQueueUI(false);
+  }
+
+  function createRoom(team = 'A') {
+    if (!checkWsConnected()) return;
+    leaveQueue();
+    const name = getSafePlayerName();
+    const role = document.getElementById('playerRole').value;
+    ws.send(JSON.stringify({ type: 'create_room', name, role, team }));
+  }
+
+  function joinRoom(targetTeam = 'A') {
+    if (!checkWsConnected()) return;
+    leaveQueue();
+    const name = getSafePlayerName();
+    const role = document.getElementById('playerRole').value;
+    const roomId = document.getElementById('joinRoomId').value.trim();
+    if (!roomId) return alert("請輸入房號！");
+    ws.send(JSON.stringify({ type: 'join_room', name, role, roomId, targetTeam }));
+  }
+
+  // 🚩 切換隊伍
+  function switchTeam(targetTeam) {
+    if (!checkWsConnected()) return;
+    ws.send(JSON.stringify({ type: 'switch_team', targetTeam }));
+  }
+
+  function updateInventoryDisplay(inv) {
+    if (!inv) return;
+    document.getElementById('lobbyHpPotion').innerText = inv.hpPotion || 0;
+    document.getElementById('lobbyMpPotion').innerText = inv.mpPotion || 0;
+    document.getElementById('lobbyExpScroll').innerText = inv.expScroll || 0;
+
+    const btnHp = document.getElementById('btnHpPotion');
+    const btnMp = document.getElementById('btnMpPotion');
+
+    const hpCount = inv.hpPotion || 0;
+    const mpCount = inv.mpPotion || 0;
+
+    btnHp.innerText = `🧪 HP 藥水 (剩餘: ${hpCount})`;
+    btnHp.disabled = hpCount <= 0;
+
+    btnMp.innerText = `🧪 MP 藥水 (剩餘: ${mpCount})`;
+    btnMp.disabled = mpCount <= 0;
+  }
 
   function renderRoom(roomState) {
     const teamA = document.getElementById('teamAPlayers');
     const teamB = document.getElementById('teamBPlayers');
-    teamA.innerHTML = ''; teamB.innerHTML = '';
+    teamA.innerHTML = '';
+    teamB.innerHTML = '';
 
     const me = roomState.players.find(p => p.id === myPlayerId);
-    if (me) updateUserDataDisplay(me);
+    const isHost = roomState.players[0] && roomState.players[0].id === myPlayerId;
+
+    if (me && me.inventory) updateInventoryDisplay(me.inventory);
+
+    // 控制換隊按鈕啟用/停用
+    const btnSwitchA = document.getElementById('btnSwitchTeamA');
+    const btnSwitchB = document.getElementById('btnSwitchTeamB');
+    if (me && roomState.status === 'waiting') {
+      btnSwitchA.disabled = (me.team === 'A');
+      btnSwitchB.disabled = (me.team === 'B');
+    } else {
+      btnSwitchA.disabled = true;
+      btnSwitchB.disabled = true;
+    }
+
+    const btnStart = document.getElementById('btnStartGame');
+    const btnRematch = document.getElementById('btnRematch');
+    
+    if (roomState.status === 'waiting') {
+      btnStart.classList.toggle('hidden', !isHost);
+      btnRematch.classList.add('hidden');
+      document.getElementById('actionPanel').classList.add('hidden');
+    } else if (roomState.status === 'playing') {
+      btnStart.classList.add('hidden');
+      btnRematch.classList.add('hidden');
+      document.getElementById('actionPanel').classList.remove('hidden');
+      renderSkillButtons(me);
+    } else if (roomState.status === 'game_over') {
+      btnStart.classList.add('hidden');
+      btnRematch.classList.toggle('hidden', !isHost);
+    }
+
+    const targetText = document.getElementById('currentTargetText');
+    if (selectedTargetId) {
+      const targetPlayer = roomState.players.find(p => p.id === selectedTargetId);
+      targetText.innerText = targetPlayer ? `🎯 目前鎖定目標：${targetPlayer.name} (${targetPlayer.team}隊)` : `🎯 技能目標：[自動鎖定模式]`;
+    } else {
+      targetText.innerText = `🎯 技能目標：[自動鎖定模式] (點擊玩家卡片可鎖定單體標的)`;
+    }
 
     roomState.players.forEach(p => {
-      const card = document.createElement('div');
-      card.className = `player-card ${p.hp <= 0 ? 'dead' : ''} ${selectedTargetId === p.id ? 'selected' : ''}`;
-      card.onclick = () => { selectedTargetId = (selectedTargetId === p.id) ? null : p.id; renderRoom(roomState); };
-      
-      card.innerHTML = `
-        <div class="player-header"><span>${p.name} (Lv.${p.level || 1})</span><span>${p.hp <= 0 ? '💀 陣亡' : '存活'}</span></div>
-        <div class="bar-container"><div class="hp-bar" style="width: ${Math.max(0, (p.hp/p.maxHp)*100)}%;"></div><div class="bar-text">HP: ${p.hp}/${p.maxHp}</div></div>
-        <div class="bar-container"><div class="mp-bar" style="width: ${Math.max(0, (p.mp/p.maxMp)*100)}%;"></div><div class="bar-text">MP: ${p.mp}/${p.maxMp}</div></div>
-      `;
-      if (p.team === 'A') teamA.appendChild(card); else teamB.appendChild(card);
-    });
+      const isDead = p.hp <= 0;
+      const hpPercent = Math.max(0, (p.hp / p.maxHp) * 100);
+      const mpPercent = Math.max(0, (p.mp / p.maxMp) * 100);
 
-    if (roomState.status === 'playing') {
-      document.getElementById('actionPanel').classList.remove('hidden');
-      const skillContainer = document.getElementById('skillButtons');
-      skillContainer.innerHTML = '';
-      (SKILLS[me.role] || []).forEach(skill => {
-        const btn = document.createElement('button');
-        btn.innerText = `${skill.skillName} (MP:${skill.mpCost})`;
-        btn.onclick = () => ws.send(JSON.stringify({ type: 'use_skill', ...skill, targetId: selectedTargetId }));
-        skillContainer.appendChild(btn);
-      });
-    } else {
-      document.getElementById('actionPanel').classList.add('hidden');
-    }
+      const pCard = document.createElement('div');
+      pCard.id = `player-card-${p.id}`;
+      const isSelected = selectedTargetId === p.id;
+      pCard.className = `player-card ${isDead ? 'dead' : ''} ${isSelected ? 'selected' : ''}`;
+      
+      if (roomState.status === 'playing') {
+        pCard.style.cursor = 'pointer';
+        pCard.onclick = () => selectTarget(p.id);
+      }
+
+      let statusHtml = '';
+      if (p.statusEffects) {
+        if (p.statusEffects.burn) statusHtml += `<span class="status-badge badge-burn">🔥 灼燒</span>`;
+        if (p.statusEffects.paralyze) statusHtml += `<span class="status-badge badge-paralyze">⚡ 麻痺</span>`;
+        if (p.statusEffects.poison) statusHtml += `<span class="status-badge badge-poison">☠️ 中毒</span>`;
+        if (p.statusEffects.blind) statusHtml += `<span class="status-badge badge-blind">👁️ 致盲</span>`;
+      }
+
+      const rInfo = p.rankInfo || { icon: '🥉', name: '青銅' };
+
+      pCard.innerHTML = `
+        <div class="player-header">
+          <span>${p.name} (${p.role}) <span class="rank-tag">${rInfo.icon} ${rInfo.name}</span> ${p.id === myPlayerId ? '⭐我' : ''}</span>
+          <span>${isDead ? '💀 陣亡' : '存活'}</span>
+        </div>
+        <div class="bar-container">
+          <div class="hp-bar" style="width: ${hpPercent}%;"></div>
+          <div class="bar-text">HP: ${p.hp} / ${p.maxHp}</div>
+        </div>
+        <div class="bar-container">
+          <div class="mp-bar" style="width: ${mpPercent}%;"></div>
+          <div class="bar-text">MP: ${p.mp} / ${p.maxMp}</div>
+        </div>
+        <div class="status-tags">${statusHtml}</div>
+      `;
+
+      if (p.team === 'A') teamA.appendChild(pCard);
+      else teamB.appendChild(pCard);
+
+      if (oldPlayerHpMap[p.id] !== undefined) {
+        const hpDiff = p.hp - oldPlayerHpMap[p.id];
+        if (hpDiff < 0) {
+          pCard.classList.add('flash-red');
+          showFloatingText(pCard, `${hpDiff}`, false);
+          setTimeout(() => pCard.classList.remove('flash-red'), 400);
+        } else if (hpDiff > 0) {
+          pCard.classList.add('flash-green');
+          showFloatingText(pCard, `+${hpDiff}`, true);
+          setTimeout(() => pCard.classList.remove('flash-green'), 400);
+        }
+      }
+      oldPlayerHpMap[p.id] = p.hp;
+    });
   }
+
+  function selectTarget(playerId) {
+    selectedTargetId = (selectedTargetId === playerId) ? null : playerId;
+    if (currentRoomState) renderRoom(currentRoomState);
+  }
+
+  function renderSkillButtons(me) {
+    if (!me) return;
+    const container = document.getElementById('skillButtons');
+    container.innerHTML = '';
+
+    const mySkills = SKILLS[me.role] || [];
+    const now = Date.now();
+
+    mySkills.forEach(skill => {
+      const btn = document.createElement('button');
+      if (skill.isRevive) {
+        const remainingCd = Math.max(0, Math.ceil((reviveCooldownEndTime - now) / 1000));
+        btn.innerText = `${skill.name} (MP: ${skill.mpCost})${remainingCd > 0 ? ` CD:${remainingCd}s` : ''}`;
+        if (skill.isUlt) btn.className = 'btn-ult';
+        btn.disabled = me.mp < skill.mpCost || me.hp <= 0 || remainingCd > 0;
+      } else {
+        btn.innerText = `${skill.name} (MP: ${skill.mpCost})`;
+        if (skill.isUlt) btn.className = 'btn-ult';
+        btn.disabled = me.mp < skill.mpCost || me.hp <= 0;
+      }
+
+      btn.onclick = () => useSkill(skill);
+      container.appendChild(btn);
+    });
+  }
+
+  function useSkill(skill) {
+    if (!checkWsConnected()) return;
+
+    if (skill.isRevive) reviveCooldownEndTime = Date.now() + (skill.cd * 1000);
+
+    ws.send(JSON.stringify({
+      type: 'use_skill',
+      skillName: skill.name,
+      mpCost: skill.mpCost,
+      minVal: skill.minVal,
+      maxVal: skill.maxVal,
+      isAoe: skill.isAoe,
+      isHeal: skill.isHeal,
+      isRevive: skill.isRevive || false,
+      lifesteal: skill.lifesteal || 0,
+      effect: skill.effect || null,
+      chance: skill.chance || 0,
+      isUlt: skill.isUlt || false,
+      targetId: selectedTargetId
+    }));
+  }
+
+  function usePotion(potionType) {
+    if (!checkWsConnected()) return;
+    ws.send(JSON.stringify({ type: 'use_potion', potionType }));
+  }
+
+  function startGame() { if (checkWsConnected()) ws.send(JSON.stringify({ type: 'start_game' })); }
+  function rematch() { if (checkWsConnected()) ws.send(JSON.stringify({ type: 'rematch' })); }
+  function leaveToIdle() { if (checkWsConnected()) ws.send(JSON.stringify({ type: 'go_idle' })); }
 
   function logMessage(msg) {
     const log = document.getElementById('battleLog');
-    log.innerHTML += `<div>[${new Date().toLocaleTimeString()}] ${msg}</div>`;
+    const item = document.createElement('div');
+    item.innerText = `[${new Date().toLocaleTimeString()}] ${msg}`;
+    log.appendChild(item);
     log.scrollTop = log.scrollHeight;
   }
+
+  function checkBattleLogForEffects(msg) {
+    if (msg.includes('【大招！】') || msg.includes('💥【暴擊！】') || msg.includes('⚡【麻痺】')) {
+      triggerContainerShake();
+    }
+  }
+
+  function triggerContainerShake() {
+    const container = document.getElementById('mainContainer');
+    container.classList.add('shake-effect');
+    setTimeout(() => container.classList.remove('shake-effect'), 300);
+  }
+
+  function showFloatingText(targetCard, text, isHeal = false) {
+    if (!targetCard) return;
+    const el = document.createElement('div');
+    el.className = `floating-number ${isHeal ? 'heal-num' : 'damage-num'}`;
+    el.innerText = text;
+
+    const randomX = Math.floor(Math.random() * 40) - 20;
+    el.style.left = `calc(50% + ${randomX}px)`;
+    el.style.top = '10px';
+
+    targetCard.appendChild(el);
+    setTimeout(() => el.remove(), 800);
+  }
 </script>
+
 </body>
 </html>
