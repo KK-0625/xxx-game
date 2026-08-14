@@ -701,6 +701,48 @@
     setTimeout(() => el.remove(), 800);
   }
 </script>
+<script>
+  // 1. 停用滑鼠右鍵選單
+  document.addEventListener('contextmenu', function(e) {
+    e.preventDefault();
+  }, false);
 
+  // 2. 停用常見的開啟開發者工具與檢視原始碼快捷鍵
+  document.addEventListener('keydown', function(e) {
+    // F12 鍵
+    if (e.key === 'F12' || e.keyCode === 123) {
+      e.preventDefault();
+      return false;
+    }
+
+    // Ctrl + Shift + I (開發者工具)
+    // Ctrl + Shift + J (控制台)
+    // Ctrl + Shift + C (元素檢測)
+    if (e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'i' || e.key === 'J' || e.key === 'j' || e.key === 'C' || e.key === 'c')) {
+      e.preventDefault();
+      return false;
+    }
+
+    // Ctrl + U (檢視網頁原始碼)
+    if (e.ctrlKey && (e.key === 'U' || e.key === 'u')) {
+      e.preventDefault();
+      return false;
+    }
+
+    // Ctrl + S (儲存網頁)
+    if (e.ctrlKey && (e.key === 'S' || e.key === 's')) {
+      e.preventDefault();
+      return false;
+    }
+  }, false);
+
+  // 3. 防範 DevTools 開啟的額外阻擋 ( debugger 無限迴圈手段 )
+  setInterval(function() {
+    const startTime = performance.now();
+    debugger;
+    const endTime = performance.now();
+    // 若打開 DevTools 導致斷點停頓，會自動清理或影響運作
+  }, 100);
+</script>
 </body>
 </html>
