@@ -69,7 +69,7 @@ const rooms = {};
 let matchQueue = [];
 
 // 👥 在線人數模擬計數器
-let simulatedOnlineCount = 380;
+let simulatedOnlineCount = 3000;
 
 const ROLE_STATS = {
   berserker: { hp: 16000, mp: 2000 },
@@ -81,7 +81,7 @@ const ROLE_STATS = {
 };
 
 // 🤖 擬真 AI 玩家名字與職業清單
-const AI_NAMES = ["影流之主", "孤高之劍", "夜之狂刃", "星空幻影", "無雙戰神", "疾風劍豪", "聖光騎士", "暗夜刺客"];
+const AI_NAMES = ["影流之主", "孤高劍", "夜之狂刃", "星空幻影", "無雙戰神", "疾風", "聖光", "暗夜", "一人做事薏仁湯", "無心插柳柳橙汁", "穩如泰山八寶粥", "仙度瑞拉再度你媽", "軟今天", "蜂窩性祖師爺", "Mia", "Zoe", "Leo", "Ray", "Luna", "Chloe", "Giselle", "Seraphina", "Zoe"];
 const ALL_ROLES = ['berserker', 'mage', 'priest', 'knight', 'assassin', 'archer'];
 
 // 廣播房間狀態
