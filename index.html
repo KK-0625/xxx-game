@@ -89,7 +89,7 @@
     .shop-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #444; padding-bottom: 10px; margin-bottom: 15px; }
     .shop-item { display: flex; justify-content: space-between; align-items: center; background: #2a2a2a; padding: 10px; margin-bottom: 10px; border-radius: 6px; }
 
-    /* 🌟✨ 技能施放動畫容器 (縮小並固定在右上方) ✨🌟 */
+    /* 🌟✨ 技能施放動畫容器 ✨🌟 */
     #skillFxContainer {
       position: fixed; top: 25px; right: 25px;
       pointer-events: none; z-index: 9999;
@@ -530,9 +530,9 @@
       document.getElementById('playerName').value = validName;
       document.getElementById('playerRole').value = data.user.role || 'berserker';
       
-      if (data.user.level) localUserData.level = data.user.level;
-      if (data.user.exp) localUserData.exp = data.user.exp;
-      updateInventoryDisplay(data.user.inventory);
+      if (data.user.inventory) {
+        updateInventoryDisplay(data.user.inventory);
+      }
     }
     else if (data.type === 'online_count') {
       document.getElementById('displayOnlineCount').innerText = data.onlineCount;
@@ -541,9 +541,10 @@
       appendLobbyChat(data.sender, data.message, data.time);
     }
     else if (data.type === 'idle_reward') {
-      logMessage(data.message);
-      if (data.gainedExp) addExp(data.gainedExp);
-      updateInventoryDisplay(data.inventory);
+      if (data.message) logMessage(data.message);
+      if (data.inventory) {
+        updateInventoryDisplay(data.inventory);
+      }
     }
     else if (data.type === 'queue_joined') {
       logMessage("🎲 成功進入單人 1v1 匹配隊列...");
@@ -561,7 +562,9 @@
       document.getElementById('lobbySection').classList.add('hidden');
       document.getElementById('roomSection').classList.remove('hidden');
       showQueueUI(false);
-      updateInventoryDisplay(data.player.inventory);
+      if (data.player && data.player.inventory) {
+        updateInventoryDisplay(data.player.inventory);
+      }
     }
     else if (data.type === 'room_state') {
       currentRoomState = data;
@@ -679,65 +682,53 @@
     ws.send(JSON.stringify({ type: 'switch_team', targetTeam }));
   }
 
-  function getMaxExp(level) { return level * 100; }
-
-  function addExp(amount) {
-    localUserData.exp += amount;
-    let maxExp = getMaxExp(localUserData.level);
-
-    while (localUserData.exp >= maxExp) {
-      localUserData.exp -= maxExp;
-      localUserData.level += 1;
-      maxExp = getMaxExp(localUserData.level);
-      logMessage(`🎉 恭喜升級！當前等級提升至 LV.${localUserData.level}！`);
-    }
-    updateExpUI();
-  }
-
-  function updateExpUI() {
-    const maxExp = getMaxExp(localUserData.level);
-    const percent = Math.min(100, Math.floor((localUserData.exp / maxExp) * 100));
-
-    document.getElementById('lobbyLevel').innerText = `LV.${localUserData.level}`;
-    document.getElementById('lobbyExpText').innerText = `${localUserData.exp} / ${maxExp}`;
-    document.getElementById('lobbyExpBar').style.width = `${percent}%`;
-    document.getElementById('lobbyExpPercentText').innerText = `${percent}%`;
-  }
-
   function useExpScroll() {
     if ((localUserData.expScroll || 0) <= 0) {
       alert("⚠️ 背包中沒有經驗卷軸！");
       return;
     }
-    localUserData.expScroll -= 1;
-    addExp(150);
-    updateInventoryDisplay(localUserData);
-    logMessage("📜 使用了經驗卷軸，獲得了 150 點經驗值！");
+    if (!checkWsConnected()) return;
+    ws.send(JSON.stringify({ type: 'use_exp_scroll' }));
   }
 
+  // 🎯 核心與後端 100% 權威同步，防止經驗值爆表
   function updateInventoryDisplay(inv) {
     if (!inv) return;
-    localUserData = Object.assign(localUserData, inv);
 
-    document.getElementById('lobbyGold').innerText = localUserData.gold !== undefined ? localUserData.gold : 0;
-    document.getElementById('shopGoldDisplay').innerText = localUserData.gold !== undefined ? localUserData.gold : 0;
-    document.getElementById('lobbyHpPotion').innerText = localUserData.hpPotion || 0;
-    document.getElementById('lobbyMpPotion').innerText = localUserData.mpPotion || 0;
-    document.getElementById('lobbyExpScroll').innerText = localUserData.expScroll || 0;
+    if (inv.level !== undefined) localUserData.level = inv.level;
+    if (inv.exp !== undefined) localUserData.exp = inv.exp;
+    if (inv.gold !== undefined) localUserData.gold = inv.gold;
+    if (inv.hpPotion !== undefined) localUserData.hpPotion = inv.hpPotion;
+    if (inv.mpPotion !== undefined) localUserData.mpPotion = inv.mpPotion;
+    if (inv.expScroll !== undefined) localUserData.expScroll = inv.expScroll;
 
+    // 1. 動態計算對齊 level * 100
+    const maxExp = localUserData.level * 100;
+    const percent = Math.min(100, Math.floor((localUserData.exp / maxExp) * 100));
+
+    // 2. 更新 DOM 渲染
+    document.getElementById('lobbyLevel').innerText = `LV.${localUserData.level}`;
+    document.getElementById('lobbyExpText').innerText = `${localUserData.exp} / ${maxExp}`;
+    document.getElementById('lobbyExpBar').style.width = `${percent}%`;
+    document.getElementById('lobbyExpPercentText').innerText = `${percent}%`;
+
+    document.getElementById('lobbyGold').innerText = localUserData.gold;
+    document.getElementById('shopGoldDisplay').innerText = localUserData.gold;
+    document.getElementById('lobbyHpPotion').innerText = localUserData.hpPotion;
+    document.getElementById('lobbyMpPotion').innerText = localUserData.mpPotion;
+    document.getElementById('lobbyExpScroll').innerText = localUserData.expScroll;
+
+    // 3. 藥水快捷鍵更新
     const btnHp = document.getElementById('btnHpPotion');
     const btnMp = document.getElementById('btnMpPotion');
-
-    const hpCount = localUserData.hpPotion || 0;
-    const mpCount = localUserData.mpPotion || 0;
+    const hpCount = localUserData.hpPotion;
+    const mpCount = localUserData.mpPotion;
 
     btnHp.innerText = `🧪 HP 藥水 (剩餘: ${hpCount})`;
     btnHp.disabled = hpCount <= 0;
 
     btnMp.innerText = `🧪 MP 藥水 (剩餘: ${mpCount})`;
     btnMp.disabled = mpCount <= 0;
-
-    updateExpUI();
   }
 
   function openShopModal() {
@@ -756,23 +747,8 @@
       return;
     }
 
-    localUserData.gold -= price;
-    localUserData[itemKey] = (localUserData[itemKey] || 0) + 1;
-    
-    updateInventoryDisplay(localUserData);
-    logMessage(`🛒 成功購買了 ${getItemName(itemKey)}！消耗金幣: ${price}`);
-
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: 'buy_item', itemKey, price }));
-    }
-  }
-
-  function getItemName(key) {
-    switch (key) {
-      case 'hpPotion': return '🧪 HP 藥水';
-      case 'mpPotion': return '🧪 MP 藥水';
-      case 'expScroll': return '📜 經驗卷軸';
-      default: return '道具';
     }
   }
 
@@ -916,7 +892,6 @@
 
   /* 🌟 播放精簡版右上方技能動畫與專屬音效 🌟 */
   function playSkillAnimationAndSound(skill) {
-    // 1. 右上方浮現精緻 Toast 動畫
     const container = document.getElementById('skillFxContainer');
     const animEl = document.createElement('div');
     animEl.className = 'skill-toast-anim';
@@ -925,14 +900,12 @@
 
     setTimeout(() => animEl.remove(), 1200);
 
-    // 2. 播放專屬音效
     if (skill.sound === 'sword') AudioFX.playSword();
     else if (skill.sound === 'magic') AudioFX.playMagic();
     else if (skill.sound === 'heal') AudioFX.playHeal();
     else if (skill.sound === 'stab') AudioFX.playStab();
     else if (skill.sound === 'arrow') AudioFX.playArrow();
 
-    // 3. 戰鬥微震動
     triggerContainerShake();
   }
 
@@ -941,7 +914,6 @@
 
     if (skill.isRevive) reviveCooldownEndTime = Date.now() + (skill.cd * 1000);
 
-    // 觸發音效與視覺動畫
     playSkillAnimationAndSound(skill);
 
     ws.send(JSON.stringify({
