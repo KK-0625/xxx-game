@@ -227,17 +227,12 @@ function scheduleIdleReward(client) {
           nextExpReq = getNextExpReq(currentLevel);
         }
 
-        const updateRes = await pool.query(
-          `UPDATE users 
-           SET ${potionCol} = ${potionCol} + 1, 
-               gold = gold + $1, 
-               exp = $2, 
-               level = $3,
-               stat_points = $4
-           WHERE id = $5 
-           RETURNING hp_potion, mp_potion, exp_scroll, gold, rank_points, level, exp, stat_points`,
-          [goldEarned, currentExp, currentLevel, statPoints, client.user.id]
-        );
+        // 安全更新 (使用安全的欄位判斷)
+        const updateQuery = isHp
+          ? `UPDATE users SET hp_potion = hp_potion + 1, gold = gold + $1, exp = $2, level = $3, stat_points = $4 WHERE id = $5 RETURNING hp_potion, mp_potion, exp_scroll, gold, rank_points, level, exp, stat_points`
+          : `UPDATE users SET mp_potion = mp_potion + 1, gold = gold + $1, exp = $2, level = $3, stat_points = $4 WHERE id = $5 RETURNING hp_potion, mp_potion, exp_scroll, gold, rank_points, level, exp, stat_points`;
+
+        const updateRes = await pool.query(updateQuery, [goldEarned, currentExp, currentLevel, statPoints, client.user.id]);
 
         const inv = updateRes.rows[0];
         client.user.inventory = {
@@ -318,7 +313,7 @@ function createMatchWithAI(p1) {
   broadcastRoomState(roomId);
 }
 
-// 🤖 AI 戰鬥邏輯優化
+// 🤖 AI 戰鬥邏輯
 function startAIBattleLoop(roomId) {
   const room = rooms[roomId];
   if (!room || !room.isAiMatch) return;
@@ -358,7 +353,7 @@ function startAIBattleLoop(roomId) {
       return;
     }
 
-    // 防守方 AGI 迴避判定 (每點 AGI +0.8% 閃避)
+    // 防守方 AGI 迴避判定
     const targetAgi = (target.stats && target.stats.agi) || 0;
     if (Math.random() < (targetAgi * 0.008)) {
       broadcastBattleLog(roomId, `💨 ${target.name} 憑藉高超敏捷，成功閃避了 ${ai.name} (AI) 的普通攻擊！`);
@@ -481,12 +476,22 @@ wss.on('connection', (ws) => {
         ws.send(JSON.stringify({ type: 'login_success', user: ws.user }));
       }
 
-      // ⭐ 屬性點數保存與廣播同步
+      // ⭐ 屬性點數保存與驗證
       else if (data.type === 'update_stats') {
         if (!ws.user || !data.stats) return;
         const { statPoints, str, int, vit, agi } = data.stats;
 
         try {
+          // 查詢 DB 驗證點數守恆
+          const dbRes = await pool.query('SELECT stat_points, str, int_stat, vit, agi FROM users WHERE id = $1', [ws.user.id]);
+          const dbUser = dbRes.rows[0];
+          const totalPointsBefore = dbUser.stat_points + dbUser.str + dbUser.int_stat + dbUser.vit + dbUser.agi;
+          const totalPointsAfter = statPoints + str + int + vit + agi;
+
+          if (totalPointsBefore !== totalPointsAfter) {
+            return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 點數計算異常！' }));
+          }
+
           await pool.query(
             `UPDATE users 
              SET stat_points = $1, str = $2, int_stat = $3, vit = $4, agi = $5 
@@ -516,26 +521,65 @@ wss.on('connection', (ws) => {
         }
       }
 
+      // 🔄 重置屬性點數功能
+      else if (data.type === 'reset_stats') {
+        if (!ws.user) return;
+        try {
+          const dbRes = await pool.query('SELECT str, int_stat, vit, agi, stat_points FROM users WHERE id = $1', [ws.user.id]);
+          const current = dbRes.rows[0];
+          const totalRefunded = (current.str || 0) + (current.int_stat || 0) + (current.vit || 0) + (current.agi || 0) + (current.stat_points || 0);
+
+          await pool.query(
+            `UPDATE users SET str = 0, int_stat = 0, vit = 0, agi = 0, stat_points = $1 WHERE id = $2`,
+            [totalRefunded, ws.user.id]
+          );
+
+          ws.user.stats = { statPoints: totalRefunded, str: 0, int: 0, vit: 0, agi: 0 };
+
+          if (ws.roomId && rooms[ws.roomId]) {
+            const p = rooms[ws.roomId].players.find(pl => pl.id === ws.id);
+            if (p) {
+              p.stats = ws.user.stats;
+              p.maxHp = getCalculatedMaxHp(p.role, 0);
+              p.hp = Math.min(p.hp, p.maxHp);
+              broadcastRoomState(ws.roomId);
+            }
+          }
+
+          ws.send(JSON.stringify({
+            type: 'stats_updated',
+            message: '🔄 屬性點數已重置！',
+            stats: ws.user.stats
+          }));
+        } catch (err) {
+          console.error("重置屬性點數失敗:", err);
+        }
+      }
+
       else if (data.type === 'buy_item') {
         const { itemType } = data;
-        const shopPrices = { hp_potion: 10, mp_potion: 10, exp_scroll: 50 };
-        const cost = shopPrices[itemType];
+        const validItems = {
+          hp_potion: { col: 'hp_potion', cost: 10 },
+          mp_potion: { col: 'mp_potion', cost: 10 },
+          exp_scroll: { col: 'exp_scroll', cost: 50 }
+        };
 
-        if (!cost || !ws.user) return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 無法購買該商品！' }));
+        const itemInfo = validItems[itemType];
+        if (!itemInfo || !ws.user) return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 無法購買該商品！' }));
 
         try {
-          const userRes = await pool.query('SELECT gold, hp_potion, mp_potion, exp_scroll FROM users WHERE id = $1', [ws.user.id]);
+          const userRes = await pool.query('SELECT gold FROM users WHERE id = $1', [ws.user.id]);
           const dbUser = userRes.rows[0];
 
-          if (dbUser.gold < cost) return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 金幣不足！' }));
+          if (dbUser.gold < itemInfo.cost) return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 金幣不足！' }));
 
-          const updateRes = await pool.query(
-            `UPDATE users 
-             SET gold = gold - $1, ${itemType} = ${itemType} + 1 
-             WHERE id = $2 
-             RETURNING gold, hp_potion, mp_potion, exp_scroll`,
-            [cost, ws.user.id]
-          );
+          const updateQuery = itemType === 'hp_potion'
+            ? `UPDATE users SET gold = gold - $1, hp_potion = hp_potion + 1 WHERE id = $2 RETURNING gold, hp_potion, mp_potion, exp_scroll`
+            : itemType === 'mp_potion'
+            ? `UPDATE users SET gold = gold - $1, mp_potion = mp_potion + 1 WHERE id = $2 RETURNING gold, hp_potion, mp_potion, exp_scroll`
+            : `UPDATE users SET gold = gold - $1, exp_scroll = exp_scroll + 1 WHERE id = $2 RETURNING gold, hp_potion, mp_potion, exp_scroll`;
+
+          const updateRes = await pool.query(updateQuery, [itemInfo.cost, ws.user.id]);
 
           const updated = updateRes.rows[0];
           ws.user.inventory = {
@@ -547,7 +591,7 @@ wss.on('connection', (ws) => {
 
           ws.send(JSON.stringify({
             type: 'shop_success',
-            message: `🛒 購買成功！消耗 ${cost} 金幣。`,
+            message: `🛒 購買成功！消耗 ${itemInfo.cost} 金幣。`,
             inventory: ws.user.inventory
           }));
         } catch (err) {
@@ -559,39 +603,38 @@ wss.on('connection', (ws) => {
         if (!ws.user) return;
         try {
           const res = await pool.query('SELECT exp_scroll, exp, level, stat_points FROM users WHERE id = $1', [ws.user.id]);
-          let { exp_scroll, exp, level, stat_points } = res.rows[0];
+          let { exp_scroll: scrollCount, exp: currentExp, level: currentLevel, stat_points: statPoints } = res.rows[0];
 
-          if (exp_scroll <= 0) return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 卷軸數量不足！' }));
+          if (scrollCount <= 0) return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 卷軸數量不足！' }));
 
-          exp += 150;
-          exp_scroll -= 1;
-          let statPts = stat_points || 0;
-          let nextReq = getNextExpReq(level);
+          currentExp += 150;
+          scrollCount -= 1;
+          let nextReq = getNextExpReq(currentLevel);
           let leveledUp = false;
 
-          while (exp >= nextReq) {
-            exp -= nextReq;
-            level += 1;
-            statPts += 5;
+          while (currentExp >= nextReq) {
+            currentExp -= nextReq;
+            currentLevel += 1;
+            statPoints = (statPoints || 0) + 5;
             leveledUp = true;
-            nextReq = getNextExpReq(level);
+            nextReq = getNextExpReq(currentLevel);
           }
 
           const updateRes = await pool.query(
             'UPDATE users SET exp = $1, level = $2, exp_scroll = $3, stat_points = $4 WHERE id = $5 RETURNING hp_potion, mp_potion, exp_scroll, gold',
-            [exp, level, exp_scroll, statPts, ws.user.id]
+            [currentExp, currentLevel, scrollCount, statPoints, ws.user.id]
           );
 
-          ws.user.level = level;
-          ws.user.exp = exp;
-          ws.user.stats.statPoints = statPts;
+          ws.user.level = currentLevel;
+          ws.user.exp = currentExp;
+          ws.user.stats.statPoints = statPoints;
 
           const inv = updateRes.rows[0];
           ws.user.inventory = { hpPotion: inv.hp_potion, mpPotion: inv.mp_potion, expScroll: inv.exp_scroll, gold: inv.gold };
 
           let msg = `📜 使用經驗卷軸成功！獲得 +150 EXP。`;
           if (leveledUp) {
-            msg += ` 🎉 恭喜升級！等級提升至 LV.${level}，獲得了 5 點屬性點！`;
+            msg += ` 🎉 恭喜升級！等級提升至 LV.${currentLevel}，獲得了 5 點屬性點！`;
           }
 
           ws.send(JSON.stringify({
@@ -763,7 +806,7 @@ wss.on('connection', (ws) => {
         }
       }
 
-      // ⚔️ 技能使用與屬性點數計算（STR / INT / AGI / VIT 全連動）
+      // ⚔️ 技能使用與屬性連動
       else if (data.type === 'use_skill') {
         const room = rooms[ws.roomId];
         if (!room || room.status !== 'playing') return;
@@ -792,7 +835,6 @@ wss.on('connection', (ws) => {
 
         caster.mp -= data.mpCost;
 
-        // 計算施法者本身的屬性加成 (STR 物理 / INT 魔法/治療)
         const casterStats = caster.stats || { str: 0, int: 0, vit: 0, agi: 0 };
         const strBonus = data.strAtkBonus || (casterStats.str * 12);
         const intBonus = data.intMagBonus || (casterStats.int * 15);
@@ -813,7 +855,6 @@ wss.on('connection', (ws) => {
               totalDmg += hitDmg;
             }
 
-            // 計算受擊者的 VIT 防禦減傷
             totalDmg = applyDefenseReduction(totalDmg, target.stats ? target.stats.vit : 0);
 
             target.hp = Math.max(0, target.hp - totalDmg);
@@ -863,7 +904,6 @@ wss.on('connection', (ws) => {
                 normalDmg = Math.floor(normalDmg * 1.5);
               }
 
-              // 防禦減傷計算
               normalDmg = applyDefenseReduction(normalDmg, target.stats ? target.stats.vit : 0);
 
               if (isCrit) {
@@ -907,31 +947,27 @@ wss.on('connection', (ws) => {
           let rawVal = Math.floor(Math.random() * (data.maxVal - data.minVal + 1)) + data.minVal;
 
           if (data.isHeal) {
-            rawVal += intBonus; // 加入智力治療加成
+            rawVal += intBonus;
             if (t.statusEffects && t.statusEffects.poison) {
               rawVal = Math.floor(rawVal * 0.5);
             }
             t.hp = Math.min(t.maxHp, t.hp + rawVal);
             broadcastBattleLog(room.id, `💚 ${caster.name} 對 ${t.name} 使用【${data.skillName}】，恢復 ${rawVal} HP！${t.statusEffects && t.statusEffects.poison ? '（中毒效果：治療量減半）' : ''}`);
           } else {
-            // 防守方 AGI 閃避判定 (每點 AGI +0.8% 閃避)
             const targetAgi = (t.stats && t.stats.agi) || 0;
             if (Math.random() < (targetAgi * 0.008)) {
               broadcastBattleLog(room.id, `💨 ${t.name} 憑藉高超敏捷，成功閃避了 ${caster.name} 的【${data.skillName}】！`);
               return;
             }
 
-            // 攻擊加成：若是法術加算 INT，若是物攻加算 STR
             const statBonus = (caster.role === 'mage' || caster.role === 'priest') ? intBonus : strBonus;
             rawVal += statBonus;
 
-            // 暴擊判定
             const isCrit = Math.random() < (0.05 + agiCritBonus);
             if (isCrit) {
               rawVal = Math.floor(rawVal * 1.5);
             }
 
-            // 防禦減傷計算 (受擊者 VIT)
             const finalDamage = applyDefenseReduction(rawVal, t.stats ? t.stats.vit : 0);
 
             t.hp = Math.max(0, t.hp - finalDamage);
