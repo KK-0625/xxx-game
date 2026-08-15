@@ -38,7 +38,7 @@
     .container { width: 100%; max-width: 960px; display: flex; flex-direction: column; gap: 15px; position: relative; }
     .card { background-color: #1e1e1e; border: 1px solid #333; border-radius: 8px; padding: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
     h2, h3, h4 { margin-top: 0; color: #4caf50; }
-    button { background-color: #388e3c; color: white; border: none; padding: 8px 16px; font-size: 14px; border-radius: 4px; cursor: pointer; transition: 0.2s; }
+    button { background-color: #388e3c; color: white; border: none; padding: 8px 16px; font-size: 14px; border-radius: 4px; cursor: pointer; transition: 0.2s; position: relative; overflow: hidden; }
     button:hover { background-color: #4caf50; }
     button:disabled { background-color: #444; color: #888; cursor: not-allowed; }
     input, select { background: #2a2a2a; color: #fff; border: 1px solid #444; padding: 8px; border-radius: 4px; font-size: 14px; }
@@ -84,6 +84,14 @@
     .btn-potion { background-color: #0288d1; }
     .btn-potion:hover { background-color: #03a9f4; }
     
+    /* CD 動畫遮罩 */
+    .cd-overlay {
+      position: absolute;
+      top: 0; left: 0; bottom: 0; right: 0;
+      background: rgba(0, 0, 0, 0.6);
+      pointer-events: none;
+    }
+
     /* 自動戰鬥按鈕樣式 */
     .btn-auto { background: linear-gradient(135deg, #ff9800, #e65100); font-weight: bold; padding: 6px 14px; border-radius: 20px; border: 1px solid #ffe082; }
     .btn-auto.active { background: linear-gradient(135deg, #00e676, #00812e); box-shadow: 0 0 10px #00e676; }
@@ -349,7 +357,9 @@
   let currentRoomState = null;
   let selectedTargetId = null;
   let oldPlayerHpMap = {}; 
-  let reviveCooldownEndTime = 0;
+
+  /* 全前端技能 CD 管理 Map: { [skillName]: cdEndTime(timestamp) } */
+  let localSkillCDMap = {};
 
   /* 全自動戰鬥控制變數 */
   let isAutoBattle = false;
@@ -427,42 +437,43 @@
 
   let localUserData = { level: 1, exp: 0, gold: 0, hpPotion: 0, mpPotion: 0, expScroll: 0 };
 
+  // 配置技能及其預設 CD (單位：秒)
   const SKILLS = {
     mage: [
-      { name: '🔥 火球術', mpCost: 80, minVal: 220, maxVal: 350, isAoe: false, isHeal: false, effect: 'burn', chance: 0.3, sound: 'magic' },
-      { name: '⚡ 連鎖閃電', mpCost: 150, minVal: 180, maxVal: 280, isAoe: false, isHeal: false, effect: 'paralyze', chance: 0.25, sound: 'magic' },
-      { name: '❄️ 暴風雪', mpCost: 220, minVal: 150, maxVal: 250, isAoe: true, isHeal: false, sound: 'magic' },
-      { name: '☄️ 隕石術', mpCost: 400, minVal: 500, maxVal: 850, isAoe: true, isHeal: false, isUlt: true, sound: 'magic' }
+      { name: '🔥 火球術', mpCost: 80, minVal: 220, maxVal: 350, isAoe: false, isHeal: false, effect: 'burn', chance: 0.3, cd: 2, sound: 'magic' },
+      { name: '⚡ 連鎖閃電', mpCost: 150, minVal: 180, maxVal: 280, isAoe: false, isHeal: false, effect: 'paralyze', chance: 0.25, cd: 4, sound: 'magic' },
+      { name: '❄️ 暴風雪', mpCost: 220, minVal: 150, maxVal: 250, isAoe: true, isHeal: false, cd: 6, sound: 'magic' },
+      { name: '☄️ 隕石術', mpCost: 400, minVal: 500, maxVal: 850, isAoe: true, isHeal: false, isUlt: true, cd: 15, sound: 'magic' }
     ],
     priest: [
-      { name: '💚 治癒術', mpCost: 70, minVal: 200, maxVal: 320, isAoe: false, isHeal: true, sound: 'heal' },
-      { name: '✨ 聖光彈', mpCost: 90, minVal: 180, maxVal: 280, isAoe: false, isHeal: false, sound: 'magic' },
-      { name: '🙏 神聖祈禱', mpCost: 180, minVal: 150, maxVal: 250, isAoe: true, isHeal: true, sound: 'heal' },
-      { name: '🌟 復活術', mpCost: 300, minVal: 0, maxVal: 0, isAoe: false, isRevive: true, isUlt: true, cd: 300, sound: 'heal' }
+      { name: '💚 治癒術', mpCost: 70, minVal: 200, maxVal: 320, isAoe: false, isHeal: true, cd: 3, sound: 'heal' },
+      { name: '✨ 聖光彈', mpCost: 90, minVal: 180, maxVal: 280, isAoe: false, isHeal: false, cd: 2, sound: 'magic' },
+      { name: '🙏 神聖祈禱', mpCost: 180, minVal: 150, maxVal: 250, isAoe: true, isHeal: true, cd: 8, sound: 'heal' },
+      { name: '🌟 復活術', mpCost: 300, minVal: 0, maxVal: 0, isAoe: false, isRevive: true, isUlt: true, cd: 30, sound: 'heal' }
     ],
     berserker: [
-      { name: '⚔️ 重擊', mpCost: 40, minVal: 180, maxVal: 300, isAoe: false, isHeal: false, lifesteal: 0.2, sound: 'sword' },
-      { name: '🌪️ 旋風斬', mpCost: 100, minVal: 130, maxVal: 220, isAoe: true, isHeal: false, lifesteal: 0.2, sound: 'sword' },
-      { name: '🩸 狂暴怒吼', mpCost: 120, minVal: 250, maxVal: 400, isAoe: false, isHeal: false, lifesteal: 0.2, sound: 'sword' },
-      { name: '💥 英雄一擊', mpCost: 300, minVal: 550, maxVal: 900, isAoe: false, isHeal: false, isUlt: true, lifesteal: 0.2, sound: 'sword' }
+      { name: '⚔️ 重擊', mpCost: 40, minVal: 180, maxVal: 300, isAoe: false, isHeal: false, lifesteal: 0.2, cd: 2, sound: 'sword' },
+      { name: '🌪️ 旋風斬', mpCost: 100, minVal: 130, maxVal: 220, isAoe: true, isHeal: false, lifesteal: 0.2, cd: 5, sound: 'sword' },
+      { name: '🩸 狂暴怒吼', mpCost: 120, minVal: 250, maxVal: 400, isAoe: false, isHeal: false, lifesteal: 0.2, cd: 6, sound: 'sword' },
+      { name: '💥 英雄一擊', mpCost: 300, minVal: 550, maxVal: 900, isAoe: false, isHeal: false, isUlt: true, lifesteal: 0.2, cd: 12, sound: 'sword' }
     ],
     knight: [
-      { name: '🛡️ 盾牌衝鋒', mpCost: 40, minVal: 150, maxVal: 240, isAoe: false, isHeal: false, sound: 'sword' },
-      { name: '🔨 裁決之錘', mpCost: 80, minVal: 200, maxVal: 320, isAoe: false, isHeal: false, sound: 'sword' },
-      { name: '🧱 堅守陣線', mpCost: 120, minVal: 120, maxVal: 200, isAoe: true, isHeal: true, sound: 'heal' },
-      { name: '🏰 正義風暴', mpCost: 280, minVal: 400, maxVal: 650, isAoe: true, isHeal: false, isUlt: true, sound: 'sword' }
+      { name: '🛡️ 盾牌衝鋒', mpCost: 40, minVal: 150, maxVal: 240, isAoe: false, isHeal: false, cd: 3, sound: 'sword' },
+      { name: '🔨 裁決之錘', mpCost: 80, minVal: 200, maxVal: 320, isAoe: false, isHeal: false, cd: 4, sound: 'sword' },
+      { name: '🧱 堅守陣線', mpCost: 120, minVal: 120, maxVal: 200, isAoe: true, isHeal: true, cd: 8, sound: 'heal' },
+      { name: '🏰 正義風暴', mpCost: 280, minVal: 400, maxVal: 650, isAoe: true, isHeal: false, isUlt: true, cd: 15, sound: 'sword' }
     ],
     assassin: [
-      { name: '🗡️ 毒刃', mpCost: 50, minVal: 220, maxVal: 350, isAoe: false, isHeal: false, effect: 'poison', chance: 0.35, sound: 'stab' },
-      { name: '👣 影襲', mpCost: 90, minVal: 280, maxVal: 420, isAoe: false, isHeal: false, effect: 'poison', chance: 0.2, sound: 'stab' },
-      { name: '🔪 飛刀風暴', mpCost: 150, minVal: 160, maxVal: 280, isAoe: true, isHeal: false, sound: 'stab' },
-      { name: '☠️ 瞬獄殺', mpCost: 350, minVal: 650, maxVal: 1100, isAoe: false, isHeal: false, isUlt: true, effect: 'poison', chance: 0.5, sound: 'stab' }
+      { name: '🗡️ 毒刃', mpCost: 50, minVal: 220, maxVal: 350, isAoe: false, isHeal: false, effect: 'poison', chance: 0.35, cd: 2, sound: 'stab' },
+      { name: '👣 影襲', mpCost: 90, minVal: 280, maxVal: 420, isAoe: false, isHeal: false, effect: 'poison', chance: 0.2, cd: 4, sound: 'stab' },
+      { name: '🔪 飛刀風暴', mpCost: 150, minVal: 160, maxVal: 280, isAoe: true, isHeal: false, cd: 6, sound: 'stab' },
+      { name: '☠️ 瞬獄殺', mpCost: 350, minVal: 650, maxVal: 1100, isAoe: false, isHeal: false, isUlt: true, effect: 'poison', chance: 0.5, cd: 12, sound: 'stab' }
     ],
     archer: [
-      { name: '🏹 精準射擊', mpCost: 50, minVal: 200, maxVal: 320, isAoe: false, isHeal: false, effect: 'blind', chance: 0.25, sound: 'arrow' },
-      { name: '🌧️ 箭雨', mpCost: 140, minVal: 140, maxVal: 240, isAoe: true, isHeal: false, effect: 'blind', chance: 0.15, sound: 'arrow' },
-      { name: '🎯 貫穿箭', mpCost: 110, minVal: 260, maxVal: 400, isAoe: false, isHeal: false, sound: 'arrow' },
-      { name: '🦅 幻影神射', mpCost: 320, minVal: 580, maxVal: 950, isAoe: false, isHeal: false, isUlt: true, effect: 'blind', chance: 0.4, sound: 'arrow' }
+      { name: '🏹 精準射擊', mpCost: 50, minVal: 200, maxVal: 320, isAoe: false, isHeal: false, effect: 'blind', chance: 0.25, cd: 2, sound: 'arrow' },
+      { name: '🌧️ 箭雨', mpCost: 140, minVal: 140, maxVal: 240, isAoe: true, isHeal: false, effect: 'blind', chance: 0.15, cd: 6, sound: 'arrow' },
+      { name: '🎯 貫穿箭', mpCost: 110, minVal: 260, maxVal: 400, isAoe: false, isHeal: false, cd: 4, sound: 'arrow' },
+      { name: '🦅 幻影神射', mpCost: 320, minVal: 580, maxVal: 950, isAoe: false, isHeal: false, isUlt: true, effect: 'blind', chance: 0.4, cd: 12, sound: 'arrow' }
     ]
   };
 
@@ -513,6 +524,7 @@
       if (data.type === 'match_found') logMessage("🎉 匹配成功！即將進入戰鬥...");
       myPlayerId = data.player.id;
       selectedTargetId = null;
+      localSkillCDMap = {}; // 清空冷卻
       document.getElementById('displayRoomId').innerText = data.roomId;
       document.getElementById('lobbySection').classList.add('hidden');
       document.getElementById('roomSection').classList.remove('hidden');
@@ -521,6 +533,15 @@
     }
     else if (data.type === 'room_state') {
       currentRoomState = data;
+      
+      // 同步後端回傳的技能冷卻狀態 (若有提供 skillCooldowns)
+      if (data.skillCooldowns && data.skillCooldowns[myPlayerId]) {
+        const cdState = data.skillCooldowns[myPlayerId];
+        Object.keys(cdState).forEach(sName => {
+          localSkillCDMap[sName] = cdState[sName];
+        });
+      }
+
       renderRoom(data);
       if (data.status === 'playing' && isAutoBattle) {
         startAutoBattleLoop();
@@ -539,7 +560,7 @@
       document.getElementById('actionPanel').classList.add('hidden');
     }
     else if (data.type === 'error') {
-      alert("❌ " + data.message);
+      logMessage("⚠️ " + data.message);
     }
   };
 
@@ -736,7 +757,7 @@
         return;
       }
       performAutoAction();
-    }, 1500); // 每 1.5 秒自動執行一次行為
+    }, 2000); // 改為 2 秒檢查一次，減少過度封包請求
   }
 
   function performAutoAction() {
@@ -758,18 +779,15 @@
     const mySkills = SKILLS[me.role] || [];
     const now = Date.now();
 
-    // 篩選出 MP 足夠且未冷卻的可用技能
+    // 篩選出 MP 足夠且未在 CD 中的可用技能
     const availableSkills = mySkills.filter(skill => {
-      if (skill.isRevive) {
-        const remainingCd = Math.max(0, Math.ceil((reviveCooldownEndTime - now) / 1000));
-        return me.mp >= skill.mpCost && remainingCd <= 0;
-      }
-      return me.mp >= skill.mpCost;
+      const cdEnd = localSkillCDMap[skill.name] || 0;
+      return me.mp >= skill.mpCost && now >= cdEnd;
     });
 
-    if (availableSkills.length === 0) return; // 無可用技能，等待 MP 回覆
+    if (availableSkills.length === 0) return; // 無可用技能，等待
 
-    // 優先使用昂貴/大招技能 (MP消耗最高者)
+    // 優先使用昂貴/大招技能
     availableSkills.sort((a, b) => b.mpCost - a.mpCost);
     const chosenSkill = availableSkills[0];
 
@@ -907,6 +925,7 @@
     if (currentRoomState) renderRoom(currentRoomState);
   }
 
+  // 渲染帶有 CD 秒數與按鈕進度變更的按鈕區域
   function renderSkillButtons(me) {
     if (!me) return;
     const container = document.getElementById('skillButtons');
@@ -916,20 +935,37 @@
 
     mySkills.forEach(skill => {
       const btn = document.createElement('button');
-      if (skill.isRevive) {
-        const remainingCd = Math.max(0, Math.ceil((reviveCooldownEndTime - now) / 1000));
-        btn.innerText = `${skill.name} (MP: ${skill.mpCost})${remainingCd > 0 ? ` CD:${remainingCd}s` : ''}`;
-        if (skill.isUlt) btn.className = 'btn-ult';
-        btn.disabled = me.mp < skill.mpCost || me.hp <= 0 || remainingCd > 0;
-      } else {
-        btn.innerText = `${skill.name} (MP: ${skill.mpCost})`;
-        if (skill.isUlt) btn.className = 'btn-ult';
-        btn.disabled = me.mp < skill.mpCost || me.hp <= 0;
-      }
+      btn.id = `btn-skill-${skill.name.replace(/\s+/g, '')}`;
+      
+      const cdEnd = localSkillCDMap[skill.name] || 0;
+      const remainingSec = Math.max(0, ((cdEnd - now) / 1000)).toFixed(1);
+      const isCoolingDown = remainingSec > 0;
+
+      btn.innerText = isCoolingDown ? `${skill.name} (${remainingSec}s)` : `${skill.name} (MP: ${skill.mpCost})`;
+      if (skill.isUlt) btn.className = 'btn-ult';
+      btn.disabled = me.mp < skill.mpCost || me.hp <= 0 || isCoolingDown;
 
       btn.onclick = () => useSkill(skill);
       container.appendChild(btn);
     });
+  }
+
+  function triggerSkillCDUI(skillName, durationSec) {
+    const now = Date.now();
+    const durationMs = (durationSec || 3) * 1000;
+    localSkillCDMap[skillName] = now + durationMs;
+
+    const interval = setInterval(() => {
+      const remaining = Math.max(0, ((localSkillCDMap[skillName] - Date.now()) / 1000)).toFixed(1);
+      if (remaining <= 0) {
+        clearInterval(interval);
+        delete localSkillCDMap[skillName];
+      }
+      if (currentRoomState && currentRoomState.status === 'playing') {
+        const me = currentRoomState.players.find(p => p.id === myPlayerId);
+        if (me) renderSkillButtons(me);
+      }
+    }, 100);
   }
 
   function playSkillAnimationAndSound(skill) {
@@ -951,7 +987,17 @@
 
   function useSkill(skill) {
     if (!checkWsConnected()) return;
-    if (skill.isRevive) reviveCooldownEndTime = Date.now() + (skill.cd * 1000);
+    const now = Date.now();
+
+    // 本地 CD 檢查攔截
+    if (localSkillCDMap[skill.name] && now < localSkillCDMap[skill.name]) {
+      const remain = ((localSkillCDMap[skill.name] - now) / 1000).toFixed(1);
+      logMessage(`⏳【${skill.name}】冷卻中，還需 ${remain} 秒！`);
+      return;
+    }
+
+    // 啟動冷卻計時器
+    triggerSkillCDUI(skill.name, skill.cd || 3);
 
     playSkillAnimationAndSound(skill);
 
@@ -968,6 +1014,7 @@
       effect: skill.effect || null,
       chance: skill.chance || 0,
       isUlt: skill.isUlt || false,
+      isAutoBot: isAutoBattle, // 帶入自動戰鬥平衡標籤
       targetId: selectedTargetId
     }));
   }
