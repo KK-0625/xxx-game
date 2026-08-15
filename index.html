@@ -250,6 +250,7 @@
         <button id="btnAutoBattle" class="btn-auto active" onclick="toggleAutoBattle()">🤖 自動戰鬥: ON</button>
         <button onclick="openShopModal()" style="background-color: #ff9800;">🛒 商店</button>
         <button id="btnStartGame" onclick="startGame()" class="hidden">⚔️ 開始遊戲</button>
+        <button id="btnRematch" onclick="rematch()" class="hidden">🔄 重新開局</button>
         <button onclick="leaveToIdle()" style="background-color: #d32f2f;">🚪 離開房間</button>
       </div>
     </div>
@@ -951,17 +952,11 @@
     }
 
     const btnStart = document.getElementById('btnStartGame');
+    const btnRematch = document.getElementById('btnRematch');
     
     if (roomState.status === 'waiting') {
       btnStart.classList.toggle('hidden', !isHost);
-      document.getElementById('actionPanel').classList.add('hidden');
-    } else if (roomState.status === 'playing') {
-      btnStart.classList.add('hidden');
-      document.getElementById('actionPanel').classList.remove('hidden');
-      renderSkillButtons(me);
-    } else if (roomState.status === 'game_over') {
-      btnStart.classList.add('hidden');
-    }
+      btnRematch.classList.add('hidden');
       document.getElementById('actionPanel').classList.add('hidden');
     } else if (roomState.status === 'playing') {
       btnStart.classList.add('hidden');
@@ -1151,6 +1146,7 @@
   }
 
   function startGame() { if (checkWsConnected()) ws.send(JSON.stringify({ type: 'start_game' })); }
+  function rematch() { if (checkWsConnected()) ws.send(JSON.stringify({ type: 'rematch' })); }
   function leaveToIdle() { if (checkWsConnected()) ws.send(JSON.stringify({ type: 'go_idle' })); }
 
   function logMessage(msg) {
