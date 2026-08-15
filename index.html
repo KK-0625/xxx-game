@@ -757,7 +757,7 @@
         return;
       }
       performAutoAction();
-    }, 2000); // 改為 2 秒檢查一次，減少過度封包請求
+    }, 2000); // 2 秒檢查一次
   }
 
   function performAutoAction() {
@@ -779,7 +779,7 @@
     const mySkills = SKILLS[me.role] || [];
     const now = Date.now();
 
-    // 篩選出 MP 足夠且未在 CD 中的可用技能
+    // 3. 篩選出 MP 足夠且未在 CD 中的可用技能
     const availableSkills = mySkills.filter(skill => {
       const cdEnd = localSkillCDMap[skill.name] || 0;
       return me.mp >= skill.mpCost && now >= cdEnd;
@@ -787,32 +787,62 @@
 
     if (availableSkills.length === 0) return; // 無可用技能，等待
 
-    // 優先使用昂貴/大招技能
+    // 先按消耗 MP 排序（優先選大招/高消耗技能）
     availableSkills.sort((a, b) => b.mpCost - a.mpCost);
-    const chosenSkill = availableSkills[0];
 
-    // 自動選擇目標
-    let autoTargetId = null;
     const teammates = currentRoomState.players.filter(p => p.team === me.team);
     const enemies = currentRoomState.players.filter(p => p.team !== me.team && p.hp > 0);
 
-    if (chosenSkill.isRevive) {
-      const deadTeammate = teammates.find(p => p.hp <= 0);
-      if (deadTeammate) autoTargetId = deadTeammate.id;
-      else return; // 沒有可復活目標
-    } else if (chosenSkill.isHeal && !chosenSkill.isAoe) {
-      // 尋找血量最少的隊友
-      teammates.sort((a, b) => (a.hp / a.maxHp) - (b.hp / b.maxHp));
-      if (teammates.length > 0) autoTargetId = teammates[0].id;
-    } else if (!chosenSkill.isAoe) {
-      // 尋找血量最少的敵人
-      enemies.sort((a, b) => (a.hp / a.maxHp) - (b.hp / b.maxHp));
-      if (enemies.length > 0) autoTargetId = enemies[0].id;
-      else return; // 無存活敵人
+    let chosenSkill = null;
+    let autoTargetId = null;
+
+    // 4. 智慧技能選擇與目標匹配
+    for (const skill of availableSkills) {
+      if (skill.isRevive) {
+        // 復活術：只有在「有隊友死亡」時才選用
+        const deadTeammate = teammates.find(p => p.hp <= 0);
+        if (deadTeammate) {
+          chosenSkill = skill;
+          autoTargetId = deadTeammate.id;
+          break;
+        }
+      } else if (skill.isHeal) {
+        if (skill.isAoe) {
+          // 全體治療：只要有隊友受傷 (HP < 90%) 就施放
+          const needHealTeammate = teammates.find(p => p.hp > 0 && (p.hp / p.maxHp) < 0.9);
+          if (needHealTeammate) {
+            chosenSkill = skill;
+            break;
+          }
+        } else {
+          // 單體治療：尋找受傷最重的隊友
+          const injuredTeammates = teammates.filter(p => p.hp > 0 && (p.hp / p.maxHp) < 0.85);
+          if (injuredTeammates.length > 0) {
+            injuredTeammates.sort((a, b) => (a.hp / a.maxHp) - (b.hp / b.maxHp));
+            chosenSkill = skill;
+            autoTargetId = injuredTeammates[0].id;
+            break;
+          }
+        }
+      } else {
+        // 攻擊類技能：只要有存活敵人就可以施放
+        if (enemies.length > 0) {
+          chosenSkill = skill;
+          if (!skill.isAoe) {
+            // 單體攻擊：優先集中火力打殘血敵人
+            enemies.sort((a, b) => (a.hp / a.maxHp) - (b.hp / b.maxHp));
+            autoTargetId = enemies[0].id;
+          }
+          break;
+        }
+      }
     }
 
-    selectedTargetId = autoTargetId;
-    useSkill(chosenSkill);
+    // 5. 執行技能
+    if (chosenSkill) {
+      selectedTargetId = autoTargetId;
+      useSkill(chosenSkill);
+    }
   }
   /* ============================================================== */
 
