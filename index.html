@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>多人線上 RPG 戰鬥房間 - 全自動戰鬥版</title>
+  <title>多人線上 RPG 戰鬥房間 - 刺客秒殺與中毒降療版</title>
   <style>
     * { box-sizing: border-box; font-family: "Segoe UI", Microsoft JhengHei, sans-serif; }
     
@@ -80,6 +80,8 @@
     .skill-btns, .item-btns { display: flex; gap: 8px; flex-wrap: wrap; }
     .btn-ult { background: linear-gradient(135deg, #d32f2f, #7b1fa2); font-weight: bold; border: 1px solid #ff4081; }
     .btn-ult:hover { background: linear-gradient(135deg, #f44336, #9c27b0); }
+    .btn-kill { background: linear-gradient(135deg, #4a148c, #880e4f); font-weight: bold; border: 1px solid #e91e63; }
+    .btn-kill:hover { background: linear-gradient(135deg, #6a1b9a, #ad1457); }
     .btn-potion { background-color: #0288d1; }
     .btn-potion:hover { background-color: #03a9f4; }
     
@@ -150,7 +152,7 @@
               <option value="mage">🔮 法師 (9000 HP - 灼燒/麻痺)</option>
               <option value="priest">💚 牧師 (10000 HP - 專屬復活)</option>
               <option value="knight">🏰 騎士 (20000 HP - 5% 荊棘反傷)</option>
-              <option value="assassin">🗡️ 刺客 (11000 HP - 劇毒持續扣血)</option>
+              <option value="assassin">🗡️ 刺客 (11000 HP - 中毒降療 / 10% 秒殺)</option>
               <option value="archer">🏹 弓箭手 (10500 HP - 致盲MISS)</option>
             </select>
           </label>
@@ -219,7 +221,6 @@
     <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
       <h3>🏰 戰鬥房間 - 房號: <span id="displayRoomId" style="color: #ff9800;">-</span></h3>
       <div style="display: flex; gap: 8px; align-items: center;">
-        <!-- 預設開啟自動戰鬥 -->
         <button id="btnAutoBattle" class="btn-auto active" onclick="toggleAutoBattle()">🤖 自動戰鬥: ON</button>
         <button onclick="openShopModal()" style="background-color: #ff9800;">🛒 商店</button>
         <button id="btnStartGame" onclick="startGame()" class="hidden">⚔️ 開始遊戲</button>
@@ -349,7 +350,6 @@
 
   let localSkillCDMap = {};
 
-  /* 預設開啟全自動戰鬥 */
   let isAutoBattle = true;
   let autoBattleTimer = null;
 
@@ -454,7 +454,9 @@
       { name: '🗡️ 毒刃', mpCost: 50, minVal: 220, maxVal: 350, isAoe: false, isHeal: false, effect: 'poison', chance: 0.35, cd: 2, sound: 'stab' },
       { name: '👣 影襲', mpCost: 90, minVal: 280, maxVal: 420, isAoe: false, isHeal: false, effect: 'poison', chance: 0.2, cd: 4, sound: 'stab' },
       { name: '🔪 飛刀風暴', mpCost: 150, minVal: 160, maxVal: 280, isAoe: true, isHeal: false, cd: 6, sound: 'stab' },
-      { name: '☠️ 瞬獄殺', mpCost: 350, minVal: 650, maxVal: 1100, isAoe: false, isHeal: false, isUlt: true, effect: 'poison', chance: 0.5, cd: 12, sound: 'stab' }
+      { name: '☠️ 瞬獄殺', mpCost: 350, minVal: 650, maxVal: 1100, isAoe: false, isHeal: false, isUlt: true, effect: 'poison', chance: 0.5, cd: 12, sound: 'stab' },
+      /* 新增秒殺技能：消耗 50% 當前血量，10% 機率直接秒殺對手 */
+      { name: '🗡️ 影之刺殺', mpCost: 200, hpCostPercent: 0.5, instantKillChance: 0.10, isAoe: false, isHeal: false, isKillSkill: true, cd: 15, sound: 'stab' }
     ],
     archer: [
       { name: '🏹 精準射擊', mpCost: 50, minVal: 200, maxVal: 320, isAoe: false, isHeal: false, effect: 'blind', chance: 0.25, cd: 2, sound: 'arrow' },
@@ -513,7 +515,6 @@
       selectedTargetId = null;
       localSkillCDMap = {};
 
-      // 入房時重設並開啟自動戰鬥
       isAutoBattle = true;
       const btnAuto = document.getElementById('btnAutoBattle');
       if (btnAuto) {
@@ -539,7 +540,6 @@
 
       renderRoom(data);
 
-      // 當房間進入戰鬥狀態且啟用自動戰鬥時自動開啟循環
       if (data.status === 'playing' && isAutoBattle) {
         startAutoBattleLoop();
       }
@@ -719,7 +719,6 @@
     ws.send(JSON.stringify({ type: 'buy_item', itemType }));
   }
 
-  /* ================= 全自動戰鬥邏輯區塊 ================= */
   function toggleAutoBattle() {
     isAutoBattle = !isAutoBattle;
     const btn = document.getElementById('btnAutoBattle');
@@ -776,6 +775,8 @@
 
     const availableSkills = mySkills.filter(skill => {
       const cdEnd = localSkillCDMap[skill.name] || 0;
+      // 影之刺殺需血量高於 50% 才考慮施放
+      if (skill.hpCostPercent && me.hp <= me.maxHp * skill.hpCostPercent) return false;
       return me.mp >= skill.mpCost && now >= cdEnd;
     });
 
@@ -894,7 +895,7 @@
       if (p.statusEffects) {
         if (p.statusEffects.burn) statusHtml += `<span class="status-badge badge-burn">🔥 灼燒</span>`;
         if (p.statusEffects.paralyze) statusHtml += `<span class="status-badge badge-paralyze">⚡ 麻痺</span>`;
-        if (p.statusEffects.poison) statusHtml += `<span class="status-badge badge-poison">☠️ 中毒</span>`;
+        if (p.statusEffects.poison) statusHtml += `<span class="status-badge badge-poison">☠️ 中毒(-50%治療)</span>`;
         if (p.statusEffects.blind) statusHtml += `<span class="status-badge badge-blind">👁️ 致盲</span>`;
       }
 
@@ -957,6 +958,8 @@
 
       btn.innerText = isCoolingDown ? `${skill.name} (${remainingSec}s)` : `${skill.name} (MP: ${skill.mpCost})`;
       if (skill.isUlt) btn.className = 'btn-ult';
+      if (skill.isKillSkill) btn.className = 'btn-kill';
+
       btn.disabled = me.mp < skill.mpCost || me.hp <= 0 || isCoolingDown;
 
       btn.onclick = () => useSkill(skill);
@@ -1010,15 +1013,16 @@
     }
 
     triggerSkillCDUI(skill.name, skill.cd || 3);
-
     playSkillAnimationAndSound(skill);
 
     ws.send(JSON.stringify({
       type: 'use_skill',
       skillName: skill.name,
       mpCost: skill.mpCost,
-      minVal: skill.minVal,
-      maxVal: skill.maxVal,
+      minVal: skill.minVal || 0,
+      maxVal: skill.maxVal || 0,
+      hpCostPercent: skill.hpCostPercent || 0,
+      instantKillChance: skill.instantKillChance || 0,
       isAoe: skill.isAoe,
       isHeal: skill.isHeal,
       isRevive: skill.isRevive || false,
@@ -1026,6 +1030,7 @@
       effect: skill.effect || null,
       chance: skill.chance || 0,
       isUlt: skill.isUlt || false,
+      isKillSkill: skill.isKillSkill || false,
       isAutoBot: isAutoBattle,
       targetId: selectedTargetId
     }));
@@ -1051,7 +1056,7 @@
   }
 
   function checkBattleLogForEffects(msg) {
-    if (msg.includes('【大招！】') || msg.includes('💥【暴擊！】') || msg.includes('⚡【麻痺】')) {
+    if (msg.includes('【大招！】') || msg.includes('💥【暴擊！】') || msg.includes('⚡【麻痺】') || msg.includes('☠️【秒殺！】')) {
       triggerContainerShake();
     }
   }
