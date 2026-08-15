@@ -6,7 +6,37 @@
   <title>多人線上 RPG 戰鬥房間 - 同步修正版</title>
   <style>
     * { box-sizing: border-box; font-family: "Segoe UI", Microsoft JhengHei, sans-serif; }
-    body { background-color: #121212; color: #e0e0e0; margin: 0; padding: 20px; display: flex; justify-content: center; overflow-x: hidden; }
+    
+    /* 防護 1：靜默禁止全頁面文字選取（無彈窗提示） */
+    body { 
+      background-color: #121212; 
+      color: #e0e0e0; 
+      margin: 0; 
+      padding: 20px; 
+      display: flex; 
+      justify-content: center; 
+      overflow-x: hidden;
+      -webkit-user-select: none;
+      -moz-user-select: none;
+      -ms-user-select: none;
+      user-select: none;
+    }
+
+    /* 允許輸入框可以正常選取與輸入文字 */
+    input, select, textarea {
+      -webkit-user-select: text;
+      -moz-user-select: text;
+      -ms-user-select: text;
+      user-select: text;
+    }
+
+    /* 防護 2：禁止圖片拖曳 */
+    img {
+      -webkit-user-drag: none;
+      user-drag: none;
+      pointer-events: none;
+    }
+
     .container { width: 100%; max-width: 960px; display: flex; flex-direction: column; gap: 15px; position: relative; }
     .card { background-color: #1e1e1e; border: 1px solid #333; border-radius: 8px; padding: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
     h2, h3, h4 { margin-top: 0; color: #4caf50; }
@@ -282,6 +312,39 @@
 </div>
 
 <script>
+  /* ================= 靜默防護功能 (無提示音/彈窗) ================= */
+  (function initSilentProtection() {
+    // 1. 靜默禁用右鍵選單
+    document.addEventListener('contextmenu', function (e) {
+      e.preventDefault();
+    }, false);
+
+    // 2. 靜默禁用快捷鍵 (F12, Ctrl+U, Ctrl+Shift+I/J/C, Ctrl+S)
+    document.addEventListener('keydown', function (e) {
+      const key = e.key.toUpperCase();
+      if (
+        e.key === 'F12' ||
+        (e.ctrlKey && key === 'U') ||
+        (e.ctrlKey && key === 'S') ||
+        (e.ctrlKey && e.shiftKey && (key === 'I' || key === 'J' || key === 'C'))
+      ) {
+        e.preventDefault();
+        return false;
+      }
+    }, false);
+
+    // 3. DevTools 干擾機制 (開啟開發者工具會不斷陷入卡頓)
+    setInterval(function () {
+      const startTime = performance.now();
+      debugger;
+      const endTime = performance.now();
+      if (endTime - startTime > 100) {
+        document.body.innerHTML = ''; // 開啟開發者工具時清空頁面內容
+      }
+    }, 1000);
+  })();
+  /* ============================================================== */
+
   let ws = new WebSocket('wss://rpg-game-backend-vhag.onrender.com');
   let myPlayerId = null;
   let currentUser = null;
