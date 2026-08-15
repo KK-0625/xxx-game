@@ -7,7 +7,6 @@
   <style>
     * { box-sizing: border-box; font-family: "Segoe UI", Microsoft JhengHei, sans-serif; }
     
-    /* 防護 1：靜默禁止全頁面文字選取 */
     body { 
       background-color: #121212; 
       color: #e0e0e0; 
@@ -84,15 +83,6 @@
     .btn-potion { background-color: #0288d1; }
     .btn-potion:hover { background-color: #03a9f4; }
     
-    /* CD 動畫遮罩 */
-    .cd-overlay {
-      position: absolute;
-      top: 0; left: 0; bottom: 0; right: 0;
-      background: rgba(0, 0, 0, 0.6);
-      pointer-events: none;
-    }
-
-    /* 自動戰鬥按鈕樣式 */
     .btn-auto { background: linear-gradient(135deg, #ff9800, #e65100); font-weight: bold; padding: 6px 14px; border-radius: 20px; border: 1px solid #ffe082; }
     .btn-auto.active { background: linear-gradient(135deg, #00e676, #00812e); box-shadow: 0 0 10px #00e676; }
 
@@ -229,7 +219,8 @@
     <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
       <h3>🏰 戰鬥房間 - 房號: <span id="displayRoomId" style="color: #ff9800;">-</span></h3>
       <div style="display: flex; gap: 8px; align-items: center;">
-        <button id="btnAutoBattle" class="btn-auto" onclick="toggleAutoBattle()">🤖 自動戰鬥: ON</button>
+        <!-- 預設開啟自動戰鬥 -->
+        <button id="btnAutoBattle" class="btn-auto active" onclick="toggleAutoBattle()">🤖 自動戰鬥: ON</button>
         <button onclick="openShopModal()" style="background-color: #ff9800;">🛒 商店</button>
         <button id="btnStartGame" onclick="startGame()" class="hidden">⚔️ 開始遊戲</button>
         <button id="btnRematch" onclick="rematch()" class="hidden">🔄 重新開局</button>
@@ -324,7 +315,6 @@
 </div>
 
 <script>
-  /* ================= 靜默防護功能 (無提示音/彈窗) ================= */
   (function initSilentProtection() {
     document.addEventListener('contextmenu', function (e) { e.preventDefault(); }, false);
     document.addEventListener('keydown', function (e) {
@@ -349,7 +339,6 @@
       }
     }, 1000);
   })();
-  /* ============================================================== */
 
   let ws = new WebSocket('wss://rpg-game-backend-vhag.onrender.com');
   let myPlayerId = null;
@@ -358,11 +347,10 @@
   let selectedTargetId = null;
   let oldPlayerHpMap = {}; 
 
-  /* 全前端技能 CD 管理 Map: { [skillName]: cdEndTime(timestamp) } */
   let localSkillCDMap = {};
 
-  /* 全自動戰鬥控制變數 */
-  let isAutoBattle = false;
+  /* 預設開啟全自動戰鬥 */
+  let isAutoBattle = true;
   let autoBattleTimer = null;
 
   const AudioFX = {
@@ -437,7 +425,6 @@
 
   let localUserData = { level: 1, exp: 0, gold: 0, hpPotion: 0, mpPotion: 0, expScroll: 0 };
 
-  // 配置技能及其預設 CD (單位：秒)
   const SKILLS = {
     mage: [
       { name: '🔥 火球術', mpCost: 80, minVal: 220, maxVal: 350, isAoe: false, isHeal: false, effect: 'burn', chance: 0.3, cd: 2, sound: 'magic' },
@@ -524,7 +511,16 @@
       if (data.type === 'match_found') logMessage("🎉 匹配成功！即將進入戰鬥...");
       myPlayerId = data.player.id;
       selectedTargetId = null;
-      localSkillCDMap = {}; // 清空冷卻
+      localSkillCDMap = {};
+
+      // 入房時重設並開啟自動戰鬥
+      isAutoBattle = true;
+      const btnAuto = document.getElementById('btnAutoBattle');
+      if (btnAuto) {
+        btnAuto.innerText = "🤖 自動戰鬥: ON";
+        btnAuto.classList.add('active');
+      }
+
       document.getElementById('displayRoomId').innerText = data.roomId;
       document.getElementById('lobbySection').classList.add('hidden');
       document.getElementById('roomSection').classList.remove('hidden');
@@ -534,7 +530,6 @@
     else if (data.type === 'room_state') {
       currentRoomState = data;
       
-      // 同步後端回傳的技能冷卻狀態 (若有提供 skillCooldowns)
       if (data.skillCooldowns && data.skillCooldowns[myPlayerId]) {
         const cdState = data.skillCooldowns[myPlayerId];
         Object.keys(cdState).forEach(sName => {
@@ -543,6 +538,8 @@
       }
 
       renderRoom(data);
+
+      // 當房間進入戰鬥狀態且啟用自動戰鬥時自動開啟循環
       if (data.status === 'playing' && isAutoBattle) {
         startAutoBattleLoop();
       }
@@ -757,20 +754,18 @@
         return;
       }
       performAutoAction();
-    }, 2000); // 2 秒檢查一次
+    }, 2000);
   }
 
   function performAutoAction() {
     if (!currentRoomState) return;
     const me = currentRoomState.players.find(p => p.id === myPlayerId);
-    if (!me || me.hp <= 0) return; // 陣亡則不行動
+    if (!me || me.hp <= 0) return;
 
-    // 1. 低血量優先自動喝水
     if (me.hp / me.maxHp < 0.35 && (localUserData.hpPotion || 0) > 0) {
       usePotion('hp');
       return;
     }
-    // 2. 缺魔優先自動喝藍水
     if (me.mp / me.maxMp < 0.2 && (localUserData.mpPotion || 0) > 0) {
       usePotion('mp');
       return;
@@ -779,15 +774,13 @@
     const mySkills = SKILLS[me.role] || [];
     const now = Date.now();
 
-    // 3. 篩選出 MP 足夠且未在 CD 中的可用技能
     const availableSkills = mySkills.filter(skill => {
       const cdEnd = localSkillCDMap[skill.name] || 0;
       return me.mp >= skill.mpCost && now >= cdEnd;
     });
 
-    if (availableSkills.length === 0) return; // 無可用技能，等待
+    if (availableSkills.length === 0) return;
 
-    // 先按消耗 MP 排序（優先選大招/高消耗技能）
     availableSkills.sort((a, b) => b.mpCost - a.mpCost);
 
     const teammates = currentRoomState.players.filter(p => p.team === me.team);
@@ -796,10 +789,8 @@
     let chosenSkill = null;
     let autoTargetId = null;
 
-    // 4. 智慧技能選擇與目標匹配
     for (const skill of availableSkills) {
       if (skill.isRevive) {
-        // 復活術：只有在「有隊友死亡」時才選用
         const deadTeammate = teammates.find(p => p.hp <= 0);
         if (deadTeammate) {
           chosenSkill = skill;
@@ -808,14 +799,12 @@
         }
       } else if (skill.isHeal) {
         if (skill.isAoe) {
-          // 全體治療：只要有隊友受傷 (HP < 90%) 就施放
           const needHealTeammate = teammates.find(p => p.hp > 0 && (p.hp / p.maxHp) < 0.9);
           if (needHealTeammate) {
             chosenSkill = skill;
             break;
           }
         } else {
-          // 單體治療：尋找受傷最重的隊友
           const injuredTeammates = teammates.filter(p => p.hp > 0 && (p.hp / p.maxHp) < 0.85);
           if (injuredTeammates.length > 0) {
             injuredTeammates.sort((a, b) => (a.hp / a.maxHp) - (b.hp / b.maxHp));
@@ -825,11 +814,9 @@
           }
         }
       } else {
-        // 攻擊類技能：只要有存活敵人就可以施放
         if (enemies.length > 0) {
           chosenSkill = skill;
           if (!skill.isAoe) {
-            // 單體攻擊：優先集中火力打殘血敵人
             enemies.sort((a, b) => (a.hp / a.maxHp) - (b.hp / b.maxHp));
             autoTargetId = enemies[0].id;
           }
@@ -838,13 +825,11 @@
       }
     }
 
-    // 5. 執行技能
     if (chosenSkill) {
       selectedTargetId = autoTargetId;
       useSkill(chosenSkill);
     }
   }
-  /* ============================================================== */
 
   function renderRoom(roomState) {
     const teamA = document.getElementById('teamAPlayers');
@@ -955,7 +940,6 @@
     if (currentRoomState) renderRoom(currentRoomState);
   }
 
-  // 渲染帶有 CD 秒數與按鈕進度變更的按鈕區域
   function renderSkillButtons(me) {
     if (!me) return;
     const container = document.getElementById('skillButtons');
@@ -1019,14 +1003,12 @@
     if (!checkWsConnected()) return;
     const now = Date.now();
 
-    // 本地 CD 檢查攔截
     if (localSkillCDMap[skill.name] && now < localSkillCDMap[skill.name]) {
       const remain = ((localSkillCDMap[skill.name] - now) / 1000).toFixed(1);
       logMessage(`⏳【${skill.name}】冷卻中，還需 ${remain} 秒！`);
       return;
     }
 
-    // 啟動冷卻計時器
     triggerSkillCDUI(skill.name, skill.cd || 3);
 
     playSkillAnimationAndSound(skill);
@@ -1044,7 +1026,7 @@
       effect: skill.effect || null,
       chance: skill.chance || 0,
       isUlt: skill.isUlt || false,
-      isAutoBot: isAutoBattle, // 帶入自動戰鬥平衡標籤
+      isAutoBot: isAutoBattle,
       targetId: selectedTargetId
     }));
   }
