@@ -464,7 +464,29 @@ wss.on('connection', (ws) => {
         const hash = await bcrypt.hash(password, 10);
         try {
           await pool.query('INSERT INTO users (username, password_hash, rank_points, gold, level, exp, stat_points, str, int_stat, vit, agi) VALUES ($1, $2, 0, 0, 1, 0, 0, 0, 0, 0, 0)', [username, hash]);
+          
           ws.send(JSON.stringify({ type: 'register_success', message: '🎉 註冊成功！請直接進行登入。' }));
+
+          // 🤖 Discord Webhook 自動通知
+          const webhookURL = "https://discord.com/api/webhooks/1537358258526883870/FgEzCwvoSWLygqZpElzrjrQtAv6zva3ODP4NHI43YKm1tANMpLC_Aij1mQfW1d83_-Qn";
+          const discordMessage = {
+            embeds: [{
+              title: "⚔️ RPG 遊戲新玩家誕生！",
+              color: 5814783, // 綠色風格邊框
+              fields: [
+                { name: "玩家帳號", value: username, inline: true },
+                { name: "註冊時間", value: new Date().toLocaleString('zh-TW', { hour12: false }), inline: true }
+              ],
+              footer: { text: "多人線上 RPG 戰鬥系統通知" }
+            }]
+          };
+
+          fetch(webhookURL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(discordMessage)
+          }).catch(err => console.error("Discord Webhook 發送失敗:", err));
+
         } catch (e) {
           ws.send(JSON.stringify({ type: 'error', message: '⚠️ 帳號名稱已被使用！' }));
         }
