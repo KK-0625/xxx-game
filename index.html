@@ -1110,6 +1110,47 @@
     targetCard.appendChild(el);
     setTimeout(() => el.remove(), 800);
   }
+  <!-- 無提示版防護機制腳本 -->
+<script>
+  (function() {
+    // 1. 禁止右鍵選單 (完全靜音無提示)
+    document.addEventListener('contextmenu', function(e) {
+      e.preventDefault();
+      return false;
+    }, false);
+
+    // 2. 禁用常見檢視原始碼與開發者工具快捷鍵
+    document.addEventListener('keydown', function(e) {
+      // F12 鍵
+      if (e.key === 'F12' || e.keyCode === 123) {
+        e.preventDefault();
+        return false;
+      }
+
+      // Ctrl+Shift+I / J / C (開發者工具)
+      if (e.ctrlKey && e.shiftKey && ['I', 'i', 'J', 'j', 'C', 'c'].includes(e.key)) {
+        e.preventDefault();
+        return false;
+      }
+
+      // Ctrl+U (檢視原始碼) 與 Ctrl+S (儲存網頁)
+      if (e.ctrlKey && ['U', 'u', 'S', 's'].includes(e.key)) {
+        e.preventDefault();
+        return false;
+      }
+    });
+
+    // 3. 禁止拖拽圖片與文字 (防止直接拖動複製)
+    document.addEventListener('dragstart', function(e) {
+      e.preventDefault();
+      return false;
+    });
+
+    // 4. Debugger 迴圈防範 (若強行開啟 DevTools 會自動斷點阻斷)
+    setInterval(function() {
+      (function() {}.constructor('debugger')());
+    }, 1000);
+  })();
 </script>
 </body>
 </html>
