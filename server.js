@@ -76,7 +76,7 @@ const server = http.createServer((req, res) => {
 const wss = new WebSocket.Server({ server });
 const rooms = {};
 let matchQueue = [];
-let simulatedOnlineCount = 15000;
+let simulatedOnlineCount = 10000;
 
 const ROLE_STATS = {
   berserker: { hp: 16000, mp: 2000 },
@@ -181,7 +181,7 @@ function broadcastOnlineCount() {
   });
 }
 
-setInterval(broadcastOnlineCount, 5000);
+setInterval(broadcastOnlineCount, 30000);
 
 const heartbeatInterval = setInterval(() => {
   wss.clients.forEach(ws => {
