@@ -104,6 +104,7 @@ function broadcastRoomState(roomId) {
       level: p.level || 1,
       inventory: p.inventory,
       statusEffects: p.statusEffects || {},
+      cooldowns: p.cooldowns || {},
       rankPoints: p.rankPoints || 0,
       rankInfo: getRankInfo(p.rankPoints || 0)
     }))
@@ -250,14 +251,14 @@ function createMatchWithAI(p1) {
         id: p1.id, ws: p1.ws, name: p1.name, role: p1.role, team: 'A',
         hp: stats1.hp, maxHp: stats1.hp, mp: stats1.mp, maxMp: stats1.mp,
         level: p1.user ? p1.user.level : 1,
-        rankPoints: p1.rankPoints, statusEffects: {}, isAi: false,
+        rankPoints: p1.rankPoints, statusEffects: {}, cooldowns: {}, isAi: false,
         inventory: p1.user ? p1.user.inventory : { hpPotion: 5, mpPotion: 5, expScroll: 1, gold: 0 }
       },
       {
         id: aiPlayerId, ws: null, name: aiName, role: aiRole, team: 'B',
         hp: aiStats.hp, maxHp: aiStats.hp, mp: aiStats.mp, maxMp: aiStats.mp,
         level: Math.max(1, (p1.user ? p1.user.level : 1) + Math.floor(Math.random() * 3 - 1)),
-        rankPoints: p1.rankPoints + (Math.floor(Math.random() * 100) - 50), statusEffects: {}, isAi: true,
+        rankPoints: p1.rankPoints + (Math.floor(Math.random() * 100) - 50), statusEffects: {}, cooldowns: {}, isAi: true,
         inventory: { hpPotion: 5, mpPotion: 5, expScroll: 1, gold: 0 }
       }
     ]
@@ -295,6 +296,13 @@ function startAIBattleLoop(roomId) {
       }
       ai.hp = Math.min(ai.maxHp, ai.hp + healAmount);
       broadcastBattleLog(roomId, `🧪 ${ai.name} 使用了 HP 藥水！${ai.statusEffects && ai.statusEffects.poison ? '（中毒效果：回復量減半）' : ''}`);
+      broadcastRoomState(roomId);
+      return;
+    }
+
+    // 致盲檢測
+    if (ai.statusEffects && ai.statusEffects.blind && Math.random() < 0.5) {
+      broadcastBattleLog(roomId, `👁️ ${ai.name} 受致盲影響，攻擊 MISS！`);
       broadcastRoomState(roomId);
       return;
     }
@@ -496,8 +504,8 @@ wss.on('connection', (ws) => {
           rooms[roomId] = {
             id: roomId, status: 'waiting', isAiMatch: false, regenTimer: null,
             players: [
-              { id: p1.id, ws: p1.ws, name: p1.name, role: p1.role, team: 'A', hp: stats1.hp, maxHp: stats1.hp, mp: stats1.mp, maxMp: stats1.mp, level: p1.user ? p1.user.level : 1, rankPoints: p1.rankPoints, statusEffects: {}, isAi: false, inventory: p1.user ? p1.user.inventory : { hpPotion: 5, mpPotion: 5, expScroll: 1, gold: 0 } },
-              { id: p2.id, ws: p2.ws, name: p2.name, role: p2.role, team: 'B', hp: stats2.hp, maxHp: stats2.hp, mp: stats2.mp, maxMp: stats2.mp, level: p2.user ? p2.user.level : 1, rankPoints: p2.rankPoints, statusEffects: {}, isAi: false, inventory: p2.user ? p2.user.inventory : { hpPotion: 5, mpPotion: 5, expScroll: 1, gold: 0 } }
+              { id: p1.id, ws: p1.ws, name: p1.name, role: p1.role, team: 'A', hp: stats1.hp, maxHp: stats1.hp, mp: stats1.mp, maxMp: stats1.mp, level: p1.user ? p1.user.level : 1, rankPoints: p1.rankPoints, statusEffects: {}, cooldowns: {}, isAi: false, inventory: p1.user ? p1.user.inventory : { hpPotion: 5, mpPotion: 5, expScroll: 1, gold: 0 } },
+              { id: p2.id, ws: p2.ws, name: p2.name, role: p2.role, team: 'B', hp: stats2.hp, maxHp: stats2.hp, mp: stats2.mp, maxMp: stats2.mp, level: p2.user ? p2.user.level : 1, rankPoints: p2.rankPoints, statusEffects: {}, cooldowns: {}, isAi: false, inventory: p2.user ? p2.user.inventory : { hpPotion: 5, mpPotion: 5, expScroll: 1, gold: 0 } }
             ]
           };
 
@@ -535,7 +543,7 @@ wss.on('connection', (ws) => {
 
         rooms[roomId] = {
           id: roomId, status: 'waiting', isAiMatch: false, regenTimer: null,
-          players: [{ id: ws.id, ws, name, role, team, hp: stats.hp, maxHp: stats.hp, mp: stats.mp, maxMp: stats.mp, level: ws.user ? ws.user.level : 1, rankPoints: rankPts, statusEffects: {}, isAi: false, inventory: ws.user ? ws.user.inventory : { hpPotion: 5, mpPotion: 5, expScroll: 1, gold: 0 } }]
+          players: [{ id: ws.id, ws, name, role, team, hp: stats.hp, maxHp: stats.hp, mp: stats.mp, maxMp: stats.mp, level: ws.user ? ws.user.level : 1, rankPoints: rankPts, statusEffects: {}, cooldowns: {}, isAi: false, inventory: ws.user ? ws.user.inventory : { hpPotion: 5, mpPotion: 5, expScroll: 1, gold: 0 } }]
         };
 
         ws.roomId = roomId; ws.isIdle = false;
@@ -559,7 +567,7 @@ wss.on('connection', (ws) => {
 
         const stats = ROLE_STATS[role] || ROLE_STATS.berserker;
         const newPlayer = {
-          id: ws.id, ws, name: name || '勇者', role, team: assignedTeam, hp: stats.hp, maxHp: stats.hp, mp: stats.mp, maxMp: stats.mp, level: ws.user ? ws.user.level : 1, rankPoints: ws.user ? ws.user.rankPoints : 0, statusEffects: {}, isAi: false, inventory: ws.user ? ws.user.inventory : { hpPotion: 5, mpPotion: 5, expScroll: 1, gold: 0 }
+          id: ws.id, ws, name: name || '勇者', role, team: assignedTeam, hp: stats.hp, maxHp: stats.hp, mp: stats.mp, maxMp: stats.mp, level: ws.user ? ws.user.level : 1, rankPoints: ws.user ? ws.user.rankPoints : 0, statusEffects: {}, cooldowns: {}, isAi: false, inventory: ws.user ? ws.user.inventory : { hpPotion: 5, mpPotion: 5, expScroll: 1, gold: 0 }
         };
 
         room.players.push(newPlayer);
@@ -616,6 +624,15 @@ wss.on('connection', (ws) => {
         const caster = room.players.find(p => p.id === ws.id);
         if (!caster || caster.hp <= 0) return;
 
+        const now = Date.now();
+        caster.cooldowns = caster.cooldowns || {};
+
+        // 檢查技能 CD
+        if (caster.cooldowns[data.skillName] && caster.cooldowns[data.skillName] > now) {
+          const remainingSec = Math.ceil((caster.cooldowns[data.skillName] - now) / 1000);
+          return ws.send(JSON.stringify({ type: 'error', message: `⚠️ 技能【${data.skillName}】冷卻中，剩餘 ${remainingSec} 秒！` }));
+        }
+
         if (caster.mp < data.mpCost) {
           return ws.send(JSON.stringify({ type: 'error', message: '⚠️ MP 不足！' }));
         }
@@ -629,18 +646,60 @@ wss.on('connection', (ws) => {
 
         caster.mp -= data.mpCost;
 
-        // 🗡️ 特殊邏輯：刺客 - 影之刺殺（消耗自身當前血量 50% 且有概率秒殺）
-        if (data.skillName === '🗡️ 影之刺殺' || data.isInstantKillSkill) {
-          const hpCost = Math.floor(caster.hp * 0.5);
-          caster.hp = Math.max(1, caster.hp - hpCost); // 扣除自身當前生命值 50%
+        // 🏹 特殊邏輯：弓箭手 - 暴風箭雨（連擊10次打掉 5%~20% 血量，附加致盲3秒，CD 30秒）
+        if (data.skillName === '🏹 暴風箭雨' || data.isArrowStormSkill) {
+          caster.cooldowns['🏹 暴風箭雨'] = now + 30000; // 30秒 CD
 
           let target = room.players.find(p => p.id === data.targetId) || room.players.find(p => p.team !== caster.team && p.hp > 0);
           
           if (target && target.hp > 0) {
-            const isInstantKill = Math.random() < 0.10; // 10% 秒殺機率
+            let totalDmg = 0;
+            let hits = 10;
+            // 單次連擊傷害範圍為目標最大生命值的 0.5% ~ 2.0% (10次總和為 5% ~ 20%)
+            for (let i = 0; i < hits; i++) {
+              let hitDmgPercent = (Math.random() * (2.0 - 0.5) + 0.5) / 100;
+              let hitDmg = Math.floor(target.maxHp * hitDmgPercent);
+              totalDmg += hitDmg;
+            }
+
+            target.hp = Math.max(0, target.hp - totalDmg);
+            const percentDealt = ((totalDmg / target.maxHp) * 100).toFixed(1);
+
+            // 👁️ 附加致盲效果 3 秒
+            target.statusEffects = target.statusEffects || {};
+            target.statusEffects.blind = true;
+
+            broadcastBattleLog(room.id, `🏹 ${caster.name} 施展【暴風箭雨】發動 10 連擊！對 ${target.name} 造成 ${totalDmg} 點總傷害 (約 ${percentDealt}% 血量)，並使其陷入👁️【致盲】3秒！`);
+
+            setTimeout(() => {
+              if (target.statusEffects) {
+                target.statusEffects.blind = false;
+                if (rooms[room.id]) broadcastRoomState(room.id);
+              }
+            }, 3000);
+
+            if (target.role === 'knight' && totalDmg > 0) {
+              const reflectDmg = Math.floor(totalDmg * 0.05);
+              caster.hp = Math.max(0, caster.hp - reflectDmg);
+              broadcastBattleLog(room.id, `🏰 ${target.name} (騎士) 荊棘反傷，反彈 ${reflectDmg} 傷害！`);
+            }
+          }
+
+          broadcastRoomState(room.id);
+          return;
+        }
+
+        // 🗡️ 特殊邏輯：刺客 - 影之刺殺（消耗自身當前血量 50% 且有概率秒殺）
+        if (data.skillName === '🗡️ 影之刺殺' || data.isInstantKillSkill) {
+          const hpCost = Math.floor(caster.hp * 0.5);
+          caster.hp = Math.max(1, caster.hp - hpCost);
+
+          let target = room.players.find(p => p.id === data.targetId) || room.players.find(p => p.team !== caster.team && p.hp > 0);
+          
+          if (target && target.hp > 0) {
+            const isInstantKill = Math.random() < 0.10;
 
             if (isInstantKill) {
-              const damage = target.hp;
               target.hp = 0;
               broadcastBattleLog(room.id, `☠️【秒殺觸發！】${caster.name} 消耗自身 ${hpCost} HP 發動【影之刺殺】，成功秒殺了 ${target.name}！`);
             } else {
@@ -680,7 +739,6 @@ wss.on('connection', (ws) => {
           let rawVal = Math.floor(Math.random() * (data.maxVal - data.minVal + 1)) + data.minVal;
 
           if (data.isHeal) {
-            // 中毒降療：治療效果減半 (50%)
             if (t.statusEffects && t.statusEffects.poison) {
               rawVal = Math.floor(rawVal * 0.5);
             }
@@ -763,7 +821,6 @@ wss.on('connection', (ws) => {
         if (data.potionType === 'hp' && p.inventory.hpPotion > 0) {
           p.inventory.hpPotion--;
           let healAmount = 3000;
-          // 中毒降療：藥水效果減半
           if (p.statusEffects && p.statusEffects.poison) {
             healAmount = Math.floor(healAmount * 0.5);
           }
@@ -792,6 +849,7 @@ wss.on('connection', (ws) => {
             p.hp = stats.hp; p.maxHp = stats.hp;
             p.mp = stats.mp; p.maxMp = stats.mp;
             p.statusEffects = {};
+            p.cooldowns = {};
           });
           broadcastBattleLog(room.id, "🔄 房間已重新開局，等待房主開始遊戲！");
           broadcastRoomState(room.id);
