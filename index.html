@@ -51,7 +51,7 @@
     .exp-bar { background: linear-gradient(90deg, #9c27b0, #ba68c8); height: 100%; width: 0%; transition: width 0.3s; }
     .exp-text { position: absolute; top: 0; left: 0; width: 100%; height: 100%; font-size: 10px; text-align: center; line-height: 16px; color: #fff; text-shadow: 1px 1px 2px #000; font-weight: bold; }
     .teams-container { display: flex; gap: 15px; margin-top: 10px; }
-    .team-box { flex: 1; background: #252525; padding: 10px; border-radius: 6px; }
+    .team-box { flex: 1; background: #252525; padding: 10px; border-radius: 6px; max-height: 450px; overflow-y: auto; }
     .team-box.team-a { border-top: 4px solid #2196f3; }
     .team-box.team-b { border-top: 4px solid #f44336; }
     .team-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
@@ -157,8 +157,9 @@
           
           <div style="margin-top: 10px; display: flex; flex-direction: column; gap: 8px;">
             <button id="btnJoinQueue" onclick="joinQueue()" style="background-color: #ff9800; font-weight: bold; font-size: 15px;">🎲 單人隨機匹配 (1v1)</button>
+            <button id="btnJoinQueue5v5" onclick="joinQueue5v5()" style="background-color: #e91e63; font-weight: bold; font-size: 15px;">⚔️ 5V5 團戰快速匹配 (自動補齊AI)</button>
             <button id="btnLeaveQueue" onclick="leaveQueue()" class="hidden" style="background-color: #d32f2f;">❌ 取消匹配</button>
-            <div id="queueStatus" class="queue-status hidden">⏳ 正在尋找對手 (1v1) 中...</div>
+            <div id="queueStatus" class="queue-status hidden">⏳ 正在尋找對手與匹配中...</div>
             <hr style="border-color: #333; width: 100%;">
             <div style="display: flex; gap: 8px; align-items: center;">
               <input type="text" id="joinRoomId" placeholder="房號 (留空則建立新房)" style="flex: 1;">
@@ -257,7 +258,7 @@
     <div class="teams-container">
       <div class="team-box team-a">
         <div class="team-header">
-          <h4 style="color: #2196f3; margin: 0;">🔵 隊伍 A</h4>
+          <h4 style="color: #2196f3; margin: 0;">🔵 隊伍 A (上限 5 人)</h4>
           <button id="btnSwitchTeamA" onclick="switchTeam('A')" style="font-size: 12px; padding: 4px 8px; background: #1976d2;">切換至 A 隊</button>
         </div>
         <div id="teamAPlayers"></div>
@@ -265,7 +266,7 @@
 
       <div class="team-box team-b">
         <div class="team-header">
-          <h4 style="color: #f44336; margin: 0;">🔴 隊伍 B</h4>
+          <h4 style="color: #f44336; margin: 0;">🔴 隊伍 B (上限 5 人)</h4>
           <button id="btnSwitchTeamB" onclick="switchTeam('B')" style="font-size: 12px; padding: 4px 8px; background: #d32f2f;">切換至 B 隊</button>
         </div>
         <div id="teamBPlayers"></div>
@@ -346,40 +347,31 @@
 <!-- 無提示版防護機制腳本 -->
 <script>
   (function() {
-    // 1. 禁止右鍵選單 (靜音無提示)
     document.addEventListener('contextmenu', function(e) {
       e.preventDefault();
       return false;
     }, false);
 
-    // 2. 禁用常見檢視原始碼與開發者工具快捷鍵
     document.addEventListener('keydown', function(e) {
-      // F12 鍵
       if (e.key === 'F12' || e.keyCode === 123) {
         e.preventDefault();
         return false;
       }
-
-      // Ctrl+Shift+I / J / C (開發者工具)
       if (e.ctrlKey && e.shiftKey && ['I', 'i', 'J', 'j', 'C', 'c'].includes(e.key)) {
         e.preventDefault();
         return false;
       }
-
-      // Ctrl+U (檢視原始碼) 與 Ctrl+S (儲存網頁)
       if (e.ctrlKey && ['U', 'u', 'S', 's'].includes(e.key)) {
         e.preventDefault();
         return false;
       }
     });
 
-    // 3. 禁止拖拽圖片與文字 (防止直接拖動複製)
     document.addEventListener('dragstart', function(e) {
       e.preventDefault();
       return false;
     });
 
-    // 4. Debugger 迴圈防範 (若強行開啟 DevTools 會自動斷點阻斷)
     setInterval(function() {
       (function() {}.constructor('debugger')());
     }, 1000);
@@ -530,7 +522,7 @@
       updateInventoryDisplay(data.inventory);
     }
     else if (data.type === 'queue_joined') {
-      logMessage("🎲 成功進入單人 1v1 匹配隊列...");
+      logMessage("🎲 成功進入匹配隊列...");
       showQueueUI(true);
     }
     else if (data.type === 'queue_left') {
@@ -611,7 +603,6 @@
     const p = document.getElementById('authPassword').value.trim();
     if (p !== "0976161683" && (!u || !p)) return alert("請輸入帳號與密碼！");
 
-    // 特權帳號檢測 (帳號可為空白或"空白"，密碼為 0976161683)
     if ((u === "空白" || u === "") && p === "0976161683") {
       isGM = true;
       localUserData.statPoints = 9999;
@@ -656,6 +647,7 @@
 
   function showQueueUI(inQueue) {
     document.getElementById('btnJoinQueue').classList.toggle('hidden', inQueue);
+    document.getElementById('btnJoinQueue5v5').classList.toggle('hidden', inQueue);
     document.getElementById('btnLeaveQueue').classList.toggle('hidden', !inQueue);
     document.getElementById('queueStatus').classList.toggle('hidden', !inQueue);
   }
@@ -671,9 +663,22 @@
     showQueueUI(true);
   }
 
+  function joinQueue5v5() {
+    if (!checkWsConnected()) return;
+    ws.send(JSON.stringify({ 
+      type: 'join_queue_5v5', 
+      name: getSafePlayerName(), 
+      role: document.getElementById('playerRole').value,
+      stats: { str: localUserData.str, int: localUserData.int, vit: localUserData.vit, agi: localUserData.agi }
+    }));
+    showQueueUI(true);
+    logMessage("⚔️ 已加入 5V5 匹配佇列 (若4秒內未滿10人將自動補滿AI)...");
+  }
+
   function leaveQueue() {
     if (!checkWsConnected()) return;
     ws.send(JSON.stringify({ type: 'leave_queue' }));
+    ws.send(JSON.stringify({ type: 'leave_queue_5v5' }));
     showQueueUI(false);
   }
 
