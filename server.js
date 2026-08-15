@@ -289,8 +289,12 @@ function startAIBattleLoop(roomId) {
 
     if (ai.hp < ai.maxHp * 0.4 && ai.inventory.hpPotion > 0 && Math.random() < 0.6) {
       ai.inventory.hpPotion--;
-      ai.hp = Math.min(ai.maxHp, ai.hp + 3000);
-      broadcastBattleLog(roomId, `🧪 ${ai.name} 使用了 HP 藥水！`);
+      let healAmount = 3000;
+      if (ai.statusEffects && ai.statusEffects.poison) {
+        healAmount = Math.floor(healAmount * 0.5);
+      }
+      ai.hp = Math.min(ai.maxHp, ai.hp + healAmount);
+      broadcastBattleLog(roomId, `🧪 ${ai.name} 使用了 HP 藥水！${ai.statusEffects && ai.statusEffects.poison ? '（中毒效果：回復量減半）' : ''}`);
       broadcastRoomState(roomId);
       return;
     }
@@ -625,6 +629,31 @@ wss.on('connection', (ws) => {
 
         caster.mp -= data.mpCost;
 
+        // 🗡️ 特殊邏輯：刺客 - 影之刺殺（消耗自身當前血量 50% 且有概率秒殺）
+        if (data.skillName === '🗡️ 影之刺殺' || data.isInstantKillSkill) {
+          const hpCost = Math.floor(caster.hp * 0.5);
+          caster.hp = Math.max(1, caster.hp - hpCost); // 扣除自身當前生命值 50%
+
+          let target = room.players.find(p => p.id === data.targetId) || room.players.find(p => p.team !== caster.team && p.hp > 0);
+          
+          if (target && target.hp > 0) {
+            const isInstantKill = Math.random() < 0.10; // 10% 秒殺機率
+
+            if (isInstantKill) {
+              const damage = target.hp;
+              target.hp = 0;
+              broadcastBattleLog(room.id, `☠️【秒殺觸發！】${caster.name} 消耗自身 ${hpCost} HP 發動【影之刺殺】，成功秒殺了 ${target.name}！`);
+            } else {
+              const normalDmg = Math.floor(Math.random() * (data.maxVal - data.minVal + 1)) + data.minVal;
+              target.hp = Math.max(0, target.hp - normalDmg);
+              broadcastBattleLog(room.id, `🗡️ ${caster.name} 消耗自身 ${hpCost} HP 發動【影之刺殺】，未觸發秒殺，對 ${target.name} 造成 ${normalDmg} 傷害！`);
+            }
+          }
+
+          broadcastRoomState(room.id);
+          return;
+        }
+
         if (data.isRevive) {
           let deadTeammates = room.players.filter(p => p.team === caster.team && p.hp <= 0);
           let reviveTarget = data.targetId ? deadTeammates.find(p => p.id === data.targetId) : deadTeammates[0];
@@ -648,11 +677,15 @@ wss.on('connection', (ws) => {
         let totalDamageDealt = 0;
 
         targets.forEach(t => {
-          const rawVal = Math.floor(Math.random() * (data.maxVal - data.minVal + 1)) + data.minVal;
+          let rawVal = Math.floor(Math.random() * (data.maxVal - data.minVal + 1)) + data.minVal;
 
           if (data.isHeal) {
+            // 中毒降療：治療效果減半 (50%)
+            if (t.statusEffects && t.statusEffects.poison) {
+              rawVal = Math.floor(rawVal * 0.5);
+            }
             t.hp = Math.min(t.maxHp, t.hp + rawVal);
-            broadcastBattleLog(room.id, `💚 ${caster.name} 對 ${t.name} 使用【${data.skillName}】，恢復 ${rawVal} HP！`);
+            broadcastBattleLog(room.id, `💚 ${caster.name} 對 ${t.name} 使用【${data.skillName}】，恢復 ${rawVal} HP！${t.statusEffects && t.statusEffects.poison ? '（中毒效果：治療量減半）' : ''}`);
           } else {
             t.hp = Math.max(0, t.hp - rawVal);
             totalDamageDealt += rawVal;
@@ -729,8 +762,13 @@ wss.on('connection', (ws) => {
 
         if (data.potionType === 'hp' && p.inventory.hpPotion > 0) {
           p.inventory.hpPotion--;
-          p.hp = Math.min(p.maxHp, p.hp + 3000);
-          broadcastBattleLog(room.id, `🧪 ${p.name} 使用了 HP 藥水！`);
+          let healAmount = 3000;
+          // 中毒降療：藥水效果減半
+          if (p.statusEffects && p.statusEffects.poison) {
+            healAmount = Math.floor(healAmount * 0.5);
+          }
+          p.hp = Math.min(p.maxHp, p.hp + healAmount);
+          broadcastBattleLog(room.id, `🧪 ${p.name} 使用了 HP 藥水！${p.statusEffects && p.statusEffects.poison ? '（中毒效果：回復量減半）' : ''}`);
         } else if (data.potionType === 'mp' && p.inventory.mpPotion > 0) {
           p.inventory.mpPotion--;
           p.mp = Math.min(p.maxMp, p.mp + 1500);
