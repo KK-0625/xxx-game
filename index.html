@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>多人線上 RPG 戰鬥房間 - 屬性加點版</title>
+  <title>多人線上 RPG 戰鬥房間 - 屬性加點完整版</title>
   <style>
     * { box-sizing: border-box; font-family: "Segoe UI", Microsoft JhengHei, sans-serif; }
     
@@ -16,23 +16,11 @@
       justify-content: center; 
       overflow-x: hidden;
       -webkit-user-select: none;
-      -moz-user-select: none;
-      -ms-user-select: none;
       user-select: none;
     }
 
-    input, select, textarea {
-      -webkit-user-select: text;
-      -moz-user-select: text;
-      -ms-user-select: text;
-      user-select: text;
-    }
-
-    img {
-      -webkit-user-drag: none;
-      user-drag: none;
-      pointer-events: none;
-    }
+    input, select, textarea { user-select: text; }
+    img { pointer-events: none; }
 
     .container { width: 100%; max-width: 960px; display: flex; flex-direction: column; gap: 15px; position: relative; }
     .card { background-color: #1e1e1e; border: 1px solid #333; border-radius: 8px; padding: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
@@ -54,7 +42,6 @@
     .inventory-list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
     .inventory-item { background: #2a2a2a; padding: 8px 12px; border-radius: 4px; display: flex; justify-content: space-between; align-items: center; border-left: 4px solid #ff9800; }
     
-    /* 屬性點數UI專用樣式 */
     .stat-box { background: #252525; border-radius: 6px; padding: 10px; margin-top: 8px; border: 1px solid #444; }
     .stat-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; font-size: 13px; }
     .stat-btn { padding: 2px 8px; font-size: 12px; background: #008cba; border-radius: 3px; font-weight: bold; }
@@ -201,7 +188,6 @@
             </div>
           </div>
 
-          <!-- 屬性點數分配區 -->
           <div class="stat-box">
             <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
               <span style="font-weight:bold; color:#ffca28;">✨ 可分配點數：<span id="statPoints">0</span></span>
@@ -351,40 +337,13 @@
 </div>
 
 <script>
-  (function initSilentProtection() {
-    document.addEventListener('contextmenu', function (e) { e.preventDefault(); }, false);
-    document.addEventListener('keydown', function (e) {
-      const key = e.key.toUpperCase();
-      if (
-        e.key === 'F12' ||
-        (e.ctrlKey && key === 'U') ||
-        (e.ctrlKey && key === 'S') ||
-        (e.ctrlKey && e.shiftKey && (key === 'I' || key === 'J' || key === 'C'))
-      ) {
-        e.preventDefault();
-        return false;
-      }
-    }, false);
-
-    setInterval(function () {
-      const startTime = performance.now();
-      debugger;
-      const endTime = performance.now();
-      if (endTime - startTime > 100) {
-        document.body.innerHTML = '';
-      }
-    }, 1000);
-  })();
-
   let ws = new WebSocket('wss://rpg-game-backend-vhag.onrender.com');
   let myPlayerId = null;
   let currentUser = null;
   let currentRoomState = null;
   let selectedTargetId = null;
   let oldPlayerHpMap = {}; 
-
   let localSkillCDMap = {};
-
   let isAutoBattle = true;
   let autoBattleTimer = null;
 
@@ -394,68 +353,28 @@
       if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)();
       if (this.ctx.state === 'suspended') this.ctx.resume();
     },
-    playSword() {
+    playTone(freq, duration, type = 'sine', ramp = null) {
       this.init();
       const osc = this.ctx.createOscillator();
       const gain = this.ctx.createGain();
-      osc.type = 'sawtooth';
-      osc.frequency.setValueAtTime(400, this.ctx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(100, this.ctx.currentTime + 0.15);
-      gain.gain.setValueAtTime(0.3, this.ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.15);
-      osc.connect(gain); gain.connect(this.ctx.destination);
-      osc.start(); osc.stop(this.ctx.currentTime + 0.15);
-    },
-    playMagic() {
-      this.init();
-      const osc = this.ctx.createOscillator();
-      const gain = this.ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(300, this.ctx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(1200, this.ctx.currentTime + 0.3);
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+      if (ramp) osc.frequency.exponentialRampToValueAtTime(ramp, this.ctx.currentTime + duration);
       gain.gain.setValueAtTime(0.25, this.ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.3);
+      gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + duration);
       osc.connect(gain); gain.connect(this.ctx.destination);
-      osc.start(); osc.stop(this.ctx.currentTime + 0.3);
+      osc.start(); osc.stop(this.ctx.currentTime + duration);
     },
+    playSword() { this.playTone(400, 0.15, 'sawtooth', 100); },
+    playMagic() { this.playTone(300, 0.3, 'sine', 1200); },
     playHeal() {
-      this.init();
-      const now = this.ctx.currentTime;
+      const now = (this.ctx || new (window.AudioContext || window.webkitAudioContext)()).currentTime;
       [523.25, 659.25, 783.99, 1046.50].forEach((freq, idx) => {
-        const osc = this.ctx.createOscillator();
-        const gain = this.ctx.createGain();
-        osc.type = 'triangle';
-        osc.frequency.setValueAtTime(freq, now + idx * 0.08);
-        gain.gain.setValueAtTime(0.15, now + idx * 0.08);
-        gain.gain.exponentialRampToValueAtTime(0.01, now + idx * 0.08 + 0.25);
-        osc.connect(gain); gain.connect(this.ctx.destination);
-        osc.start(now + idx * 0.08); osc.stop(now + idx * 0.08 + 0.25);
+        setTimeout(() => this.playTone(freq, 0.2, 'triangle'), idx * 80);
       });
     },
-    playStab() {
-      this.init();
-      const osc = this.ctx.createOscillator();
-      const gain = this.ctx.createGain();
-      osc.type = 'square';
-      osc.frequency.setValueAtTime(800, this.ctx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(150, this.ctx.currentTime + 0.08);
-      gain.gain.setValueAtTime(0.25, this.ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.08);
-      osc.connect(gain); gain.connect(this.ctx.destination);
-      osc.start(); osc.stop(this.ctx.currentTime + 0.08);
-    },
-    playArrow() {
-      this.init();
-      const osc = this.ctx.createOscillator();
-      const gain = this.ctx.createGain();
-      osc.type = 'triangle';
-      osc.frequency.setValueAtTime(150, this.ctx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(600, this.ctx.currentTime + 0.1);
-      gain.gain.setValueAtTime(0.2, this.ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.2);
-      osc.connect(gain); gain.connect(this.ctx.destination);
-      osc.start(); osc.stop(this.ctx.currentTime + 0.2);
-    }
+    playStab() { this.playTone(800, 0.08, 'square', 150); },
+    playArrow() { this.playTone(150, 0.15, 'triangle', 600); }
   };
 
   let localUserData = { 
@@ -505,7 +424,7 @@
   };
 
   ws.onopen = () => { logMessage("🟢 成功連接伺服器！請先進行帳號登入或註冊。"); };
-  ws.onerror = () => { logMessage("🔴 伺服器連線失敗，請檢查網路或稍後重試。"); };
+  ws.onerror = () => { logMessage("🔴 伺服器連線失敗，請檢查網路。"); };
   ws.onclose = () => { logMessage("🟡 與伺服器中斷連線。"); stopAutoBattle(); };
 
   ws.onmessage = (event) => {
@@ -522,7 +441,6 @@
       localUserData.level = data.user.level || 1;
       localUserData.exp = data.user.exp || 0;
       
-      // 加載能力值
       if (data.user.stats) {
         localUserData.statPoints = data.user.stats.statPoints || 0;
         localUserData.str = data.user.stats.str || 0;
@@ -541,7 +459,6 @@
     else if (data.type === 'idle_reward') {
       logMessage(data.message);
       if (data.level > localUserData.level) {
-        // 升級獲得屬性點數
         localUserData.statPoints += (data.level - localUserData.level) * 5;
         logMessage(`🎉 恭喜升級到 LV.${data.level}！獲得 5 點自由屬性點！`);
       }
@@ -722,14 +639,12 @@
     document.getElementById('lobbyExpBar').style.width = `${percent}%`;
     document.getElementById('lobbyExpPercentText').innerText = `${percent}%`;
 
-    // 更新屬性點數UI
     document.getElementById('statPoints').innerText = localUserData.statPoints;
     document.getElementById('statStr').innerText = localUserData.str;
     document.getElementById('statInt').innerText = localUserData.int;
     document.getElementById('statVit').innerText = localUserData.vit;
     document.getElementById('statAgi').innerText = localUserData.agi;
 
-    // 計算加成顯示
     document.getElementById('calcAtk').innerText = localUserData.str * 12;
     document.getElementById('calcMatk').innerText = localUserData.int * 15;
     document.getElementById('calcHp').innerText = localUserData.vit * 150;
@@ -820,8 +735,7 @@
 
   function buyItem(itemType, price) {
     if (!checkWsConnected()) return;
-    const currentGold = localUserData.gold || 0;
-    if (currentGold < price) {
+    if ((localUserData.gold || 0) < price) {
       alert("⚠️ 金幣不足，無法購買！");
       return;
     }
@@ -858,9 +772,7 @@
   function startAutoBattleLoop() {
     if (autoBattleTimer) return;
     autoBattleTimer = setInterval(() => {
-      if (!isAutoBattle || !currentRoomState || currentRoomState.status !== 'playing') {
-        return;
-      }
+      if (!isAutoBattle || !currentRoomState || currentRoomState.status !== 'playing') return;
       performAutoAction();
     }, 2000);
   }
@@ -889,7 +801,6 @@
     });
 
     if (availableSkills.length === 0) return;
-
     availableSkills.sort((a, b) => b.mpCost - a.mpCost);
 
     const teammates = currentRoomState.players.filter(p => p.team === me.team);
@@ -908,17 +819,16 @@
         }
       } else if (skill.isHeal) {
         if (skill.isAoe) {
-          const needHealTeammate = teammates.find(p => p.hp > 0 && (p.hp / p.maxHp) < 0.9);
-          if (needHealTeammate) {
+          if (teammates.some(p => p.hp > 0 && (p.hp / p.maxHp) < 0.9)) {
             chosenSkill = skill;
             break;
           }
         } else {
-          const injuredTeammates = teammates.filter(p => p.hp > 0 && (p.hp / p.maxHp) < 0.85);
-          if (injuredTeammates.length > 0) {
-            injuredTeammates.sort((a, b) => (a.hp / a.maxHp) - (b.hp / b.maxHp));
+          const injured = teammates.filter(p => p.hp > 0 && (p.hp / p.maxHp) < 0.85);
+          if (injured.length > 0) {
+            injured.sort((a, b) => (a.hp / a.maxHp) - (b.hp / b.maxHp));
             chosenSkill = skill;
-            autoTargetId = injuredTeammates[0].id;
+            autoTargetId = injured[0].id;
             break;
           }
         }
@@ -1070,7 +980,6 @@
       else if (skill.isArrowStormSkill) btn.className = 'btn-storm';
 
       btn.disabled = me.mp < skill.mpCost || me.hp <= 0 || isCoolingDown;
-
       btn.onclick = () => useSkill(skill);
       container.appendChild(btn);
     });
@@ -1078,8 +987,7 @@
 
   function triggerSkillCDUI(skillName, durationSec) {
     const now = Date.now();
-    const durationMs = (durationSec || 3) * 1000;
-    localSkillCDMap[skillName] = now + durationMs;
+    localSkillCDMap[skillName] = now + ((durationSec || 3) * 1000);
 
     const interval = setInterval(() => {
       const remaining = Math.max(0, ((localSkillCDMap[skillName] - Date.now()) / 1000)).toFixed(1);
@@ -1102,12 +1010,9 @@
     container.appendChild(animEl);
     setTimeout(() => animEl.remove(), 1200);
 
-    if (skill.sound === 'sword') AudioFX.playSword();
-    else if (skill.sound === 'magic') AudioFX.playMagic();
-    else if (skill.sound === 'heal') AudioFX.playHeal();
-    else if (skill.sound === 'stab') AudioFX.playStab();
-    else if (skill.sound === 'arrow') AudioFX.playArrow();
-
+    if (AudioFX[`play${skill.sound.charAt(0).toUpperCase() + skill.sound.slice(1)}`]) {
+      AudioFX[`play${skill.sound.charAt(0).toUpperCase() + skill.sound.slice(1)}`]();
+    }
     triggerContainerShake();
   }
 
@@ -1124,7 +1029,6 @@
     triggerSkillCDUI(skill.name, skill.cd || 3);
     playSkillAnimationAndSound(skill);
 
-    // 計算屬性額外加成並送給伺服器
     const strAtkBonus = localUserData.str * 12;
     const intMagBonus = localUserData.int * 15;
     const critRate = localUserData.agi * 1.0;
