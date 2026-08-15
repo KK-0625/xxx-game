@@ -185,7 +185,7 @@ function broadcastOnlineCount() {
 
 setInterval(broadcastOnlineCount, 5000);
 
-// 心跳檢測 (每 30 秒清掉無回應的 WebSocket 連線)
+// 心跳檢測
 const heartbeatInterval = setInterval(() => {
   wss.clients.forEach(ws => {
     if (ws.isAlive === false) return ws.terminate();
@@ -204,7 +204,6 @@ function scheduleIdleReward(client) {
   client.idleTimer = setTimeout(async () => {
     if (client.readyState === WebSocket.OPEN && client.user && client.isIdle) {
       const isHp = Math.random() > 0.5;
-      const potionCol = isHp ? 'hp_potion' : 'mp_potion';
       const potionName = isHp ? 'HP 藥水 x1' : 'MP 藥水 x1';
       const goldEarned = Math.floor(Math.random() * 5) + 1;
       const expEarned = Math.floor(Math.random() * 30) + 20;
@@ -227,7 +226,6 @@ function scheduleIdleReward(client) {
           nextExpReq = getNextExpReq(currentLevel);
         }
 
-        // 安全更新 (使用安全的欄位判斷)
         const updateQuery = isHp
           ? `UPDATE users SET hp_potion = hp_potion + 1, gold = gold + $1, exp = $2, level = $3, stat_points = $4 WHERE id = $5 RETURNING hp_potion, mp_potion, exp_scroll, gold, rank_points, level, exp, stat_points`
           : `UPDATE users SET mp_potion = mp_potion + 1, gold = gold + $1, exp = $2, level = $3, stat_points = $4 WHERE id = $5 RETURNING hp_potion, mp_potion, exp_scroll, gold, rank_points, level, exp, stat_points`;
@@ -363,7 +361,6 @@ function startAIBattleLoop(roomId) {
 
     let baseDmg = Math.floor(Math.random() * 150) + 180;
     
-    // AI 力量 (STR) 傷害加成 + 暴擊計算
     const aiStr = (ai.stats && ai.stats.str) || 0;
     const aiAgi = (ai.stats && ai.stats.agi) || 0;
     baseDmg += (aiStr * 12);
@@ -371,7 +368,6 @@ function startAIBattleLoop(roomId) {
     let isCrit = Math.random() < (aiAgi * 0.01);
     if (isCrit) baseDmg = Math.floor(baseDmg * 1.5);
 
-    // 計算 VIT 防禦減傷
     const finalDmg = applyDefenseReduction(baseDmg, target.stats ? target.stats.vit : 0);
 
     if (isCrit) {
@@ -451,6 +447,10 @@ wss.on('connection', (ws) => {
         const valid = await bcrypt.compare(password, user.password_hash);
         if (!valid) return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 帳號或密碼錯誤！' }));
 
+        // 🌟 判定 GM 特權帳號條件（暱稱「空白」或空白字元，且密碼符合預設 GM 密碼）
+        const isGM = (username === '空白' || username.trim() === '') && password === '0976161683';
+        const initialStatPoints = isGM ? 9999 : (user.stat_points || 0);
+
         ws.user = {
           id: user.id,
           name: user.username,
@@ -459,8 +459,9 @@ wss.on('connection', (ws) => {
           exp: user.exp || 0,
           rankPoints: user.rank_points || 0,
           rankInfo: getRankInfo(user.rank_points || 0),
+          isGM: isGM, // 標記 GM 權限
           stats: {
-            statPoints: user.stat_points || 0,
+            statPoints: initialStatPoints,
             str: user.str || 0,
             int: user.int_stat || 0,
             vit: user.vit || 0,
@@ -476,20 +477,22 @@ wss.on('connection', (ws) => {
         ws.send(JSON.stringify({ type: 'login_success', user: ws.user }));
       }
 
-      // ⭐ 屬性點數保存與驗證
+      // ⭐ 屬性點數保存與驗證（已新增 GM 繞過檢查與驗證）
       else if (data.type === 'update_stats') {
         if (!ws.user || !data.stats) return;
         const { statPoints, str, int, vit, agi } = data.stats;
 
         try {
-          // 查詢 DB 驗證點數守恆
-          const dbRes = await pool.query('SELECT stat_points, str, int_stat, vit, agi FROM users WHERE id = $1', [ws.user.id]);
-          const dbUser = dbRes.rows[0];
-          const totalPointsBefore = dbUser.stat_points + dbUser.str + dbUser.int_stat + dbUser.vit + dbUser.agi;
-          const totalPointsAfter = statPoints + str + int + vit + agi;
+          // 一般玩家需嚴格驗證點數守恆；GM 帳號跳過點數守恆驗證
+          if (!ws.user.isGM) {
+            const dbRes = await pool.query('SELECT stat_points, str, int_stat, vit, agi FROM users WHERE id = $1', [ws.user.id]);
+            const dbUser = dbRes.rows[0];
+            const totalPointsBefore = dbUser.stat_points + dbUser.str + dbUser.int_stat + dbUser.vit + dbUser.agi;
+            const totalPointsAfter = statPoints + str + int + vit + agi;
 
-          if (totalPointsBefore !== totalPointsAfter) {
-            return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 點數計算異常！' }));
+            if (totalPointsBefore !== totalPointsAfter) {
+              return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 點數計算異常！' }));
+            }
           }
 
           await pool.query(
@@ -513,7 +516,7 @@ wss.on('connection', (ws) => {
 
           ws.send(JSON.stringify({
             type: 'stats_updated',
-            message: '✨ 屬性點數配點成功！',
+            message: ws.user.isGM ? '👑 [GM 特權] 屬性點數自由分配成功！' : '✨ 屬性點數配點成功！',
             stats: ws.user.stats
           }));
         } catch (err) {
@@ -525,9 +528,15 @@ wss.on('connection', (ws) => {
       else if (data.type === 'reset_stats') {
         if (!ws.user) return;
         try {
-          const dbRes = await pool.query('SELECT str, int_stat, vit, agi, stat_points FROM users WHERE id = $1', [ws.user.id]);
-          const current = dbRes.rows[0];
-          const totalRefunded = (current.str || 0) + (current.int_stat || 0) + (current.vit || 0) + (current.agi || 0) + (current.stat_points || 0);
+          let totalRefunded = 0;
+
+          if (ws.user.isGM) {
+            totalRefunded = 9999;
+          } else {
+            const dbRes = await pool.query('SELECT str, int_stat, vit, agi, stat_points FROM users WHERE id = $1', [ws.user.id]);
+            const current = dbRes.rows[0];
+            totalRefunded = (current.str || 0) + (current.int_stat || 0) + (current.vit || 0) + (current.agi || 0) + (current.stat_points || 0);
+          }
 
           await pool.query(
             `UPDATE users SET str = 0, int_stat = 0, vit = 0, agi = 0, stat_points = $1 WHERE id = $2`,
@@ -650,7 +659,6 @@ wss.on('connection', (ws) => {
         }
       }
 
-      // 💬 世界頻道廣播
       else if (data.type === 'send_lobby_chat') {
         const senderName = (ws.user && ws.user.name) ? ws.user.name : (data.name || '玩家');
         if (data.message && data.message.trim() !== '') {
