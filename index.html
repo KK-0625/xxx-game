@@ -112,6 +112,7 @@
 <div id="mainContainer" class="container">
   <h2>⚔️ 線上 RPG 戰鬥與匹配系統</h2>
 
+  <!-- 帳號登入/註冊區塊 -->
   <div id="authSection" class="card">
     <h3>🔐 帳號登入 / 註冊</h3>
     <div style="display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap;">
@@ -124,6 +125,7 @@
     </div>
   </div>
 
+  <!-- 大廳區塊 -->
   <div id="lobbySection" class="card lobby-panel hidden">
     <div class="lobby-header">
       <div>
@@ -137,6 +139,7 @@
     </div>
     
     <div class="lobby-content">
+      <!-- 戰鬥選擇面板 -->
       <div class="lobby-box card">
         <h4>🎮 戰鬥選擇</h4>
         <div style="display: flex; flex-direction: column; gap: 8px;">
@@ -165,6 +168,7 @@
         </div>
       </div>
 
+      <!-- 世界聊天室與個人屬性加點 -->
       <div class="lobby-box card" style="display: flex; flex-direction: column; gap: 10px;">
         <h4>💬 大廳公眾聊天室</h4>
         <div id="lobbyChatBox" class="chat-box">
@@ -238,6 +242,7 @@
     </div>
   </div>
 
+  <!-- 房間與戰鬥區塊 -->
   <div id="roomSection" class="card hidden">
     <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
       <h3>🏰 戰鬥房間 - 房號: <span id="displayRoomId" style="color: #ff9800;">-</span></h3>
@@ -268,6 +273,7 @@
       </div>
     </div>
 
+    <!-- 技能與藥水面板 -->
     <div id="actionPanel" class="action-panel hidden">
       <div id="currentTargetText" class="target-indicator">🎯 技能目標：[自動鎖定模式] (點擊上方玩家卡片可手動選擇)</div>
       <div>
@@ -285,12 +291,14 @@
     </div>
   </div>
 
+  <!-- 日誌面板 -->
   <div class="card">
     <h3>📜 戰鬥與系統日誌</h3>
     <div id="battleLog"></div>
   </div>
 </div>
 
+<!-- 道具商店 Modal -->
 <div id="shopModal" class="shop-modal-overlay hidden">
   <div class="shop-modal">
     <div class="shop-header">
@@ -347,6 +355,7 @@
   let isAutoBattle = true;
   let autoBattleTimer = null;
 
+  // 音效合成模組
   const AudioFX = {
     ctx: null,
     init() {
@@ -382,6 +391,7 @@
     statPoints: 0, str: 0, int: 0, vit: 0, agi: 0 
   };
 
+  // 技能列表定義
   const SKILLS = {
     mage: [
       { name: '🔥 火球術', mpCost: 80, minVal: 220, maxVal: 350, isAoe: false, isHeal: false, effect: 'burn', chance: 0.3, cd: 2, sound: 'magic' },
@@ -423,10 +433,12 @@
     ]
   };
 
+  // WebSocket 狀態事件監聽
   ws.onopen = () => { logMessage("🟢 成功連接伺服器！請先進行帳號登入或註冊。"); };
   ws.onerror = () => { logMessage("🔴 伺服器連線失敗，請檢查網路。"); };
   ws.onclose = () => { logMessage("🟡 與伺服器中斷連線。"); stopAutoBattle(); };
 
+  // 處理伺服器送來的訊息
   ws.onmessage = (event) => {
     const data = JSON.parse(event.data);
 
