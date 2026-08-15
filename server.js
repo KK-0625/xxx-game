@@ -24,7 +24,7 @@ function getRankInfo(points) {
   return { name: '青銅', icon: '🥉', color: '#a1887f' };
 }
 
-// 🗄️ 2. 初始化資料庫
+// 🗄️ 2. 初始化資料庫 (加入 level, exp 欄位)
 async function initDB() {
   try {
     await pool.query(`
@@ -83,7 +83,7 @@ const ROLE_STATS = {
   archer:    { hp: 10500, mp: 3200 }
 };
 
-const AI_NAMES = ["影流之主", "孤高劍", "夜之狂刃", "星空幻影", "無雙戰神", "疾風", "聖光", "暗夜", "一人做事薏仁湯", "無心插柳柳橙汁", "穩如泰山八寶粥", "軟今天", "蜂窩性祖師爺", "Mia", "Zoe", "Leo", "Ray", "Luna", "Chloe"];
+const AI_NAMES = ["影流之主", "孤高劍", "夜之狂刃", "星空幻影", "無雙戰神", "疾風", "聖光", "暗夜", "一人做事薏仁湯", "無心插柳柳橙汁", "穩如泰山八寶粥", "仙度瑞拉再度你媽", "軟今天", "蜂窩性祖師爺", "Mia", "Zoe", "Leo", "Ray", "Luna", "Chloe", "Giselle", "Seraphina", "Zoe"];
 const ALL_ROLES = ['berserker', 'mage', 'priest', 'knight', 'assassin', 'archer'];
 
 function broadcastRoomState(roomId) {
@@ -175,9 +175,8 @@ wss.on('close', () => {
   clearInterval(heartbeatInterval);
 });
 
-// 🧘 遞迴動態掛機獎勵 (每 1~5 分鐘給予藥水、金幣與經驗值)
+// 🧘 遞迴動態掛機獎勵 (每 1~5 分鐘給予藥水、金幣與經驗值，支援循環升級)
 function scheduleIdleReward(client) {
-  if (client.idleTimer) clearTimeout(client.idleTimer);
   const randomDelay = Math.floor(Math.random() * (300000 - 60000 + 1)) + 60000;
 
   client.idleTimer = setTimeout(async () => {
@@ -197,6 +196,7 @@ function scheduleIdleReward(client) {
         let nextExpReq = Math.floor(100 * Math.pow(currentLevel, 1.5));
         let leveledUp = false;
 
+        // 無上限循環升等判定
         while (currentExp >= nextExpReq) {
           currentExp -= nextExpReq;
           currentLevel += 1;
@@ -224,8 +224,9 @@ function scheduleIdleReward(client) {
         };
         client.user.level = inv.level;
         client.user.exp = inv.exp;
+        client.user.rankPoints = inv.rank_points;
 
-        let msg = `🧘 修練中... 獲得了 🧪 ${potionName}、💰 ${goldEarned} 金幣、✨ ${expEarned} 經驗值！`;
+        let msg = `🧘 修練中... 獲得了 🧪 ${potionName}、 ${goldEarned} 金幣、✨ ${expEarned} 經驗值！`;
         if (leveledUp) {
           msg += ` 🎉 恭喜升級！當前等級提升至 LV ${currentLevel}！`;
         }
@@ -323,67 +324,36 @@ function startAIBattleLoop(roomId) {
     const teamBAlive = room.players.some(p => p.team === 'B' && p.hp > 0);
 
     if (!teamAAlive || !teamBAlive) {
-      handleGameOver(room, teamAAlive ? 'A' : 'B');
+      room.status = 'game_over';
+      if (room.regenTimer) clearInterval(room.regenTimer);
+      if (room.aiTimer) clearInterval(room.aiTimer);
+
+      const winTeam = teamAAlive ? 'A' : 'B';
+      const winTeamName = teamAAlive ? '🔵 隊伍 A' : '🔴 隊伍 B';
+      broadcastBattleLog(roomId, `🏆 遊戲結束！【${winTeamName}】獲得了最終勝利！`);
+
+      room.players.forEach(async (p) => {
+        if (!p.isAi) {
+          const isWinner = (p.team === winTeam);
+          const delta = isWinner ? 25 : -15;
+          p.rankPoints = Math.max(0, (p.rankPoints || 0) + delta);
+          const rInfo = getRankInfo(p.rankPoints);
+          broadcastBattleLog(roomId, `🎖️ ${p.name} (${isWinner ? '獲勝' : '戰敗'})：積分 ${delta > 0 ? '+' + delta : delta} (總分: ${p.rankPoints} - ${rInfo.icon} ${rInfo.name})`);
+          
+          if (p.ws && p.ws.user) {
+            p.ws.user.rankPoints = p.rankPoints;
+            try {
+              await pool.query('UPDATE users SET rank_points = $1 WHERE id = $2', [p.rankPoints, p.ws.user.id]);
+            } catch (e) {
+              console.error("更新段位積分失敗:", e);
+            }
+          }
+        }
+      });
     }
 
     broadcastRoomState(roomId);
   }, 2500);
-}
-
-// 🏁 戰鬥結束統一處理邏輯 (經驗值、金幣與段位結算)
-async function handleGameOver(room, winTeam) {
-  room.status = 'game_over';
-  if (room.regenTimer) clearInterval(room.regenTimer);
-  if (room.aiTimer) clearInterval(room.aiTimer);
-
-  const winTeamName = winTeam === 'A' ? '🔵 隊伍 A' : '🔴 隊伍 B';
-  broadcastBattleLog(room.id, `🏆 遊戲結束！【${winTeamName}】獲得了最終勝利！`);
-
-  for (let p of room.players) {
-    if (!p.isAi && p.ws && p.ws.user) {
-      const isWinner = (p.team === winTeam);
-      const deltaRank = isWinner ? 25 : -15;
-      const earnedGold = isWinner ? 15 : 5;
-      const earnedExp = isWinner ? 100 : 30;
-
-      p.rankPoints = Math.max(0, (p.rankPoints || 0) + deltaRank);
-      const rInfo = getRankInfo(p.rankPoints);
-
-      broadcastBattleLog(room.id, `🎖️ ${p.name} (${isWinner ? '勝' : '敗'})：積分 ${deltaRank > 0 ? '+' + deltaRank : deltaRank} | 金幣 +${earnedGold} | ✨ EXP +${earnedExp}`);
-
-      try {
-        const uRes = await pool.query('SELECT level, exp, gold FROM users WHERE id = $1', [p.ws.user.id]);
-        let userRow = uRes.rows[0];
-
-        let currentLevel = userRow.level || 1;
-        let currentExp = (userRow.exp || 0) + earnedExp;
-        let nextExpReq = Math.floor(100 * Math.pow(currentLevel, 1.5));
-
-        while (currentExp >= nextExpReq) {
-          currentExp -= nextExpReq;
-          currentLevel += 1;
-          nextExpReq = Math.floor(100 * Math.pow(currentLevel, 1.5));
-        }
-
-        const updated = await pool.query(
-          `UPDATE users 
-           SET rank_points = $1, gold = gold + $2, level = $3, exp = $4 
-           WHERE id = $5 
-           RETURNING gold, level, exp, hp_potion, mp_potion, exp_scroll`,
-          [p.rankPoints, earnedGold, currentLevel, currentExp, p.ws.user.id]
-        );
-
-        const dbUser = updated.rows[0];
-        p.ws.user.rankPoints = p.rankPoints;
-        p.ws.user.level = dbUser.level;
-        p.ws.user.exp = dbUser.exp;
-        p.ws.user.inventory.gold = dbUser.gold;
-
-      } catch (e) {
-        console.error("戰鬥結算資料庫更新失敗:", e);
-      }
-    }
-  }
 }
 
 // 🎮 5. WebSocket 訊息處理
@@ -434,74 +404,15 @@ wss.on('connection', (ws) => {
         };
         ws.isIdle = true;
 
+        if (ws.idleTimer) clearTimeout(ws.idleTimer);
         scheduleIdleReward(ws);
 
         ws.send(JSON.stringify({ type: 'login_success', user: ws.user }));
       }
 
-      // 📜 --- 使用經驗卷軸 (+150 EXP) ---
-      else if (data.type === 'use_exp_scroll') {
-        if (!ws.user) return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 請先登入！' }));
-
-        try {
-          const userRes = await pool.query('SELECT exp_scroll, level, exp FROM users WHERE id = $1', [ws.user.id]);
-          const dbUser = userRes.rows[0];
-
-          if (dbUser.exp_scroll <= 0) {
-            return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 您沒有經驗卷軸！' }));
-          }
-
-          let currentLevel = dbUser.level || 1;
-          let currentExp = (dbUser.exp || 0) + 150;
-          let nextExpReq = Math.floor(100 * Math.pow(currentLevel, 1.5));
-          let leveledUp = false;
-
-          while (currentExp >= nextExpReq) {
-            currentExp -= nextExpReq;
-            currentLevel += 1;
-            leveledUp = true;
-            nextExpReq = Math.floor(100 * Math.pow(currentLevel, 1.5));
-          }
-
-          const updateRes = await pool.query(
-            `UPDATE users 
-             SET exp_scroll = exp_scroll - 1, level = $1, exp = $2 
-             WHERE id = $3 
-             RETURNING hp_potion, mp_potion, exp_scroll, gold, level, exp`,
-            [currentLevel, currentExp, ws.user.id]
-          );
-
-          const updated = updateRes.rows[0];
-          ws.user.level = updated.level;
-          ws.user.exp = updated.exp;
-          ws.user.inventory = {
-            hpPotion: updated.hp_potion,
-            mpPotion: updated.mp_potion,
-            expScroll: updated.exp_scroll,
-            gold: updated.gold
-          };
-
-          let msg = `📜 使用了經驗卷軸，獲得 +150 經驗值！`;
-          if (leveledUp) msg += ` 🎉 恭喜升級至 LV ${updated.level}！`;
-
-          ws.send(JSON.stringify({
-            type: 'exp_scroll_success',
-            message: msg,
-            inventory: ws.user.inventory,
-            level: ws.user.level,
-            exp: ws.user.exp,
-            nextExp: nextExpReq
-          }));
-
-        } catch (err) {
-          console.error("使用經驗卷軸失敗:", err);
-          ws.send(JSON.stringify({ type: 'error', message: '⚠️ 使用失敗，請稍後再試。' }));
-        }
-      }
-
-      // 🛒 --- 商店購買道具 ---
+      // 🛒 --- 商店購買道具 (HP/MP 藥水各 10 金幣) ---
       else if (data.type === 'buy_item') {
-        const { itemType } = data;
+        const { itemType } = data; // 'hp_potion', 'mp_potion', 'exp_scroll'
         
         const shopPrices = {
           hp_potion: 10,
@@ -519,7 +430,7 @@ wss.on('connection', (ws) => {
         }
 
         try {
-          const userRes = await pool.query('SELECT gold FROM users WHERE id = $1', [ws.user.id]);
+          const userRes = await pool.query('SELECT gold, hp_potion, mp_potion, exp_scroll FROM users WHERE id = $1', [ws.user.id]);
           const dbUser = userRes.rows[0];
 
           if (dbUser.gold < cost) {
@@ -563,7 +474,7 @@ wss.on('connection', (ws) => {
         }
       }
 
-      // --- 1v1 隨機匹配 ---
+      // --- 1v1 隨機匹配 (含 AI 智慧補位) ---
       else if (data.type === 'join_queue') {
         matchQueue = matchQueue.filter(p => p.ws.readyState === WebSocket.OPEN && p.ws !== ws);
 
@@ -627,6 +538,7 @@ wss.on('connection', (ws) => {
       else if (data.type === 'leave_queue') {
         matchQueue = matchQueue.filter(p => p.ws !== ws);
         ws.isIdle = true;
+        if (ws.idleTimer) clearTimeout(ws.idleTimer);
         scheduleIdleReward(ws);
         ws.send(JSON.stringify({ type: 'queue_left' }));
       }
@@ -834,7 +746,35 @@ wss.on('connection', (ws) => {
         const teamBAlive = room.players.some(p => p.team === 'B' && p.hp > 0);
 
         if (!teamAAlive || !teamBAlive) {
-          handleGameOver(room, teamAAlive ? 'A' : 'B');
+          room.status = 'game_over';
+          if (room.regenTimer) clearInterval(room.regenTimer);
+          if (room.aiTimer) clearInterval(room.aiTimer);
+
+          const winTeam = teamAAlive ? 'A' : 'B';
+          const winTeamName = teamAAlive ? '🔵 隊伍 A' : '🔴 隊伍 B';
+
+          broadcastBattleLog(room.id, `🏆 遊戲結束！【${winTeamName}】獲得了最終勝利！`);
+
+          for (let p of room.players) {
+            if (!p.isAi) {
+              const isWinner = (p.team === winTeam);
+              const delta = isWinner ? 25 : -15;
+
+              p.rankPoints = Math.max(0, (p.rankPoints || 0) + delta);
+              const rInfo = getRankInfo(p.rankPoints);
+
+              broadcastBattleLog(room.id, `🎖️ ${p.name} (${isWinner ? '獲勝' : '戰敗'})：積分 ${delta > 0 ? '+' + delta : delta} (總分: ${p.rankPoints} - ${rInfo.icon} ${rInfo.name})`);
+
+              if (p.ws && p.ws.user) {
+                p.ws.user.rankPoints = p.rankPoints;
+                try {
+                  await pool.query('UPDATE users SET rank_points = $1 WHERE id = $2', [p.rankPoints, p.ws.user.id]);
+                } catch (e) {
+                  console.error("更新段位積分失敗:", e);
+                }
+              }
+            }
+          }
         }
 
         broadcastRoomState(room.id);
@@ -880,6 +820,7 @@ wss.on('connection', (ws) => {
           ws.roomId = null;
         }
         ws.isIdle = true;
+        if (ws.idleTimer) clearTimeout(ws.idleTimer);
         scheduleIdleReward(ws);
         ws.send(JSON.stringify({ type: 'returned_to_idle', message: '🧘 已回到大廳修練...' }));
       }
