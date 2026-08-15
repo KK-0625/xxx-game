@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>多人線上 RPG 戰鬥房間 - 刺客秒殺與中毒降療版</title>
+  <title>多人線上 RPG 戰鬥房間 - 屬性加點版</title>
   <style>
     * { box-sizing: border-box; font-family: "Segoe UI", Microsoft JhengHei, sans-serif; }
     
@@ -53,6 +53,12 @@
     .chat-sender { color: #ffca28; font-weight: bold; margin-right: 5px; }
     .inventory-list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
     .inventory-item { background: #2a2a2a; padding: 8px 12px; border-radius: 4px; display: flex; justify-content: space-between; align-items: center; border-left: 4px solid #ff9800; }
+    
+    /* 屬性點數UI專用樣式 */
+    .stat-box { background: #252525; border-radius: 6px; padding: 10px; margin-top: 8px; border: 1px solid #444; }
+    .stat-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; font-size: 13px; }
+    .stat-btn { padding: 2px 8px; font-size: 12px; background: #008cba; border-radius: 3px; font-weight: bold; }
+
     .rank-tag { font-size: 12px; padding: 2px 6px; border-radius: 4px; font-weight: bold; margin-left: 6px; }
     .exp-container { background: #333; height: 16px; border-radius: 8px; overflow: hidden; position: relative; margin-top: 4px; border: 1px solid #555; }
     .exp-bar { background: linear-gradient(90deg, #9c27b0, #ba68c8); height: 100%; width: 0%; transition: width 0.3s; }
@@ -182,7 +188,7 @@
           <button onclick="sendLobbyChat()" style="background-color: #008cba;">發送</button>
         </div>
 
-        <h4 style="margin-top: 10px;">🎒 個人資訊與背包</h4>
+        <h4 style="margin-top: 10px;">🎒 個人資訊與能力值加點</h4>
         <div class="inventory-list">
           <div class="inventory-item" style="border-left-color: #ab47bc; flex-direction: column; align-items: stretch; gap: 4px;">
             <div style="display: flex; justify-content: space-between;">
@@ -192,6 +198,33 @@
             <div class="exp-container">
               <div id="lobbyExpBar" class="exp-bar"></div>
               <div id="lobbyExpPercentText" class="exp-text">0%</div>
+            </div>
+          </div>
+
+          <!-- 屬性點數分配區 -->
+          <div class="stat-box">
+            <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+              <span style="font-weight:bold; color:#ffca28;">✨ 可分配點數：<span id="statPoints">0</span></span>
+              <button onclick="resetStats()" style="font-size:11px; padding:2px 6px; background:#d32f2f;">重置點數</button>
+            </div>
+            <div class="stat-row">
+              <span>⚔️ 力量 (物理傷害 +12/點): <strong id="statStr">0</strong></span>
+              <button class="stat-btn" onclick="addStat('str')">+1</button>
+            </div>
+            <div class="stat-row">
+              <span>🔮 智力 (法術/治療 +15/點): <strong id="statInt">0</strong></span>
+              <button class="stat-btn" onclick="addStat('int')">+1</button>
+            </div>
+            <div class="stat-row">
+              <span>🛡️ 體質 (血量 +150, 防禦 +5/點): <strong id="statVit">0</strong></span>
+              <button class="stat-btn" onclick="addStat('vit')">+1</button>
+            </div>
+            <div class="stat-row">
+              <span>🎯 敏捷 (暴擊 +1%, 迴避 +0.8%/點): <strong id="statAgi">0</strong></span>
+              <button class="stat-btn" onclick="addStat('agi')">+1</button>
+            </div>
+            <div style="font-size: 11px; color: #888; border-top: 1px dashed #444; padding-top: 4px; margin-top: 4px;">
+              💡 總效果: 物理攻+<span id="calcAtk">0</span> | 法攻+<span id="calcMatk">0</span> | 血量+<span id="calcHp">0</span> | 暴擊<span id="calcCrit">0</span>% | 迴避<span id="calcDodge">0</span>%
             </div>
           </div>
 
@@ -425,7 +458,10 @@
     }
   };
 
-  let localUserData = { level: 1, exp: 0, gold: 0, hpPotion: 0, mpPotion: 0, expScroll: 0 };
+  let localUserData = { 
+    level: 1, exp: 0, gold: 0, hpPotion: 0, mpPotion: 0, expScroll: 0,
+    statPoints: 0, str: 0, int: 0, vit: 0, agi: 0 
+  };
 
   const SKILLS = {
     mage: [
@@ -485,6 +521,15 @@
       document.getElementById('playerRole').value = data.user.role || 'berserker';
       localUserData.level = data.user.level || 1;
       localUserData.exp = data.user.exp || 0;
+      
+      // 加載能力值
+      if (data.user.stats) {
+        localUserData.statPoints = data.user.stats.statPoints || 0;
+        localUserData.str = data.user.stats.str || 0;
+        localUserData.int = data.user.stats.int || 0;
+        localUserData.vit = data.user.stats.vit || 0;
+        localUserData.agi = data.user.stats.agi || 0;
+      }
       updateInventoryDisplay(data.user.inventory);
     }
     else if (data.type === 'online_count') {
@@ -495,6 +540,11 @@
     }
     else if (data.type === 'idle_reward') {
       logMessage(data.message);
+      if (data.level > localUserData.level) {
+        // 升級獲得屬性點數
+        localUserData.statPoints += (data.level - localUserData.level) * 5;
+        logMessage(`🎉 恭喜升級到 LV.${data.level}！獲得 5 點自由屬性點！`);
+      }
       localUserData.level = data.level;
       localUserData.exp = data.exp;
       updateInventoryDisplay(data.inventory);
@@ -626,7 +676,12 @@
 
   function joinQueue() {
     if (!checkWsConnected()) return;
-    ws.send(JSON.stringify({ type: 'join_queue', name: getSafePlayerName(), role: document.getElementById('playerRole').value }));
+    ws.send(JSON.stringify({ 
+      type: 'join_queue', 
+      name: getSafePlayerName(), 
+      role: document.getElementById('playerRole').value,
+      stats: { str: localUserData.str, int: localUserData.int, vit: localUserData.vit, agi: localUserData.agi }
+    }));
     showQueueUI(true);
   }
 
@@ -642,11 +697,12 @@
     const name = getSafePlayerName();
     const role = document.getElementById('playerRole').value;
     const roomId = document.getElementById('joinRoomId').value.trim();
+    const stats = { str: localUserData.str, int: localUserData.int, vit: localUserData.vit, agi: localUserData.agi };
 
     if (roomId) {
-      ws.send(JSON.stringify({ type: 'join_room', name, role, roomId, targetTeam: 'A' }));
+      ws.send(JSON.stringify({ type: 'join_room', name, role, roomId, targetTeam: 'A', stats }));
     } else {
-      ws.send(JSON.stringify({ type: 'create_room', name, role, team: 'A' }));
+      ws.send(JSON.stringify({ type: 'create_room', name, role, team: 'A', stats }));
     }
   }
 
@@ -665,6 +721,57 @@
     document.getElementById('lobbyExpText').innerText = `${localUserData.exp} / ${maxExp}`;
     document.getElementById('lobbyExpBar').style.width = `${percent}%`;
     document.getElementById('lobbyExpPercentText').innerText = `${percent}%`;
+
+    // 更新屬性點數UI
+    document.getElementById('statPoints').innerText = localUserData.statPoints;
+    document.getElementById('statStr').innerText = localUserData.str;
+    document.getElementById('statInt').innerText = localUserData.int;
+    document.getElementById('statVit').innerText = localUserData.vit;
+    document.getElementById('statAgi').innerText = localUserData.agi;
+
+    // 計算加成顯示
+    document.getElementById('calcAtk').innerText = localUserData.str * 12;
+    document.getElementById('calcMatk').innerText = localUserData.int * 15;
+    document.getElementById('calcHp').innerText = localUserData.vit * 150;
+    document.getElementById('calcCrit').innerText = (localUserData.agi * 1.0).toFixed(1);
+    document.getElementById('calcDodge').innerText = (localUserData.agi * 0.8).toFixed(1);
+  }
+
+  function addStat(type) {
+    if (localUserData.statPoints <= 0) {
+      alert("⚠️ 沒有可分配的屬性點數！");
+      return;
+    }
+    localUserData.statPoints--;
+    localUserData[type]++;
+    updateExpUI();
+    saveStatsToServer();
+  }
+
+  function resetStats() {
+    const totalPoints = localUserData.str + localUserData.int + localUserData.vit + localUserData.agi + localUserData.statPoints;
+    localUserData.statPoints = totalPoints;
+    localUserData.str = 0;
+    localUserData.int = 0;
+    localUserData.vit = 0;
+    localUserData.agi = 0;
+    updateExpUI();
+    saveStatsToServer();
+  }
+
+  function saveStatsToServer() {
+    if (checkWsConnected()) {
+      ws.send(JSON.stringify({
+        type: 'update_stats',
+        stats: {
+          statPoints: localUserData.statPoints,
+          str: localUserData.str,
+          int: localUserData.int,
+          vit: localUserData.vit,
+          agi: localUserData.agi
+        }
+      }));
+    }
   }
 
   function useExpScroll() {
@@ -1017,12 +1124,17 @@
     triggerSkillCDUI(skill.name, skill.cd || 3);
     playSkillAnimationAndSound(skill);
 
+    // 計算屬性額外加成並送給伺服器
+    const strAtkBonus = localUserData.str * 12;
+    const intMagBonus = localUserData.int * 15;
+    const critRate = localUserData.agi * 1.0;
+
     ws.send(JSON.stringify({
       type: 'use_skill',
       skillName: skill.name,
       mpCost: skill.mpCost,
-      minVal: skill.minVal || 0,
-      maxVal: skill.maxVal || 0,
+      minVal: (skill.minVal || 0) + (skill.isHeal ? intMagBonus : strAtkBonus),
+      maxVal: (skill.maxVal || 0) + (skill.isHeal ? intMagBonus : strAtkBonus),
       hpCostPercent: skill.hpCostPercent || 0,
       instantKillChance: skill.instantKillChance || 0,
       isArrowStormSkill: skill.isArrowStormSkill || false,
@@ -1035,7 +1147,8 @@
       isUlt: skill.isUlt || false,
       isKillSkill: skill.isKillSkill || false,
       isAutoBot: isAutoBattle,
-      targetId: selectedTargetId
+      targetId: selectedTargetId,
+      critChanceBonus: critRate
     }));
   }
 
