@@ -181,7 +181,7 @@ function broadcastOnlineCount() {
   });
 }
 
-setInterval(broadcastOnlineCount, 30000);
+setInterval(broadcastOnlineCount, 7000);
 
 const heartbeatInterval = setInterval(() => {
   wss.clients.forEach(ws => {
