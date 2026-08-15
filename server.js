@@ -76,6 +76,7 @@ const server = http.createServer((req, res) => {
 const wss = new WebSocket.Server({ server });
 const rooms = {};
 let matchQueue = [];
+let matchQueue5v5 = []; // 👥 5V5 專用匹配佇列
 let simulatedOnlineCount = 10000;
 
 const ROLE_STATS = {
@@ -313,6 +314,187 @@ function createMatchWithAI(p1) {
   p1.ws.roomId = roomId;
   p1.ws.send(JSON.stringify({ type: 'match_found', roomId, player: rooms[roomId].players[0] }));
   broadcastRoomState(roomId);
+}
+
+// 🤖 5V5 專用 AI 戰鬥迴圈
+function start5v5AIBattleLoop(roomId) {
+  const room = rooms[roomId];
+  if (!room || !room.isAiMatch) return;
+
+  room.aiTimer = setInterval(() => {
+    if (!rooms[roomId] || room.status !== 'playing') {
+      clearInterval(room.aiTimer);
+      return;
+    }
+
+    const activeAis = room.players.filter(p => p.isAi && p.hp > 0);
+    if (activeAis.length === 0) return;
+    const ai = activeAis[Math.floor(Math.random() * activeAis.length)];
+
+    ai.mp = Math.min(ai.maxMp, ai.mp + 120);
+
+    const enemies = room.players.filter(p => p.team !== ai.team && p.hp > 0);
+    if (enemies.length === 0) return;
+    const target = enemies[Math.floor(Math.random() * enemies.length)];
+
+    if (ai.hp < ai.maxHp * 0.4 && ai.inventory.hpPotion > 0 && Math.random() < 0.8) {
+      ai.inventory.hpPotion--;
+      ai.hp = Math.min(ai.maxHp, ai.hp + 3500);
+      broadcastBattleLog(roomId, `🧪 ${ai.name} 使用了 HP 藥水！`);
+      broadcastRoomState(roomId);
+      return;
+    }
+
+    if (ai.statusEffects && ai.statusEffects.blind && Math.random() < 0.5) {
+      broadcastBattleLog(roomId, `👁️ ${ai.name} 受致盲影響，攻擊 MISS！`);
+      broadcastRoomState(roomId);
+      return;
+    }
+
+    const aiStr = (ai.stats && ai.stats.str) || 0;
+    const useSkill = Math.random() < 0.6;
+
+    if (useSkill && ai.mp >= 200) {
+      ai.mp -= 200;
+      let skillDmg = applyDefenseReduction(600 + (aiStr * 15), target.stats ? target.stats.vit : 0);
+      target.hp = Math.max(0, target.hp - skillDmg);
+      broadcastBattleLog(roomId, `⚔️ ${ai.name} 施展強力技能，對 ${target.name} 造成 ${skillDmg} 點傷害！`);
+    } else {
+      let baseDmg = Math.floor(Math.random() * 200) + 300 + (aiStr * 12);
+      let isCrit = Math.random() < 0.15;
+      if (isCrit) baseDmg = Math.floor(baseDmg * 1.5);
+
+      const finalDmg = applyDefenseReduction(baseDmg, target.stats ? target.stats.vit : 0);
+      target.hp = Math.max(0, target.hp - finalDmg);
+
+      if (isCrit) {
+        broadcastBattleLog(roomId, `💥⚡ ${ai.name} 觸發暴擊！對 ${target.name} 造成 ${finalDmg} 傷害！`);
+      } else {
+        broadcastBattleLog(roomId, `💥 ${ai.name} 對 ${target.name} 發動攻擊，造成 ${finalDmg} 傷害！`);
+      }
+    }
+
+    const teamAAlive = room.players.some(p => p.team === 'A' && p.hp > 0);
+    const teamBAlive = room.players.some(p => p.team === 'B' && p.hp > 0);
+
+    if (!teamAAlive || !teamBAlive) {
+      room.status = 'game_over';
+      if (room.regenTimer) clearInterval(room.regenTimer);
+      if (room.aiTimer) clearInterval(room.aiTimer);
+
+      const winTeam = teamAAlive ? 'A' : 'B';
+      const winTeamName = teamAAlive ? '🔵 隊伍 A' : '🔴 隊伍 B';
+      broadcastBattleLog(roomId, `🏆 遊戲結束！【${winTeamName}】獲得了最終勝利！`);
+
+      room.players.forEach(async (p) => {
+        if (!p.isAi) {
+          const isWinner = (p.team === winTeam);
+          const delta = isWinner ? 30 : -20;
+          p.rankPoints = Math.max(0, (p.rankPoints || 0) + delta);
+          if (p.ws && p.ws.user) {
+            p.ws.user.rankPoints = p.rankPoints;
+            try {
+              await pool.query('UPDATE users SET rank_points = $1 WHERE id = $2', [p.rankPoints, p.ws.user.id]);
+            } catch (e) {
+              console.error("更新段位積分失敗:", e);
+            }
+          }
+        }
+      });
+    }
+
+    broadcastRoomState(roomId);
+  }, 1500);
+}
+
+function addRandomAIPlayer(roomPlayers, team) {
+  const aiName = AI_NAMES[Math.floor(Math.random() * AI_NAMES.length)] + '_' + Math.floor(Math.random() * 90 + 10);
+  const aiRole = ALL_ROLES[Math.floor(Math.random() * ALL_ROLES.length)];
+  const aiVit = Math.floor(Math.random() * 15) + 10;
+  const aiMaxHp = getCalculatedMaxHp(aiRole, aiVit);
+  const aiBaseMp = (ROLE_STATS[aiRole] || ROLE_STATS.berserker).mp;
+
+  roomPlayers.push({
+    id: 'AI_' + Math.random().toString(36).substr(2, 9),
+    ws: null,
+    name: aiName,
+    role: aiRole,
+    team: team,
+    hp: aiMaxHp,
+    maxHp: aiMaxHp,
+    mp: aiBaseMp,
+    maxMp: aiBaseMp,
+    level: Math.floor(Math.random() * 5) + 10,
+    stats: { statPoints: 0, str: 15, int: 15, vit: aiVit, agi: 15 },
+    rankPoints: 1200,
+    statusEffects: {},
+    cooldowns: {},
+    isAi: true,
+    inventory: { hpPotion: 5, mpPotion: 5, expScroll: 1, gold: 0 }
+  });
+}
+
+function create5v5Room(realPlayers, isAiMatch) {
+  const roomId = 'ROOM_5V5_' + Math.floor(1000 + Math.random() * 9000);
+  let roomPlayers = [];
+
+  realPlayers.forEach((p, idx) => {
+    const team = idx < 5 ? 'A' : 'B';
+    const stats = p.user ? p.user.stats : { str: 0, int: 0, vit: 0, agi: 0 };
+    const maxHp = getCalculatedMaxHp(p.role, stats.vit);
+    const baseMp = (ROLE_STATS[p.role] || ROLE_STATS.berserker).mp;
+
+    roomPlayers.push({
+      id: p.id, ws: p.ws, name: p.name, role: p.role, team,
+      hp: maxHp, maxHp, mp: baseMp, maxMp: baseMp,
+      level: p.user ? p.user.level : 1, stats, rankPoints: p.rankPoints,
+      statusEffects: {}, cooldowns: {}, isAi: false,
+      inventory: p.user ? p.user.inventory : { hpPotion: 5, mpPotion: 5, expScroll: 1, gold: 0 }
+    });
+  });
+
+  if (isAiMatch) {
+    const teamACount = roomPlayers.filter(p => p.team === 'A').length;
+    const teamBCount = roomPlayers.filter(p => p.team === 'B').length;
+
+    for (let i = teamACount; i < 5; i++) {
+      addRandomAIPlayer(roomPlayers, 'A');
+    }
+    for (let i = teamBCount; i < 5; i++) {
+      addRandomAIPlayer(roomPlayers, 'B');
+    }
+  }
+
+  rooms[roomId] = {
+    id: roomId,
+    status: 'playing',
+    isAiMatch: true,
+    regenTimer: null,
+    aiTimer: null,
+    players: roomPlayers
+  };
+
+  roomPlayers.forEach(p => {
+    if (!p.isAi && p.ws) {
+      p.ws.roomId = roomId;
+      p.ws.send(JSON.stringify({ type: 'match_found', roomId, player: p }));
+    }
+  });
+
+  rooms[roomId].regenTimer = setInterval(() => {
+    if (!rooms[roomId] || rooms[roomId].status !== 'playing') {
+      clearInterval(rooms[roomId].regenTimer);
+      return;
+    }
+    rooms[roomId].players.forEach(p => {
+      if (p.hp > 0 && p.mp < p.maxMp) p.mp = Math.min(p.maxMp, p.mp + 40);
+    });
+    broadcastRoomState(roomId);
+  }, 1000);
+
+  start5v5AIBattleLoop(roomId);
+  broadcastRoomState(roomId);
+  broadcastBattleLog(roomId, "⚔️【5V5 團戰爆發！】雙方十人陣容已就位，戰鬥正式開打！");
 }
 
 function startAIBattleLoop(roomId) {
@@ -593,7 +775,6 @@ wss.on('connection', (ws) => {
         }
       }
 
-      // 🛒 支援 GM 無限金幣商城購買
       else if (data.type === 'buy_item') {
         const { itemType } = data;
         const validItems = {
@@ -607,7 +788,6 @@ wss.on('connection', (ws) => {
 
         try {
           if (ws.user.isGM) {
-            // GM 特權：不扣金幣直接增加道具
             const updateQuery = itemType === 'hp_potion'
               ? `UPDATE users SET hp_potion = hp_potion + 1 WHERE id = $1 RETURNING hp_potion, mp_potion, exp_scroll`
               : itemType === 'mp_potion'
@@ -631,7 +811,6 @@ wss.on('connection', (ws) => {
             }));
           }
 
-          // 一般玩家購買邏輯
           const userRes = await pool.query('SELECT gold FROM users WHERE id = $1', [ws.user.id]);
           const dbUser = userRes.rows[0];
 
@@ -726,6 +905,42 @@ wss.on('connection', (ws) => {
         }
       }
 
+      // 👥 加入 5V5 團戰隨機匹配
+      else if (data.type === 'join_queue_5v5') {
+        matchQueue5v5 = matchQueue5v5.filter(p => p.ws.readyState === WebSocket.OPEN && p.ws !== ws);
+        const role = data.role || (ws.user ? ws.user.role : 'berserker');
+        const name = data.name || (ws.user ? ws.user.name : '勇者');
+        const rankPts = ws.user ? ws.user.rankPoints : 0;
+
+        const queuePlayer = { ws, id: ws.id, name, role, rankPoints: rankPts, user: ws.user };
+        matchQueue5v5.push(queuePlayer);
+        ws.isIdle = false;
+        if (ws.idleTimer) clearTimeout(ws.idleTimer);
+
+        ws.send(JSON.stringify({ type: 'queue_joined', message: '🔍 正在尋找 5V5 團戰對手...' }));
+
+        if (matchQueue5v5.length >= 10) {
+          const roomPlayers = matchQueue5v5.splice(0, 10);
+          create5v5Room(roomPlayers, false);
+        } else {
+          setTimeout(() => {
+            const index = matchQueue5v5.findIndex(p => p.ws === ws);
+            if (index !== -1) {
+              matchQueue5v5.splice(index, 1);
+              create5v5Room([queuePlayer], true);
+            }
+          }, 4000);
+        }
+      }
+
+      else if (data.type === 'leave_queue_5v5') {
+        matchQueue5v5 = matchQueue5v5.filter(p => p.ws !== ws);
+        ws.isIdle = true;
+        if (ws.idleTimer) clearTimeout(ws.idleTimer);
+        scheduleIdleReward(ws);
+        ws.send(JSON.stringify({ type: 'queue_left' }));
+      }
+
       else if (data.type === 'join_queue') {
         matchQueue = matchQueue.filter(p => p.ws.readyState === WebSocket.OPEN && p.ws !== ws);
         const role = data.role || (ws.user ? ws.user.role : 'berserker');
@@ -812,10 +1027,10 @@ wss.on('connection', (ws) => {
         const room = rooms[roomId];
 
         if (!room) return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 找不到該房間！' }));
-        if (room.players.length >= 6) return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 房間已滿！' }));
+        if (room.players.length >= 10) return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 房間已滿！' }));
 
         let assignedTeam = targetTeam || 'A';
-        if (room.players.filter(p => p.team === assignedTeam).length >= 3) {
+        if (room.players.filter(p => p.team === assignedTeam).length >= 5) {
           assignedTeam = assignedTeam === 'A' ? 'B' : 'A';
         }
 
@@ -840,7 +1055,7 @@ wss.on('connection', (ws) => {
         const p = room.players.find(p => p.id === ws.id);
         if (!p) return;
 
-        if (room.players.filter(pl => pl.team === data.targetTeam).length >= 3) {
+        if (room.players.filter(pl => pl.team === data.targetTeam).length >= 5) {
           return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 該隊伍人數已滿！' }));
         }
 
@@ -868,7 +1083,13 @@ wss.on('connection', (ws) => {
             if (updated) broadcastRoomState(room.id);
           }, 1000);
 
-          if (room.isAiMatch) startAIBattleLoop(room.id);
+          if (room.isAiMatch) {
+            if (room.players.length > 2) {
+              start5v5AIBattleLoop(room.id);
+            } else {
+              startAIBattleLoop(room.id);
+            }
+          }
           broadcastRoomState(room.id);
           broadcastBattleLog(room.id, "⚔️ 戰鬥開始！每秒會自動回復 50 魔力 (MP)！");
         }
@@ -924,7 +1145,6 @@ wss.on('connection', (ws) => {
             totalDmg = applyDefenseReduction(totalDmg, target.stats ? target.stats.vit : 0);
 
             target.hp = Math.max(0, target.hp - totalDmg);
-            const percentDealt = ((totalDmg / target.maxHp) * 100).toFixed(1);
 
             target.statusEffects = target.statusEffects || {};
             target.statusEffects.blind = true;
@@ -1002,7 +1222,7 @@ wss.on('connection', (ws) => {
 
         let targets = data.isHeal
           ? (data.isAoe ? room.players.filter(p => p.team === caster.team && p.hp > 0) : [room.players.find(p => p.id === data.targetId) || caster])
-          : (data.isAoe ? room.players.filter(p => p.team !== caster.team && p.hp > 0) : [room.players.find(p => p.id === data.targetId) || room.players.find(p => p.team !== caster.team && p.hp > 0)]);
+          : (data.isAoe ? room.players.filter(p => p.team !== caster.team && p.hp > 0) : [room.players.find(p => p.id === data.targetId) || room.players.filter(p => p.team !== caster.team && p.hp > 0)[0]]);
 
         targets = targets.filter(Boolean);
         let totalDamageDealt = 0;
@@ -1086,7 +1306,7 @@ wss.on('connection', (ws) => {
           for (let p of room.players) {
             if (!p.isAi) {
               const isWinner = (p.team === winTeam);
-              const delta = isWinner ? 25 : -15;
+              const delta = isWinner ? 30 : -20;
               p.rankPoints = Math.max(0, (p.rankPoints || 0) + delta);
               const rInfo = getRankInfo(p.rankPoints);
               broadcastBattleLog(room.id, `🎖️ ${p.name} (${isWinner ? '獲勝' : '戰敗'})：積分 ${delta > 0 ? '+' + delta : delta} (總分: ${p.rankPoints} - ${rInfo.icon} ${rInfo.name})`);
@@ -1159,6 +1379,7 @@ wss.on('connection', (ws) => {
 
   ws.on('close', () => {
     matchQueue = matchQueue.filter(p => p.ws !== ws);
+    matchQueue5v5 = matchQueue5v5.filter(p => p.ws !== ws);
     if (ws.idleTimer) clearTimeout(ws.idleTimer);
     if (ws.roomId && rooms[ws.roomId]) {
       const room = rooms[ws.roomId];
