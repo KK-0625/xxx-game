@@ -76,7 +76,7 @@ const server = http.createServer((req, res) => {
 const wss = new WebSocket.Server({ server });
 const rooms = {};
 let matchQueue = [];
-let simulatedOnlineCount = 500;
+let simulatedOnlineCount = 15000;
 
 const ROLE_STATS = {
   berserker: { hp: 16000, mp: 2000 },
@@ -168,7 +168,7 @@ function broadcastLobbyChat(senderName, message) {
 
 function broadcastOnlineCount() {
   const fluctuation = Math.floor(Math.random() * 9) - 4;
-  simulatedOnlineCount = Math.max(300, Math.min(500, simulatedOnlineCount + fluctuation));
+  simulatedOnlineCount = Math.max(10, Math.min(15000, simulatedOnlineCount + fluctuation));
   const payload = JSON.stringify({
     type: 'online_count',
     onlineCount: simulatedOnlineCount + wss.clients.size
