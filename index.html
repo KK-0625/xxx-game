@@ -363,6 +363,33 @@
 </div>
 
 <script>
+  // ----------------------------------------------------
+  // 🔒 禁用右鍵與開發者工具快捷鍵 (靜默無提示)
+  // ----------------------------------------------------
+  document.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+  });
+
+  document.addEventListener('keydown', (e) => {
+    // 禁用 F12
+    if (e.key === 'F12') {
+      e.preventDefault();
+    }
+    // 禁用 Ctrl+Shift+I / J / C (開發者工具 / 元素檢查 / 主控台)
+    if (e.ctrlKey && e.shiftKey && ['I', 'i', 'J', 'j', 'C', 'c'].includes(e.key)) {
+      e.preventDefault();
+    }
+    // 禁用 Ctrl+U (檢視原始碼)
+    if (e.ctrlKey && (e.key === 'u' || e.key === 'U')) {
+      e.preventDefault();
+    }
+    // 禁用 Ctrl+S (另存新檔)
+    if (e.ctrlKey && (e.key === 's' || e.key === 'S')) {
+      e.preventDefault();
+    }
+  });
+  // ----------------------------------------------------
+
   let ws = new WebSocket('wss://rpg-game-backend-vhag.onrender.com');
   let myPlayerId = null;
   let currentUser = null;
