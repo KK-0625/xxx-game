@@ -22,7 +22,7 @@ function getRankInfo(points) {
   return { name: '青銅', icon: '🥉', color: '#a1887f' };
 }
 
-// 🗄️ 初始化資料庫 (包含屬性點欄位)
+// 🗄️ 初始化資料庫
 async function initDB() {
   try {
     await pool.query(`
@@ -94,10 +94,17 @@ function getNextExpReq(level) {
   return Math.floor(100 * Math.pow(level, 1.5));
 }
 
-// 根據玩家基礎血量與 VIT 屬性計算實際 MaxHP (每點 VIT +150 HP)
+// 根據 VIT 計算 MaxHP (每點 VIT +150 HP)
 function getCalculatedMaxHp(role, vit) {
   const baseHp = (ROLE_STATS[role] || ROLE_STATS.berserker).hp;
   return baseHp + ((vit || 0) * 150);
+}
+
+// 🛡️ 防禦力減傷計算 (每點 VIT +5 防禦)
+function applyDefenseReduction(rawDamage, targetVit) {
+  const defense = (targetVit || 0) * 5;
+  const damageMultiplier = 100 / (100 + defense);
+  return Math.max(1, Math.floor(rawDamage * damageMultiplier));
 }
 
 function broadcastRoomState(roomId) {
@@ -145,6 +152,7 @@ function broadcastBattleLog(roomId, message) {
   });
 }
 
+// 💬 廣播世界聊天訊息給所有連接終端
 function broadcastLobbyChat(senderName, message) {
   const payload = JSON.stringify({
     type: 'lobby_chat',
@@ -154,7 +162,7 @@ function broadcastLobbyChat(senderName, message) {
   });
 
   wss.clients.forEach(client => {
-    if (client.readyState === WebSocket.OPEN && client.isIdle) {
+    if (client.readyState === WebSocket.OPEN) {
       client.send(payload);
     }
   });
@@ -176,6 +184,19 @@ function broadcastOnlineCount() {
 }
 
 setInterval(broadcastOnlineCount, 5000);
+
+// 心跳檢測 (每 30 秒清掉無回應的 WebSocket 連線)
+const heartbeatInterval = setInterval(() => {
+  wss.clients.forEach(ws => {
+    if (ws.isAlive === false) return ws.terminate();
+    ws.isAlive = false;
+    ws.ping();
+  });
+}, 30000);
+
+wss.on('close', () => {
+  clearInterval(heartbeatInterval);
+});
 
 function scheduleIdleReward(client) {
   const randomDelay = Math.floor(Math.random() * (300000 - 60000 + 1)) + 60000;
@@ -201,7 +222,7 @@ function scheduleIdleReward(client) {
         while (currentExp >= nextExpReq) {
           currentExp -= nextExpReq;
           currentLevel += 1;
-          statPoints += 5; // 升級獲得 5 點屬性點
+          statPoints += 5;
           leveledUp = true;
           nextExpReq = getNextExpReq(currentLevel);
         }
@@ -262,7 +283,7 @@ function createMatchWithAI(p1) {
   const maxHp1 = getCalculatedMaxHp(p1.role, stats1.vit);
   const baseMp1 = (ROLE_STATS[p1.role] || ROLE_STATS.berserker).mp;
 
-  const aiVit = Math.floor(Math.random() * 5);
+  const aiVit = Math.floor(Math.random() * 8);
   const aiMaxHp = getCalculatedMaxHp(aiRole, aiVit);
   const aiBaseMp = (ROLE_STATS[aiRole] || ROLE_STATS.berserker).mp;
   const aiPlayerId = 'AI_' + Math.random().toString(36).substr(2, 9);
@@ -285,7 +306,7 @@ function createMatchWithAI(p1) {
         id: aiPlayerId, ws: null, name: aiName, role: aiRole, team: 'B',
         hp: aiMaxHp, maxHp: aiMaxHp, mp: aiBaseMp, maxMp: aiBaseMp,
         level: Math.max(1, (p1.user ? p1.user.level : 1) + Math.floor(Math.random() * 3 - 1)),
-        stats: { statPoints: 0, str: Math.floor(Math.random() * 5), int: Math.floor(Math.random() * 5), vit: aiVit, agi: Math.floor(Math.random() * 5) },
+        stats: { statPoints: 0, str: Math.floor(Math.random() * 8), int: Math.floor(Math.random() * 8), vit: aiVit, agi: Math.floor(Math.random() * 8) },
         rankPoints: p1.rankPoints + (Math.floor(Math.random() * 100) - 50), statusEffects: {}, cooldowns: {}, isAi: true,
         inventory: { hpPotion: 5, mpPotion: 5, expScroll: 1, gold: 0 }
       }
@@ -297,6 +318,7 @@ function createMatchWithAI(p1) {
   broadcastRoomState(roomId);
 }
 
+// 🤖 AI 戰鬥邏輯優化
 function startAIBattleLoop(roomId) {
   const room = rooms[roomId];
   if (!room || !room.isAiMatch) return;
@@ -316,6 +338,7 @@ function startAIBattleLoop(roomId) {
     if (enemies.length === 0) return;
     const target = enemies[Math.floor(Math.random() * enemies.length)];
 
+    // AI 使用藥水判斷
     if (ai.hp < ai.maxHp * 0.4 && ai.inventory.hpPotion > 0 && Math.random() < 0.6) {
       ai.inventory.hpPotion--;
       let healAmount = 3000;
@@ -323,38 +346,46 @@ function startAIBattleLoop(roomId) {
         healAmount = Math.floor(healAmount * 0.5);
       }
       ai.hp = Math.min(ai.maxHp, ai.hp + healAmount);
-      broadcastBattleLog(roomId, `🧪 ${ai.name} 使用了 HP 藥水！${ai.statusEffects && ai.statusEffects.poison ? '（中毒效果：回復量減半）' : ''}`);
+      broadcastBattleLog(roomId, `🧪 ${ai.name} (AI) 使用了 HP 藥水！${ai.statusEffects && ai.statusEffects.poison ? '（中毒效果：回復量減半）' : ''}`);
       broadcastRoomState(roomId);
       return;
     }
 
-    // 致盲檢測
+    // AI 致盲判斷
     if (ai.statusEffects && ai.statusEffects.blind && Math.random() < 0.5) {
-      broadcastBattleLog(roomId, `👁️ ${ai.name} 受致盲影響，攻擊 MISS！`);
+      broadcastBattleLog(roomId, `👁️ ${ai.name} (AI) 受致盲影響，攻擊 MISS！`);
       broadcastRoomState(roomId);
       return;
     }
 
-    // 敏捷閃避判定 (目標 AGI 每點 +0.8% 閃避率)
+    // 防守方 AGI 迴避判定 (每點 AGI +0.8% 閃避)
     const targetAgi = (target.stats && target.stats.agi) || 0;
     if (Math.random() < (targetAgi * 0.008)) {
-      broadcastBattleLog(roomId, `💨 ${target.name} 憑藉高超敏捷，成功閃避了 ${ai.name} 的攻擊！`);
+      broadcastBattleLog(roomId, `💨 ${target.name} 憑藉高超敏捷，成功閃避了 ${ai.name} (AI) 的普通攻擊！`);
       broadcastRoomState(roomId);
       return;
     }
 
-    let dmg = Math.floor(Math.random() * 150) + 180;
+    let baseDmg = Math.floor(Math.random() * 150) + 180;
     
-    // AI 暴擊判定
+    // AI 力量 (STR) 傷害加成 + 暴擊計算
+    const aiStr = (ai.stats && ai.stats.str) || 0;
     const aiAgi = (ai.stats && ai.stats.agi) || 0;
-    if (Math.random() < (aiAgi * 0.01)) {
-      dmg = Math.floor(dmg * 1.5);
-      broadcastBattleLog(roomId, `💥⚡ ${ai.name} 觸發暴擊！對 ${target.name} 造成 ${dmg} 傷害！`);
+    baseDmg += (aiStr * 12);
+
+    let isCrit = Math.random() < (aiAgi * 0.01);
+    if (isCrit) baseDmg = Math.floor(baseDmg * 1.5);
+
+    // 計算 VIT 防禦減傷
+    const finalDmg = applyDefenseReduction(baseDmg, target.stats ? target.stats.vit : 0);
+
+    if (isCrit) {
+      broadcastBattleLog(roomId, `💥⚡ ${ai.name} (AI) 觸發暴擊！對 ${target.name} 造成 ${finalDmg} 傷害 (經防禦減傷)！`);
     } else {
-      broadcastBattleLog(roomId, `💥 ${ai.name} 對 ${target.name} 發動攻擊，造成 ${dmg} 傷害！`);
+      broadcastBattleLog(roomId, `💥 ${ai.name} (AI) 對 ${target.name} 發動普通攻擊，造成 ${finalDmg} 傷害 (經防禦減傷)！`);
     }
 
-    target.hp = Math.max(0, target.hp - dmg);
+    target.hp = Math.max(0, target.hp - finalDmg);
 
     const teamAAlive = room.players.some(p => p.team === 'A' && p.hp > 0);
     const teamBAlive = room.players.some(p => p.team === 'B' && p.hp > 0);
@@ -397,6 +428,8 @@ wss.on('connection', (ws) => {
   ws.isIdle = true;
   ws.isAlive = true;
 
+  ws.on('pong', () => { ws.isAlive = true; });
+
   ws.send(JSON.stringify({ type: 'online_count', onlineCount: simulatedOnlineCount + wss.clients.size }));
 
   ws.on('message', async (message) => {
@@ -405,6 +438,7 @@ wss.on('connection', (ws) => {
 
       if (data.type === 'register') {
         const { username, password } = data;
+        if (!username || !password) return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 帳號與密碼不能為空！' }));
         const hash = await bcrypt.hash(password, 10);
         try {
           await pool.query('INSERT INTO users (username, password_hash, rank_points, gold, level, exp, stat_points, str, int_stat, vit, agi) VALUES ($1, $2, 0, 0, 1, 0, 0, 0, 0, 0, 0)', [username, hash]);
@@ -447,7 +481,7 @@ wss.on('connection', (ws) => {
         ws.send(JSON.stringify({ type: 'login_success', user: ws.user }));
       }
 
-      // ⭐ 保存與更新玩家屬性點數
+      // ⭐ 屬性點數保存與廣播同步
       else if (data.type === 'update_stats') {
         if (!ws.user || !data.stats) return;
         const { statPoints, str, int, vit, agi } = data.stats;
@@ -462,7 +496,6 @@ wss.on('connection', (ws) => {
 
           ws.user.stats = { statPoints, str, int, vit, agi };
 
-          // 若玩家當前在房間內，同步更新血量上限與屬性
           if (ws.roomId && rooms[ws.roomId]) {
             const p = rooms[ws.roomId].players.find(pl => pl.id === ws.id);
             if (p) {
@@ -539,7 +572,7 @@ wss.on('connection', (ws) => {
           while (exp >= nextReq) {
             exp -= nextReq;
             level += 1;
-            statPts += 5; // 升級獲得 5 點屬性點
+            statPts += 5;
             leveledUp = true;
             nextReq = getNextExpReq(level);
           }
@@ -574,8 +607,9 @@ wss.on('connection', (ws) => {
         }
       }
 
+      // 💬 世界頻道廣播
       else if (data.type === 'send_lobby_chat') {
-        const senderName = (ws.user && ws.user.name) ? ws.user.name : (data.name || '勇者');
+        const senderName = (ws.user && ws.user.name) ? ws.user.name : (data.name || '玩家');
         if (data.message && data.message.trim() !== '') {
           broadcastLobbyChat(senderName, data.message.trim());
         }
@@ -729,6 +763,7 @@ wss.on('connection', (ws) => {
         }
       }
 
+      // ⚔️ 技能使用與屬性點數計算（STR / INT / AGI / VIT 全連動）
       else if (data.type === 'use_skill') {
         const room = rooms[ws.roomId];
         if (!room || room.status !== 'playing') return;
@@ -739,7 +774,6 @@ wss.on('connection', (ws) => {
         const now = Date.now();
         caster.cooldowns = caster.cooldowns || {};
 
-        // 檢查技能 CD
         if (caster.cooldowns[data.skillName] && caster.cooldowns[data.skillName] > now) {
           const remainingSec = Math.ceil((caster.cooldowns[data.skillName] - now) / 1000);
           return ws.send(JSON.stringify({ type: 'error', message: `⚠️ 技能【${data.skillName}】冷卻中，剩餘 ${remainingSec} 秒！` }));
@@ -758,9 +792,15 @@ wss.on('connection', (ws) => {
 
         caster.mp -= data.mpCost;
 
-        // 🏹 特殊邏輯：弓箭手 - 暴風箭雨（連擊10次打掉 5%~20% 血量，附加致盲3秒，CD 30秒）
+        // 計算施法者本身的屬性加成 (STR 物理 / INT 魔法/治療)
+        const casterStats = caster.stats || { str: 0, int: 0, vit: 0, agi: 0 };
+        const strBonus = data.strAtkBonus || (casterStats.str * 12);
+        const intBonus = data.intMagBonus || (casterStats.int * 15);
+        const agiCritBonus = data.critChanceBonus || (casterStats.agi * 0.01);
+
+        // 🏹 弓箭手 - 暴風箭雨
         if (data.skillName === '🏹 暴風箭雨' || data.isArrowStormSkill) {
-          caster.cooldowns['🏹 暴風箭雨'] = now + 30000; // 30秒 CD
+          caster.cooldowns['🏹 暴風箭雨'] = now + 30000;
 
           let target = room.players.find(p => p.id === data.targetId) || room.players.find(p => p.team !== caster.team && p.hp > 0);
           
@@ -769,9 +809,12 @@ wss.on('connection', (ws) => {
             let hits = 10;
             for (let i = 0; i < hits; i++) {
               let hitDmgPercent = (Math.random() * (2.0 - 0.5) + 0.5) / 100;
-              let hitDmg = Math.floor(target.maxHp * hitDmgPercent);
+              let hitDmg = Math.floor(target.maxHp * hitDmgPercent) + Math.floor(strBonus / 10);
               totalDmg += hitDmg;
             }
+
+            // 計算受擊者的 VIT 防禦減傷
+            totalDmg = applyDefenseReduction(totalDmg, target.stats ? target.stats.vit : 0);
 
             target.hp = Math.max(0, target.hp - totalDmg);
             const percentDealt = ((totalDmg / target.maxHp) * 100).toFixed(1);
@@ -779,7 +822,7 @@ wss.on('connection', (ws) => {
             target.statusEffects = target.statusEffects || {};
             target.statusEffects.blind = true;
 
-            broadcastBattleLog(room.id, `🏹 ${caster.name} 施展【暴風箭雨】發動 10 連擊！對 ${target.name} 造成 ${totalDmg} 點總傷害 (約 ${percentDealt}% 血量)，並使其陷入👁️【致盲】3秒！`);
+            broadcastBattleLog(room.id, `🏹 ${caster.name} 施展【暴風箭雨】10連擊！對 ${target.name} 造成 ${totalDmg} 點傷害 (約 ${percentDealt}% 血量，經防禦減傷)，並致盲 3 秒！`);
 
             setTimeout(() => {
               if (target.statusEffects) {
@@ -799,7 +842,7 @@ wss.on('connection', (ws) => {
           return;
         }
 
-        // 🗡️ 特殊邏輯：刺客 - 影之刺殺（消耗自身當前血量 50% 且有概率秒殺）
+        // 🗡️ 刺客 - 影之刺殺
         if (data.skillName === '🗡️ 影之刺殺' || data.isInstantKillSkill) {
           const hpCost = Math.floor(caster.hp * 0.5);
           caster.hp = Math.max(1, caster.hp - hpCost);
@@ -813,15 +856,20 @@ wss.on('connection', (ws) => {
               target.hp = 0;
               broadcastBattleLog(room.id, `☠️【秒殺觸發！】${caster.name} 消耗自身 ${hpCost} HP 發動【影之刺殺】，成功秒殺了 ${target.name}！`);
             } else {
-              let normalDmg = Math.floor(Math.random() * (data.maxVal - data.minVal + 1)) + data.minVal;
+              let normalDmg = Math.floor(Math.random() * (data.maxVal - data.minVal + 1)) + data.minVal + strBonus;
               
-              // 敏捷暴擊判定
-              const casterAgi = (caster.stats && caster.stats.agi) || 0;
-              if (Math.random() < (casterAgi * 0.01)) {
+              const isCrit = Math.random() < (0.15 + agiCritBonus);
+              if (isCrit) {
                 normalDmg = Math.floor(normalDmg * 1.5);
-                broadcastBattleLog(room.id, `🗡️⚡ ${caster.name} 觸發暴擊！消耗 ${hpCost} HP 發動【影之刺殺】，對 ${target.name} 造成 ${normalDmg} 暴擊傷害！`);
+              }
+
+              // 防禦減傷計算
+              normalDmg = applyDefenseReduction(normalDmg, target.stats ? target.stats.vit : 0);
+
+              if (isCrit) {
+                broadcastBattleLog(room.id, `🗡️⚡ ${caster.name} 觸發暴擊！消耗 ${hpCost} HP 發動【影之刺殺】，對 ${target.name} 造成 ${normalDmg} 暴擊傷害 (經防禦減傷)！`);
               } else {
-                broadcastBattleLog(room.id, `🗡️ ${caster.name} 消耗自身 ${hpCost} HP 發動【影之刺殺】，未觸發秒殺，對 ${target.name} 造成 ${normalDmg} 傷害！`);
+                broadcastBattleLog(room.id, `🗡️ ${caster.name} 消耗 ${hpCost} HP 發動【影之刺殺】，對 ${target.name} 造成 ${normalDmg} 傷害 (經防禦減傷)！`);
               }
 
               target.hp = Math.max(0, target.hp - normalDmg);
@@ -832,6 +880,7 @@ wss.on('connection', (ws) => {
           return;
         }
 
+        // 🌟 隊友復活
         if (data.isRevive) {
           let deadTeammates = room.players.filter(p => p.team === caster.team && p.hp <= 0);
           let reviveTarget = data.targetId ? deadTeammates.find(p => p.id === data.targetId) : deadTeammates[0];
@@ -858,37 +907,44 @@ wss.on('connection', (ws) => {
           let rawVal = Math.floor(Math.random() * (data.maxVal - data.minVal + 1)) + data.minVal;
 
           if (data.isHeal) {
+            rawVal += intBonus; // 加入智力治療加成
             if (t.statusEffects && t.statusEffects.poison) {
               rawVal = Math.floor(rawVal * 0.5);
             }
             t.hp = Math.min(t.maxHp, t.hp + rawVal);
             broadcastBattleLog(room.id, `💚 ${caster.name} 對 ${t.name} 使用【${data.skillName}】，恢復 ${rawVal} HP！${t.statusEffects && t.statusEffects.poison ? '（中毒效果：治療量減半）' : ''}`);
           } else {
-            // 防守方 敏捷 (AGI) 閃避判定 (每點 AGI +0.8% 閃避)
+            // 防守方 AGI 閃避判定 (每點 AGI +0.8% 閃避)
             const targetAgi = (t.stats && t.stats.agi) || 0;
             if (Math.random() < (targetAgi * 0.008)) {
               broadcastBattleLog(room.id, `💨 ${t.name} 憑藉高超敏捷，成功閃避了 ${caster.name} 的【${data.skillName}】！`);
               return;
             }
 
-            // 攻擊方 敏捷 (AGI) 暴擊判定 (每點 AGI +1% 暴擊率，1.5倍傷害)
-            const casterAgi = (caster.stats && caster.stats.agi) || 0;
-            const isCrit = Math.random() < (casterAgi * 0.01);
+            // 攻擊加成：若是法術加算 INT，若是物攻加算 STR
+            const statBonus = (caster.role === 'mage' || caster.role === 'priest') ? intBonus : strBonus;
+            rawVal += statBonus;
+
+            // 暴擊判定
+            const isCrit = Math.random() < (0.05 + agiCritBonus);
             if (isCrit) {
               rawVal = Math.floor(rawVal * 1.5);
             }
 
-            t.hp = Math.max(0, t.hp - rawVal);
-            totalDamageDealt += rawVal;
+            // 防禦減傷計算 (受擊者 VIT)
+            const finalDamage = applyDefenseReduction(rawVal, t.stats ? t.stats.vit : 0);
+
+            t.hp = Math.max(0, t.hp - finalDamage);
+            totalDamageDealt += finalDamage;
 
             if (isCrit) {
-              broadcastBattleLog(room.id, `💥⚡ ${caster.name} 觸發【暴擊】！對 ${t.name} 使用【${data.skillName}】，造成 ${rawVal} 傷害！`);
+              broadcastBattleLog(room.id, `💥⚡ ${caster.name} 觸發【暴擊】！對 ${t.name} 使用【${data.skillName}】，造成 ${finalDamage} 傷害 (經防禦減傷)！`);
             } else {
-              broadcastBattleLog(room.id, `💥 ${caster.name} 對 ${t.name} 使用【${data.skillName}】，造成 ${rawVal} 傷害！`);
+              broadcastBattleLog(room.id, `💥 ${caster.name} 對 ${t.name} 使用【${data.skillName}】，造成 ${finalDamage} 傷害 (經防禦減傷)！`);
             }
 
-            if (t.role === 'knight' && rawVal > 0) {
-              const reflectDmg = Math.floor(rawVal * 0.05);
+            if (t.role === 'knight' && finalDamage > 0) {
+              const reflectDmg = Math.floor(finalDamage * 0.05);
               caster.hp = Math.max(0, caster.hp - reflectDmg);
               broadcastBattleLog(room.id, `🏰 ${t.name} (騎士) 荊棘反傷，反彈 ${reflectDmg} 傷害！`);
             }
