@@ -167,7 +167,7 @@ function broadcastLobbyChat(senderName, message) {
 }
 
 function broadcastOnlineCount() {
-  const fluctuation = Math.floor(Math.random() * 9) - 4;
+  const fluctuation = Math.floor(Math.random() * 44) - 12;
   simulatedOnlineCount = Math.max(10, Math.min(15000, simulatedOnlineCount + fluctuation));
   const payload = JSON.stringify({
     type: 'online_count',
