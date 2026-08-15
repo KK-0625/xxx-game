@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>多人線上 RPG 戰鬥房間 - 同步修正版</title>
+  <title>多人線上 RPG 戰鬥房間 - 全自動戰鬥版</title>
   <style>
     * { box-sizing: border-box; font-family: "Segoe UI", Microsoft JhengHei, sans-serif; }
     
-    /* 防護 1：靜默禁止全頁面文字選取（無彈窗提示） */
+    /* 防護 1：靜默禁止全頁面文字選取 */
     body { 
       background-color: #121212; 
       color: #e0e0e0; 
@@ -22,7 +22,6 @@
       user-select: none;
     }
 
-    /* 允許輸入框可以正常選取與輸入文字 */
     input, select, textarea {
       -webkit-user-select: text;
       -moz-user-select: text;
@@ -30,7 +29,6 @@
       user-select: text;
     }
 
-    /* 防護 2：禁止圖片拖曳 */
     img {
       -webkit-user-drag: none;
       user-drag: none;
@@ -85,6 +83,11 @@
     .btn-ult:hover { background: linear-gradient(135deg, #f44336, #9c27b0); }
     .btn-potion { background-color: #0288d1; }
     .btn-potion:hover { background-color: #03a9f4; }
+    
+    /* 自動戰鬥按鈕樣式 */
+    .btn-auto { background: linear-gradient(135deg, #ff9800, #e65100); font-weight: bold; padding: 6px 14px; border-radius: 20px; border: 1px solid #ffe082; }
+    .btn-auto.active { background: linear-gradient(135deg, #00e676, #00812e); box-shadow: 0 0 10px #00e676; }
+
     #battleLog { height: 180px; overflow-y: auto; background-color: #000; color: #00ff66; padding: 10px; font-family: monospace; font-size: 13px; border-radius: 4px; }
     .queue-status { margin-top: 10px; padding: 8px; background: #332200; border: 1px dashed #ff9800; border-radius: 4px; color: #ffca28; }
     .target-indicator { font-size: 13px; color: #ffca28; font-weight: bold; margin-bottom: 5px; }
@@ -217,7 +220,8 @@
   <div id="roomSection" class="card hidden">
     <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
       <h3>🏰 戰鬥房間 - 房號: <span id="displayRoomId" style="color: #ff9800;">-</span></h3>
-      <div style="display: flex; gap: 8px;">
+      <div style="display: flex; gap: 8px; align-items: center;">
+        <button id="btnAutoBattle" class="btn-auto" onclick="toggleAutoBattle()">🤖 自動戰鬥: OFF</button>
         <button onclick="openShopModal()" style="background-color: #ff9800;">🛒 商店</button>
         <button id="btnStartGame" onclick="startGame()" class="hidden">⚔️ 開始遊戲</button>
         <button id="btnRematch" onclick="rematch()" class="hidden">🔄 重新開局</button>
@@ -314,12 +318,7 @@
 <script>
   /* ================= 靜默防護功能 (無提示音/彈窗) ================= */
   (function initSilentProtection() {
-    // 1. 靜默禁用右鍵選單
-    document.addEventListener('contextmenu', function (e) {
-      e.preventDefault();
-    }, false);
-
-    // 2. 靜默禁用快捷鍵 (F12, Ctrl+U, Ctrl+Shift+I/J/C, Ctrl+S)
+    document.addEventListener('contextmenu', function (e) { e.preventDefault(); }, false);
     document.addEventListener('keydown', function (e) {
       const key = e.key.toUpperCase();
       if (
@@ -333,13 +332,12 @@
       }
     }, false);
 
-    // 3. DevTools 干擾機制 (開啟開發者工具會不斷陷入卡頓)
     setInterval(function () {
       const startTime = performance.now();
       debugger;
       const endTime = performance.now();
       if (endTime - startTime > 100) {
-        document.body.innerHTML = ''; // 開啟開發者工具時清空頁面內容
+        document.body.innerHTML = '';
       }
     }, 1000);
   })();
@@ -352,6 +350,10 @@
   let selectedTargetId = null;
   let oldPlayerHpMap = {}; 
   let reviveCooldownEndTime = 0;
+
+  /* 全自動戰鬥控制變數 */
+  let isAutoBattle = false;
+  let autoBattleTimer = null;
 
   const AudioFX = {
     ctx: null,
@@ -466,7 +468,7 @@
 
   ws.onopen = () => { logMessage("🟢 成功連接伺服器！請先進行帳號登入或註冊。"); };
   ws.onerror = () => { logMessage("🔴 伺服器連線失敗，請檢查網路或稍後重試。"); };
-  ws.onclose = () => { logMessage("🟡 與伺服器中斷連線。"); };
+  ws.onclose = () => { logMessage("🟡 與伺服器中斷連線。"); stopAutoBattle(); };
 
   ws.onmessage = (event) => {
     const data = JSON.parse(event.data);
@@ -520,6 +522,9 @@
     else if (data.type === 'room_state') {
       currentRoomState = data;
       renderRoom(data);
+      if (data.status === 'playing' && isAutoBattle) {
+        startAutoBattleLoop();
+      }
     }
     else if (data.type === 'battle_log') {
       logMessage(data.message);
@@ -528,6 +533,7 @@
     else if (data.type === 'returned_to_idle') {
       logMessage(data.message);
       selectedTargetId = null;
+      stopAutoBattle();
       document.getElementById('lobbySection').classList.remove('hidden');
       document.getElementById('roomSection').classList.add('hidden');
       document.getElementById('actionPanel').classList.add('hidden');
@@ -694,6 +700,103 @@
     }
     ws.send(JSON.stringify({ type: 'buy_item', itemType }));
   }
+
+  /* ================= 全自動戰鬥邏輯區塊 ================= */
+  function toggleAutoBattle() {
+    isAutoBattle = !isAutoBattle;
+    const btn = document.getElementById('btnAutoBattle');
+    if (isAutoBattle) {
+      btn.innerText = "🤖 自動戰鬥: ON";
+      btn.classList.add('active');
+      logMessage("🤖 自動戰鬥已啟動！");
+      startAutoBattleLoop();
+    } else {
+      stopAutoBattle();
+      logMessage("🛑 自動戰鬥已停止。");
+    }
+  }
+
+  function stopAutoBattle() {
+    isAutoBattle = false;
+    const btn = document.getElementById('btnAutoBattle');
+    if (btn) {
+      btn.innerText = "🤖 自動戰鬥: OFF";
+      btn.classList.remove('active');
+    }
+    if (autoBattleTimer) {
+      clearInterval(autoBattleTimer);
+      autoBattleTimer = null;
+    }
+  }
+
+  function startAutoBattleLoop() {
+    if (autoBattleTimer) return;
+    autoBattleTimer = setInterval(() => {
+      if (!isAutoBattle || !currentRoomState || currentRoomState.status !== 'playing') {
+        return;
+      }
+      performAutoAction();
+    }, 1500); // 每 1.5 秒自動執行一次行為
+  }
+
+  function performAutoAction() {
+    if (!currentRoomState) return;
+    const me = currentRoomState.players.find(p => p.id === myPlayerId);
+    if (!me || me.hp <= 0) return; // 陣亡則不行動
+
+    // 1. 低血量優先自動喝水
+    if (me.hp / me.maxHp < 0.35 && (localUserData.hpPotion || 0) > 0) {
+      usePotion('hp');
+      return;
+    }
+    // 2. 缺魔優先自動喝藍水
+    if (me.mp / me.maxMp < 0.2 && (localUserData.mpPotion || 0) > 0) {
+      usePotion('mp');
+      return;
+    }
+
+    const mySkills = SKILLS[me.role] || [];
+    const now = Date.now();
+
+    // 篩選出 MP 足夠且未冷卻的可用技能
+    const availableSkills = mySkills.filter(skill => {
+      if (skill.isRevive) {
+        const remainingCd = Math.max(0, Math.ceil((reviveCooldownEndTime - now) / 1000));
+        return me.mp >= skill.mpCost && remainingCd <= 0;
+      }
+      return me.mp >= skill.mpCost;
+    });
+
+    if (availableSkills.length === 0) return; // 無可用技能，等待 MP 回覆
+
+    // 優先使用昂貴/大招技能 (MP消耗最高者)
+    availableSkills.sort((a, b) => b.mpCost - a.mpCost);
+    const chosenSkill = availableSkills[0];
+
+    // 自動選擇目標
+    let autoTargetId = null;
+    const teammates = currentRoomState.players.filter(p => p.team === me.team);
+    const enemies = currentRoomState.players.filter(p => p.team !== me.team && p.hp > 0);
+
+    if (chosenSkill.isRevive) {
+      const deadTeammate = teammates.find(p => p.hp <= 0);
+      if (deadTeammate) autoTargetId = deadTeammate.id;
+      else return; // 沒有可復活目標
+    } else if (chosenSkill.isHeal && !chosenSkill.isAoe) {
+      // 尋找血量最少的隊友
+      teammates.sort((a, b) => (a.hp / a.maxHp) - (b.hp / b.maxHp));
+      if (teammates.length > 0) autoTargetId = teammates[0].id;
+    } else if (!chosenSkill.isAoe) {
+      // 尋找血量最少的敵人
+      enemies.sort((a, b) => (a.hp / a.maxHp) - (b.hp / b.maxHp));
+      if (enemies.length > 0) autoTargetId = enemies[0].id;
+      else return; // 無存活敵人
+    }
+
+    selectedTargetId = autoTargetId;
+    useSkill(chosenSkill);
+  }
+  /* ============================================================== */
 
   function renderRoom(roomState) {
     const teamA = document.getElementById('teamAPlayers');
