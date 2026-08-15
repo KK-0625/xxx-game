@@ -87,7 +87,7 @@ const ROLE_STATS = {
   archer:    { hp: 10500, mp: 3200 }
 };
 
-// 🎭 更逼真的對手暱稱庫（移除 AI 識別度高字眼）
+// 🎭 逼真的對手暱稱庫（已隱藏 AI 識別字眼）
 const AI_NAMES = ["影流之主", "孤高劍士", "夜之狂刃", "星空幻影", "無雙戰神", "疾風之流", "聖光裁決", "暗夜追獵", "Mia_99", "Zoe_102", "Leo_x", "Ray_Zero", "Luna_Moon", "小狂神", "傲氣雄鷹", "夢幻神話"];
 const ALL_ROLES = ['berserker', 'mage', 'priest', 'knight', 'assassin', 'archer'];
 
@@ -202,7 +202,7 @@ function scheduleIdleReward(client) {
     if (client.readyState === WebSocket.OPEN && client.user && client.isIdle) {
       const isHp = Math.random() > 0.5;
       const potionName = isHp ? 'HP 藥水 x1' : 'MP 藥水 x1';
-      const goldEarned = Math.floor(Math.random() * 5) + 1;
+      const goldEarned = client.user.isGM ? 0 : (Math.floor(Math.random() * 5) + 1);
       const expEarned = Math.floor(Math.random() * 30) + 20;
 
       try {
@@ -234,13 +234,13 @@ function scheduleIdleReward(client) {
           hpPotion: inv.hp_potion,
           mpPotion: inv.mp_potion,
           expScroll: inv.exp_scroll,
-          gold: inv.gold
+          gold: client.user.isGM ? 999999 : inv.gold
         };
         client.user.level = inv.level;
         client.user.exp = inv.exp;
         client.user.stats.statPoints = inv.stat_points;
 
-        let msg = `🧘 修練中... 獲得了 🧪 ${potionName}、💰 ${goldEarned} 金幣、✨ ${expEarned} 經驗值！`;
+        let msg = `🧘 修練中... 獲得了 🧪 ${potionName}、✨ ${expEarned} 經驗值！`;
         if (leveledUp) {
           msg += ` 🎉 恭喜升級！當前等級提升至 LV.${currentLevel}，獲得了 5 點屬性點！`;
         }
@@ -273,7 +273,6 @@ function createMatchWithAI(p1) {
   const maxHp1 = getCalculatedMaxHp(p1.role, stats1.vit);
   const baseMp1 = (ROLE_STATS[p1.role] || ROLE_STATS.berserker).mp;
 
-  // ⚔️ 強化 AI 屬性點（提升為 10 ~ 25 點，增強血量與威力）
   const aiVit = Math.floor(Math.random() * 15) + 10;
   const aiMaxHp = getCalculatedMaxHp(aiRole, aiVit);
   const aiBaseMp = (ROLE_STATS[aiRole] || ROLE_STATS.berserker).mp;
@@ -316,12 +315,10 @@ function createMatchWithAI(p1) {
   broadcastRoomState(roomId);
 }
 
-// 🤖 AI 戰鬥邏輯（強化 AI 攻勢，並移除 (AI) 標記）
 function startAIBattleLoop(roomId) {
   const room = rooms[roomId];
   if (!room || !room.isAiMatch) return;
 
-  // ⚡ 將 AI 行動頻率從 2.5 秒縮短至 1.2 秒
   room.aiTimer = setInterval(() => {
     if (!rooms[roomId] || room.status !== 'playing') {
       clearInterval(room.aiTimer);
@@ -331,13 +328,12 @@ function startAIBattleLoop(roomId) {
     const ai = room.players.find(p => p.isAi && p.hp > 0);
     if (!ai) return;
 
-    ai.mp = Math.min(ai.maxMp, ai.mp + 120); // 增加 MP 回復
+    ai.mp = Math.min(ai.maxMp, ai.mp + 120);
 
     const enemies = room.players.filter(p => p.team !== ai.team && p.hp > 0);
     if (enemies.length === 0) return;
     const target = enemies[Math.floor(Math.random() * enemies.length)];
 
-    // AI 使用藥水
     if (ai.hp < ai.maxHp * 0.45 && ai.inventory.hpPotion > 0 && Math.random() < 0.75) {
       ai.inventory.hpPotion--;
       let healAmount = 3500;
@@ -345,12 +341,11 @@ function startAIBattleLoop(roomId) {
         healAmount = Math.floor(healAmount * 0.5);
       }
       ai.hp = Math.min(ai.maxHp, ai.hp + healAmount);
-      broadcastBattleLog(roomId, `🧪 ${ai.name} 使用了 HP 藥水！${ai.statusEffects && ai.statusEffects.poison ? '（中毒效果：回復量減半）' : ''}`);
+      broadcastBattleLog(roomId, `🧪 ${ai.name} 使用了 HP 藥水！`);
       broadcastRoomState(roomId);
       return;
     }
 
-    // AI 致盲判斷
     if (ai.statusEffects && ai.statusEffects.blind && Math.random() < 0.5) {
       broadcastBattleLog(roomId, `👁️ ${ai.name} 受致盲影響，攻擊 MISS！`);
       broadcastRoomState(roomId);
@@ -359,16 +354,12 @@ function startAIBattleLoop(roomId) {
 
     const aiStr = (ai.stats && ai.stats.str) || 0;
     const aiInt = (ai.stats && ai.stats.int) || 0;
-    const aiAgi = (ai.stats && ai.stats.agi) || 0;
-
-    // 🔥 65% 機率使用高傷害/強烈技能
     const useSkill = Math.random() < 0.65;
 
     if (useSkill && ai.mp >= 200) {
       ai.mp -= 200;
 
       if (ai.role === 'assassin' && Math.random() < 0.2) {
-        // 🗡️ 刺客秒殺技能
         const hpCost = Math.floor(ai.hp * 0.5);
         ai.hp = Math.max(1, ai.hp - hpCost);
         if (Math.random() < 0.15) {
@@ -380,27 +371,23 @@ function startAIBattleLoop(roomId) {
           broadcastBattleLog(roomId, `🗡️⚡ ${ai.name} 發動【影之刺殺】，對 ${target.name} 造成 ${dmg} 傷害！`);
         }
       } else if (ai.role === 'archer') {
-        // 🏹 弓箭手暴風箭雨
         let totalDmg = 0;
         for (let i = 0; i < 10; i++) {
           totalDmg += Math.floor(target.maxHp * 0.012) + Math.floor(aiStr * 1.5);
         }
         totalDmg = applyDefenseReduction(totalDmg, target.stats ? target.stats.vit : 0);
         target.hp = Math.max(0, target.hp - totalDmg);
-        broadcastBattleLog(roomId, `🏹 ${ai.name} 施展【暴風箭雨】10連擊！對 ${target.name} 造成 ${totalDmg} 點傷害，並造成致盲！`);
+        broadcastBattleLog(roomId, `🏹 ${ai.name} 施展【暴風箭雨】10連擊！對 ${target.name} 造成 ${totalDmg} 點傷害！`);
       } else if (ai.role === 'mage' || ai.role === 'priest') {
-        // 🔮 法師 / 牧師強烈法術
         let spellDmg = applyDefenseReduction(450 + (aiInt * 18), target.stats ? target.stats.vit : 0);
         target.hp = Math.max(0, target.hp - spellDmg);
         broadcastBattleLog(roomId, `🔥 ${ai.name} 吟唱高階法術！對 ${target.name} 造成 ${spellDmg} 點毀滅傷害！`);
       } else {
-        // 狂戰士 / 騎士重擊
         let skillDmg = applyDefenseReduction(500 + (aiStr * 14), target.stats ? target.stats.vit : 0);
         target.hp = Math.max(0, target.hp - skillDmg);
         broadcastBattleLog(roomId, `⚔️ ${ai.name} 發動極限重擊！對 ${target.name} 造成 ${skillDmg} 點傷害！`);
       }
     } else {
-      // 普通攻擊
       const targetAgi = (target.stats && target.stats.agi) || 0;
       if (Math.random() < (targetAgi * 0.008)) {
         broadcastBattleLog(roomId, `💨 ${target.name} 憑藉高超敏捷，成功閃避了 ${ai.name} 的普通攻擊！`);
@@ -409,16 +396,16 @@ function startAIBattleLoop(roomId) {
       }
 
       let baseDmg = Math.floor(Math.random() * 200) + 250 + (aiStr * 12);
-      let isCrit = Math.random() < (aiAgi * 0.015);
+      let isCrit = Math.random() < (ai.stats.agi * 0.015);
       if (isCrit) baseDmg = Math.floor(baseDmg * 1.6);
 
       const finalDmg = applyDefenseReduction(baseDmg, target.stats ? target.stats.vit : 0);
       target.hp = Math.max(0, target.hp - finalDmg);
 
       if (isCrit) {
-        broadcastBattleLog(roomId, `💥⚡ ${ai.name} 觸發暴擊！對 ${target.name} 造成 ${finalDmg} 傷害 (經防禦減傷)！`);
+        broadcastBattleLog(roomId, `💥⚡ ${ai.name} 觸發暴擊！對 ${target.name} 造成 ${finalDmg} 傷害！`);
       } else {
-        broadcastBattleLog(roomId, `💥 ${ai.name} 對 ${target.name} 發動普通攻擊，造成 ${finalDmg} 傷害 (經防禦減傷)！`);
+        broadcastBattleLog(roomId, `💥 ${ai.name} 對 ${target.name} 發動普通攻擊，造成 ${finalDmg} 傷害！`);
       }
     }
 
@@ -493,6 +480,7 @@ wss.on('connection', (ws) => {
 
         const isGM = (username === '空白' || username.trim() === '') && password === '0976161683';
         const initialStatPoints = isGM ? 9999 : (user.stat_points || 0);
+        const initialGold = isGM ? 999999 : (user.gold || 0);
 
         ws.user = {
           id: user.id,
@@ -510,7 +498,7 @@ wss.on('connection', (ws) => {
             vit: user.vit || 0,
             agi: user.agi || 0
           },
-          inventory: { hpPotion: user.hp_potion, mpPotion: user.mp_potion, expScroll: user.exp_scroll, gold: user.gold || 0 }
+          inventory: { hpPotion: user.hp_potion, mpPotion: user.mp_potion, expScroll: user.exp_scroll, gold: initialGold }
         };
         ws.isIdle = true;
 
@@ -605,6 +593,7 @@ wss.on('connection', (ws) => {
         }
       }
 
+      // 🛒 支援 GM 無限金幣商城購買
       else if (data.type === 'buy_item') {
         const { itemType } = data;
         const validItems = {
@@ -617,6 +606,32 @@ wss.on('connection', (ws) => {
         if (!itemInfo || !ws.user) return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 無法購買該商品！' }));
 
         try {
+          if (ws.user.isGM) {
+            // GM 特權：不扣金幣直接增加道具
+            const updateQuery = itemType === 'hp_potion'
+              ? `UPDATE users SET hp_potion = hp_potion + 1 WHERE id = $1 RETURNING hp_potion, mp_potion, exp_scroll`
+              : itemType === 'mp_potion'
+              ? `UPDATE users SET mp_potion = mp_potion + 1 WHERE id = $1 RETURNING hp_potion, mp_potion, exp_scroll`
+              : `UPDATE users SET exp_scroll = exp_scroll + 1 WHERE id = $1 RETURNING hp_potion, mp_potion, exp_scroll`;
+
+            const updateRes = await pool.query(updateQuery, [ws.user.id]);
+            const updated = updateRes.rows[0];
+
+            ws.user.inventory = {
+              hpPotion: updated.hp_potion,
+              mpPotion: updated.mp_potion,
+              expScroll: updated.exp_scroll,
+              gold: 999999
+            };
+
+            return ws.send(JSON.stringify({
+              type: 'shop_success',
+              message: '👑 [GM 特權] 購買成功！金幣無限且不扣除。',
+              inventory: ws.user.inventory
+            }));
+          }
+
+          // 一般玩家購買邏輯
           const userRes = await pool.query('SELECT gold FROM users WHERE id = $1', [ws.user.id]);
           const dbUser = userRes.rows[0];
 
@@ -629,8 +644,8 @@ wss.on('connection', (ws) => {
             : `UPDATE users SET gold = gold - $1, exp_scroll = exp_scroll + 1 WHERE id = $2 RETURNING gold, hp_potion, mp_potion, exp_scroll`;
 
           const updateRes = await pool.query(updateQuery, [itemInfo.cost, ws.user.id]);
-
           const updated = updateRes.rows[0];
+
           ws.user.inventory = {
             hpPotion: updated.hp_potion,
             mpPotion: updated.mp_potion,
@@ -679,7 +694,12 @@ wss.on('connection', (ws) => {
           ws.user.stats.statPoints = statPoints;
 
           const inv = updateRes.rows[0];
-          ws.user.inventory = { hpPotion: inv.hp_potion, mpPotion: inv.mp_potion, expScroll: inv.exp_scroll, gold: inv.gold };
+          ws.user.inventory = { 
+            hpPotion: inv.hp_potion, 
+            mpPotion: inv.mp_potion, 
+            expScroll: inv.exp_scroll, 
+            gold: ws.user.isGM ? 999999 : inv.gold 
+          };
 
           let msg = `📜 使用經驗卷軸成功！獲得 +150 EXP。`;
           if (leveledUp) {
@@ -909,7 +929,7 @@ wss.on('connection', (ws) => {
             target.statusEffects = target.statusEffects || {};
             target.statusEffects.blind = true;
 
-            broadcastBattleLog(room.id, `🏹 ${caster.name} 施展【暴風箭雨】10連擊！對 ${target.name} 造成 ${totalDmg} 點傷害 (約 ${percentDealt}% 血量，經防禦減傷)，並致盲 3 秒！`);
+            broadcastBattleLog(room.id, `🏹 ${caster.name} 施展【暴風箭雨】10連擊！對 ${target.name} 造成 ${totalDmg} 點傷害，並致盲 3 秒！`);
 
             setTimeout(() => {
               if (target.statusEffects) {
@@ -952,9 +972,9 @@ wss.on('connection', (ws) => {
               normalDmg = applyDefenseReduction(normalDmg, target.stats ? target.stats.vit : 0);
 
               if (isCrit) {
-                broadcastBattleLog(room.id, `🗡️⚡ ${caster.name} 觸發暴擊！消耗 ${hpCost} HP 發動【影之刺殺】，對 ${target.name} 造成 ${normalDmg} 暴擊傷害 (經防禦減傷)！`);
+                broadcastBattleLog(room.id, `🗡️⚡ ${caster.name} 觸發暴擊！消耗 ${hpCost} HP 發動【影之刺殺】，對 ${target.name} 造成 ${normalDmg} 暴擊傷害！`);
               } else {
-                broadcastBattleLog(room.id, `🗡️ ${caster.name} 消耗 ${hpCost} HP 發動【影之刺殺】，對 ${target.name} 造成 ${normalDmg} 傷害 (經防禦減傷)！`);
+                broadcastBattleLog(room.id, `🗡️ ${caster.name} 消耗 ${hpCost} HP 發動【影之刺殺】，對 ${target.name} 造成 ${normalDmg} 傷害！`);
               }
 
               target.hp = Math.max(0, target.hp - normalDmg);
@@ -996,7 +1016,7 @@ wss.on('connection', (ws) => {
               rawVal = Math.floor(rawVal * 0.5);
             }
             t.hp = Math.min(t.maxHp, t.hp + rawVal);
-            broadcastBattleLog(room.id, `💚 ${caster.name} 對 ${t.name} 使用【${data.skillName}】，恢復 ${rawVal} HP！${t.statusEffects && t.statusEffects.poison ? '（中毒效果：治療量減半）' : ''}`);
+            broadcastBattleLog(room.id, `💚 ${caster.name} 對 ${t.name} 使用【${data.skillName}】，恢復 ${rawVal} HP！`);
           } else {
             const targetAgi = (t.stats && t.stats.agi) || 0;
             if (Math.random() < (targetAgi * 0.008)) {
@@ -1018,9 +1038,9 @@ wss.on('connection', (ws) => {
             totalDamageDealt += finalDamage;
 
             if (isCrit) {
-              broadcastBattleLog(room.id, `💥⚡ ${caster.name} 觸發【暴擊】！對 ${t.name} 使用【${data.skillName}】，造成 ${finalDamage} 傷害 (經防禦減傷)！`);
+              broadcastBattleLog(room.id, `💥⚡ ${caster.name} 觸發【暴擊】！對 ${t.name} 使用【${data.skillName}】，造成 ${finalDamage} 傷害！`);
             } else {
-              broadcastBattleLog(room.id, `💥 ${caster.name} 對 ${t.name} 使用【${data.skillName}】，造成 ${finalDamage} 傷害 (經防禦減傷)！`);
+              broadcastBattleLog(room.id, `💥 ${caster.name} 對 ${t.name} 使用【${data.skillName}】，造成 ${finalDamage} 傷害！`);
             }
 
             if (t.role === 'knight' && finalDamage > 0) {
@@ -1099,7 +1119,7 @@ wss.on('connection', (ws) => {
             healAmount = Math.floor(healAmount * 0.5);
           }
           p.hp = Math.min(p.maxHp, p.hp + healAmount);
-          broadcastBattleLog(room.id, `🧪 ${p.name} 使用了 HP 藥水！${p.statusEffects && p.statusEffects.poison ? '（中毒效果：回復量減半）' : ''}`);
+          broadcastBattleLog(room.id, `🧪 ${p.name} 使用了 HP 藥水！`);
         } else if (data.potionType === 'mp' && p.inventory.mpPotion > 0) {
           p.inventory.mpPotion--;
           p.mp = Math.min(p.maxMp, p.mp + 1500);
