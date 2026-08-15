@@ -89,7 +89,7 @@
     .shop-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #444; padding-bottom: 10px; margin-bottom: 15px; }
     .shop-item { display: flex; justify-content: space-between; align-items: center; background: #2a2a2a; padding: 10px; margin-bottom: 10px; border-radius: 6px; }
 
-    /* 🌟✨ 技能施放動畫容器 ✨🌟 */
+    /* 🌟✨ 技能施放動畫容器 (縮小並固定在右上方) ✨🌟 */
     #skillFxContainer {
       position: fixed; top: 25px; right: 25px;
       pointer-events: none; z-index: 9999;
@@ -110,7 +110,7 @@
       100% { opacity: 0; transform: translateY(-30px) scale(0.9); }
     }
 
-    /* 震動與傷害數字 */
+    /* 輕微震動與傷害/治癒數字動畫 */
     @keyframes shake {
       0% { transform: translate(1px, 1px); }
       20% { transform: translate(-2px, 1px); }
@@ -148,6 +148,7 @@
 </head>
 <body>
 
+<!-- 技能動畫右上方懸浮容器 -->
 <div id="skillFxContainer"></div>
 
 <div id="mainContainer" class="container">
@@ -180,6 +181,7 @@
     </div>
     
     <div class="lobby-content">
+      <!-- 🎮 遊戲配對與自建房 -->
       <div class="lobby-box card">
         <h4>🎮 戰鬥選擇</h4>
         <div style="display: flex; flex-direction: column; gap: 8px;">
@@ -210,6 +212,7 @@
         </div>
       </div>
 
+      <!-- 💬 大廳聊天室與個人資訊/背包 -->
       <div class="lobby-box card" style="display: flex; flex-direction: column; gap: 10px;">
         <h4>💬 大廳公眾聊天室</h4>
         <div id="lobbyChatBox" class="chat-box">
@@ -269,6 +272,7 @@
       </div>
     </div>
 
+    <!-- 🚩 隊伍列表與換隊按鍵 -->
     <div class="teams-container">
       <div class="team-box team-a">
         <div class="team-header">
@@ -287,6 +291,7 @@
       </div>
     </div>
 
+    <!-- ⚔️ 技能操作面板 -->
     <div id="actionPanel" class="action-panel hidden">
       <div id="currentTargetText" class="target-indicator">🎯 技能目標：[自動鎖定模式] (點擊上方玩家卡片可手動選擇)</div>
       <div>
@@ -358,7 +363,6 @@
 </div>
 
 <script>
-  // 請記得替換為您的伺服器網址 (本地測試可改為 'ws://localhost:8080')
   let ws = new WebSocket('wss://rpg-game-backend-vhag.onrender.com');
   let myPlayerId = null;
   let currentUser = null;
@@ -367,7 +371,7 @@
   let oldPlayerHpMap = {}; 
   let reviveCooldownEndTime = 0;
 
-  // Web Audio API 音效生成器
+  // Web Audio API 音效生成器 (無需外掛 MP3)
   const AudioFX = {
     ctx: null,
     init() {
@@ -378,6 +382,7 @@
         this.ctx.resume();
       }
     },
+    // 🗡️ 劍擊聲 / 戰士
     playSword() {
       this.init();
       const osc = this.ctx.createOscillator();
@@ -392,6 +397,7 @@
       osc.start();
       osc.stop(this.ctx.currentTime + 0.15);
     },
+    // 🔮 法術聲 / 法師
     playMagic() {
       this.init();
       const osc = this.ctx.createOscillator();
@@ -406,6 +412,7 @@
       osc.start();
       osc.stop(this.ctx.currentTime + 0.3);
     },
+    // 💚 治癒聲 / 牧師
     playHeal() {
       this.init();
       const now = this.ctx.currentTime;
@@ -422,6 +429,7 @@
         osc.stop(now + idx * 0.08 + 0.25);
       });
     },
+    // 🗡️ 刺擊聲 / 刺客
     playStab() {
       this.init();
       const osc = this.ctx.createOscillator();
@@ -436,6 +444,7 @@
       osc.start();
       osc.stop(this.ctx.currentTime + 0.08);
     },
+    // 🏹 弓箭聲 / 弓箭手
     playArrow() {
       this.init();
       const osc = this.ctx.createOscillator();
@@ -453,7 +462,14 @@
     }
   };
 
-  let localUserData = { level: 1, exp: 0, gold: 0, hpPotion: 0, mpPotion: 0, expScroll: 0 };
+  let localUserData = {
+    level: 1,
+    exp: 0,
+    gold: 0,
+    hpPotion: 0,
+    mpPotion: 0,
+    expScroll: 0
+  };
 
   const SKILLS = {
     mage: [
@@ -501,27 +517,42 @@
   ws.onmessage = (event) => {
     const data = JSON.parse(event.data);
 
-    if (data.type === 'register_success') alert(data.message);
+    if (data.type === 'register_success') {
+      alert(data.message);
+    }
     else if (data.type === 'login_success') {
       currentUser = data.user;
       logMessage(`🎉 登入成功！歡迎回來，${data.user.name}`);
       document.getElementById('authSection').classList.add('hidden');
       document.getElementById('lobbySection').classList.remove('hidden');
-      document.getElementById('playerName').value = data.user.name || "勇者";
+      
+      const validName = (data.user.name && data.user.name !== "空白") ? data.user.name : "勇者";
+      document.getElementById('playerName').value = validName;
       document.getElementById('playerRole').value = data.user.role || 'berserker';
+      
       if (data.user.level) localUserData.level = data.user.level;
       if (data.user.exp) localUserData.exp = data.user.exp;
       updateInventoryDisplay(data.user.inventory);
     }
-    else if (data.type === 'online_count') document.getElementById('displayOnlineCount').innerText = data.onlineCount;
-    else if (data.type === 'lobby_chat') appendLobbyChat(data.sender, data.message, data.time);
+    else if (data.type === 'online_count') {
+      document.getElementById('displayOnlineCount').innerText = data.onlineCount;
+    }
+    else if (data.type === 'lobby_chat') {
+      appendLobbyChat(data.sender, data.message, data.time);
+    }
     else if (data.type === 'idle_reward') {
       logMessage(data.message);
       if (data.gainedExp) addExp(data.gainedExp);
       updateInventoryDisplay(data.inventory);
     }
-    else if (data.type === 'queue_joined') { logMessage("🎲 成功進入單人 1v1 匹配隊列..."); showQueueUI(true); }
-    else if (data.type === 'queue_left') { logMessage("❌ 已取消匹配。"); showQueueUI(false); }
+    else if (data.type === 'queue_joined') {
+      logMessage("🎲 成功進入單人 1v1 匹配隊列...");
+      showQueueUI(true);
+    }
+    else if (data.type === 'queue_left') {
+      logMessage("❌ 已取消匹配。");
+      showQueueUI(false);
+    }
     else if (data.type === 'match_found' || data.type === 'room_created' || data.type === 'room_joined') {
       if (data.type === 'match_found') logMessage("🎉 匹配成功！即將進入戰鬥...");
       myPlayerId = data.player.id;
@@ -532,8 +563,14 @@
       showQueueUI(false);
       updateInventoryDisplay(data.player.inventory);
     }
-    else if (data.type === 'room_state') { currentRoomState = data; renderRoom(data); }
-    else if (data.type === 'battle_log') { logMessage(data.message); checkBattleLogForEffects(data.message); }
+    else if (data.type === 'room_state') {
+      currentRoomState = data;
+      renderRoom(data);
+    }
+    else if (data.type === 'battle_log') {
+      logMessage(data.message);
+      checkBattleLogForEffects(data.message);
+    }
     else if (data.type === 'returned_to_idle') {
       logMessage(data.message);
       selectedTargetId = null;
@@ -541,11 +578,16 @@
       document.getElementById('roomSection').classList.add('hidden');
       document.getElementById('actionPanel').classList.add('hidden');
     }
-    else if (data.type === 'error') alert("❌ " + data.message);
+    else if (data.type === 'error') {
+      alert("❌ " + data.message);
+    }
   };
 
   function checkWsConnected() {
-    if (!ws || ws.readyState !== WebSocket.OPEN) { alert("⚠️ 伺服器連線尚未建立或中斷！"); return false; }
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      alert("⚠️ 伺服器連線尚未建立或中斷！");
+      return false;
+    }
     return true;
   }
 
@@ -570,7 +612,9 @@
     const input = document.getElementById('lobbyChatInput');
     const msg = input.value.trim();
     if (!msg) return;
-    ws.send(JSON.stringify({ type: 'send_lobby_chat', message: msg, name: getSafePlayerName() }));
+
+    const senderName = getSafePlayerName();
+    ws.send(JSON.stringify({ type: 'send_lobby_chat', message: msg, name: senderName }));
     input.value = '';
   }
 
@@ -583,8 +627,19 @@
     box.scrollTop = box.scrollHeight;
   }
 
-  function escapeHtml(str) { return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
-  function getSafePlayerName() { return document.getElementById('playerName').value.trim() || "勇者"; }
+  function escapeHtml(str) {
+    return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
+  function getSafePlayerName() {
+    let nameInput = document.getElementById('playerName').value.trim();
+    if (!nameInput || nameInput === "空白") {
+      nameInput = (currentUser && currentUser.name) ? currentUser.name : "勇者" + Math.floor(Math.random() * 899 + 100);
+      document.getElementById('playerName').value = nameInput;
+    }
+    return nameInput;
+  }
+
   function showQueueUI(inQueue) {
     document.getElementById('btnJoinQueue').classList.toggle('hidden', inQueue);
     document.getElementById('btnLeaveQueue').classList.toggle('hidden', !inQueue);
@@ -593,7 +648,9 @@
 
   function joinQueue() {
     if (!checkWsConnected()) return;
-    ws.send(JSON.stringify({ type: 'join_queue', name: getSafePlayerName(), role: document.getElementById('playerRole').value, level: localUserData.level }));
+    const name = getSafePlayerName();
+    const role = document.getElementById('playerRole').value;
+    ws.send(JSON.stringify({ type: 'join_queue', name, role, level: localUserData.level }));
     showQueueUI(true);
   }
 
@@ -609,16 +666,25 @@
     const name = getSafePlayerName();
     const role = document.getElementById('playerRole').value;
     const roomId = document.getElementById('joinRoomId').value.trim();
-    if (roomId) ws.send(JSON.stringify({ type: 'join_room', name, role, roomId, targetTeam: 'A', level: localUserData.level }));
-    else ws.send(JSON.stringify({ type: 'create_room', name, role, team: 'A', level: localUserData.level }));
+
+    if (roomId) {
+      ws.send(JSON.stringify({ type: 'join_room', name, role, roomId, targetTeam: 'A', level: localUserData.level }));
+    } else {
+      ws.send(JSON.stringify({ type: 'create_room', name, role, team: 'A', level: localUserData.level }));
+    }
   }
 
-  function switchTeam(targetTeam) { if (checkWsConnected()) ws.send(JSON.stringify({ type: 'switch_team', targetTeam })); }
+  function switchTeam(targetTeam) {
+    if (!checkWsConnected()) return;
+    ws.send(JSON.stringify({ type: 'switch_team', targetTeam }));
+  }
+
   function getMaxExp(level) { return level * 100; }
 
   function addExp(amount) {
     localUserData.exp += amount;
     let maxExp = getMaxExp(localUserData.level);
+
     while (localUserData.exp >= maxExp) {
       localUserData.exp -= maxExp;
       localUserData.level += 1;
@@ -631,6 +697,7 @@
   function updateExpUI() {
     const maxExp = getMaxExp(localUserData.level);
     const percent = Math.min(100, Math.floor((localUserData.exp / maxExp) * 100));
+
     document.getElementById('lobbyLevel').innerText = `LV.${localUserData.level}`;
     document.getElementById('lobbyExpText').innerText = `${localUserData.exp} / ${maxExp}`;
     document.getElementById('lobbyExpBar').style.width = `${percent}%`;
@@ -638,7 +705,10 @@
   }
 
   function useExpScroll() {
-    if ((localUserData.expScroll || 0) <= 0) return alert("⚠️ 背包中沒有經驗卷軸！");
+    if ((localUserData.expScroll || 0) <= 0) {
+      alert("⚠️ 背包中沒有經驗卷軸！");
+      return;
+    }
     localUserData.expScroll -= 1;
     addExp(150);
     updateInventoryDisplay(localUserData);
@@ -648,18 +718,24 @@
   function updateInventoryDisplay(inv) {
     if (!inv) return;
     localUserData = Object.assign(localUserData, inv);
-    document.getElementById('lobbyGold').innerText = localUserData.gold || 0;
-    document.getElementById('shopGoldDisplay').innerText = localUserData.gold || 0;
+
+    document.getElementById('lobbyGold').innerText = localUserData.gold !== undefined ? localUserData.gold : 0;
+    document.getElementById('shopGoldDisplay').innerText = localUserData.gold !== undefined ? localUserData.gold : 0;
     document.getElementById('lobbyHpPotion').innerText = localUserData.hpPotion || 0;
     document.getElementById('lobbyMpPotion').innerText = localUserData.mpPotion || 0;
     document.getElementById('lobbyExpScroll').innerText = localUserData.expScroll || 0;
 
     const btnHp = document.getElementById('btnHpPotion');
     const btnMp = document.getElementById('btnMpPotion');
-    btnHp.innerText = `🧪 HP 藥水 (剩餘: ${localUserData.hpPotion || 0})`;
-    btnHp.disabled = (localUserData.hpPotion || 0) <= 0;
-    btnMp.innerText = `🧪 MP 藥水 (剩餘: ${localUserData.mpPotion || 0})`;
-    btnMp.disabled = (localUserData.mpPotion || 0) <= 0;
+
+    const hpCount = localUserData.hpPotion || 0;
+    const mpCount = localUserData.mpPotion || 0;
+
+    btnHp.innerText = `🧪 HP 藥水 (剩餘: ${hpCount})`;
+    btnHp.disabled = hpCount <= 0;
+
+    btnMp.innerText = `🧪 MP 藥水 (剩餘: ${mpCount})`;
+    btnMp.disabled = mpCount <= 0;
 
     updateExpUI();
   }
@@ -668,35 +744,58 @@
     document.getElementById('shopModal').classList.remove('hidden');
     document.getElementById('shopGoldDisplay').innerText = localUserData.gold || 0;
   }
-  function closeShopModal() { document.getElementById('shopModal').classList.add('hidden'); }
+
+  function closeShopModal() {
+    document.getElementById('shopModal').classList.add('hidden');
+  }
 
   function buyItem(itemKey, price) {
-    if ((localUserData.gold || 0) < price) return alert("⚠️ 金幣不足，無法購買！");
+    const currentGold = localUserData.gold || 0;
+    if (currentGold < price) {
+      alert("⚠️ 金幣不足，無法購買！");
+      return;
+    }
+
     localUserData.gold -= price;
     localUserData[itemKey] = (localUserData[itemKey] || 0) + 1;
+    
     updateInventoryDisplay(localUserData);
     logMessage(`🛒 成功購買了 ${getItemName(itemKey)}！消耗金幣: ${price}`);
-    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'buy_item', itemKey, price }));
+
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'buy_item', itemKey, price }));
+    }
   }
 
   function getItemName(key) {
-    if (key === 'hpPotion') return '🧪 HP 藥水';
-    if (key === 'mpPotion') return '🧪 MP 藥水';
-    if (key === 'expScroll') return '📜 經驗卷軸';
-    return '道具';
+    switch (key) {
+      case 'hpPotion': return '🧪 HP 藥水';
+      case 'mpPotion': return '🧪 MP 藥水';
+      case 'expScroll': return '📜 經驗卷軸';
+      default: return '道具';
+    }
   }
 
   function renderRoom(roomState) {
     const teamA = document.getElementById('teamAPlayers');
     const teamB = document.getElementById('teamBPlayers');
-    teamA.innerHTML = ''; teamB.innerHTML = '';
+    teamA.innerHTML = '';
+    teamB.innerHTML = '';
 
     const me = roomState.players.find(p => p.id === myPlayerId);
     const isHost = roomState.players[0] && roomState.players[0].id === myPlayerId;
+
     if (me && me.inventory) updateInventoryDisplay(me.inventory);
 
-    document.getElementById('btnSwitchTeamA').disabled = !(me && roomState.status === 'waiting' && me.team !== 'A');
-    document.getElementById('btnSwitchTeamB').disabled = !(me && roomState.status === 'waiting' && me.team !== 'B');
+    const btnSwitchA = document.getElementById('btnSwitchTeamA');
+    const btnSwitchB = document.getElementById('btnSwitchTeamB');
+    if (me && roomState.status === 'waiting') {
+      btnSwitchA.disabled = (me.team === 'A');
+      btnSwitchB.disabled = (me.team === 'B');
+    } else {
+      btnSwitchA.disabled = true;
+      btnSwitchB.disabled = true;
+    }
 
     const btnStart = document.getElementById('btnStartGame');
     const btnRematch = document.getElementById('btnRematch');
@@ -730,7 +829,9 @@
 
       const pCard = document.createElement('div');
       pCard.id = `player-card-${p.id}`;
-      pCard.className = `player-card ${isDead ? 'dead' : ''} ${selectedTargetId === p.id ? 'selected' : ''}`;
+      const isSelected = selectedTargetId === p.id;
+      pCard.className = `player-card ${isDead ? 'dead' : ''} ${isSelected ? 'selected' : ''}`;
+      
       if (roomState.status === 'playing') {
         pCard.style.cursor = 'pointer';
         pCard.onclick = () => selectTarget(p.id);
@@ -745,9 +846,11 @@
       }
 
       const rInfo = p.rankInfo || { icon: '🥉', name: '青銅' };
+      const pLevel = p.level || 1;
+
       pCard.innerHTML = `
         <div class="player-header">
-          <span>[LV.${p.level || 1}] ${p.name} (${p.role}) <span class="rank-tag">${rInfo.icon} ${rInfo.name}</span> ${p.id === myPlayerId ? '⭐我' : ''}</span>
+          <span>[LV.${pLevel}] ${p.name} (${p.role}) <span class="rank-tag">${rInfo.icon} ${rInfo.name}</span> ${p.id === myPlayerId ? '⭐我' : ''}</span>
           <span>${isDead ? '💀 陣亡' : '存活'}</span>
         </div>
         <div class="bar-container">
@@ -789,6 +892,7 @@
     if (!me) return;
     const container = document.getElementById('skillButtons');
     container.innerHTML = '';
+
     const mySkills = SKILLS[me.role] || [];
     const now = Date.now();
 
@@ -804,31 +908,40 @@
         if (skill.isUlt) btn.className = 'btn-ult';
         btn.disabled = me.mp < skill.mpCost || me.hp <= 0;
       }
+
       btn.onclick = () => useSkill(skill);
       container.appendChild(btn);
     });
   }
 
+  /* 🌟 播放精簡版右上方技能動畫與專屬音效 🌟 */
   function playSkillAnimationAndSound(skill) {
+    // 1. 右上方浮現精緻 Toast 動畫
     const container = document.getElementById('skillFxContainer');
     const animEl = document.createElement('div');
     animEl.className = 'skill-toast-anim';
     animEl.innerText = `✨ 施展：${skill.name}`;
     container.appendChild(animEl);
+
     setTimeout(() => animEl.remove(), 1200);
 
+    // 2. 播放專屬音效
     if (skill.sound === 'sword') AudioFX.playSword();
     else if (skill.sound === 'magic') AudioFX.playMagic();
     else if (skill.sound === 'heal') AudioFX.playHeal();
     else if (skill.sound === 'stab') AudioFX.playStab();
     else if (skill.sound === 'arrow') AudioFX.playArrow();
 
+    // 3. 戰鬥微震動
     triggerContainerShake();
   }
 
   function useSkill(skill) {
     if (!checkWsConnected()) return;
+
     if (skill.isRevive) reviveCooldownEndTime = Date.now() + (skill.cd * 1000);
+
+    // 觸發音效與視覺動畫
     playSkillAnimationAndSound(skill);
 
     ws.send(JSON.stringify({
@@ -868,7 +981,9 @@
   }
 
   function checkBattleLogForEffects(msg) {
-    if (msg.includes('【大招！】') || msg.includes('💥【暴擊！】') || msg.includes('⚡【麻痺】')) triggerContainerShake();
+    if (msg.includes('【大招！】') || msg.includes('💥【暴擊！】') || msg.includes('⚡【麻痺】')) {
+      triggerContainerShake();
+    }
   }
 
   function triggerContainerShake() {
@@ -882,9 +997,11 @@
     const el = document.createElement('div');
     el.className = `floating-number ${isHeal ? 'heal-num' : 'damage-num'}`;
     el.innerText = text;
+
     const randomX = Math.floor(Math.random() * 40) - 20;
     el.style.left = `calc(50% + ${randomX}px)`;
     el.style.top = '10px';
+
     targetCard.appendChild(el);
     setTimeout(() => el.remove(), 800);
   }
