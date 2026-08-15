@@ -2,7 +2,7 @@ const WebSocket = require('ws');
 const sqlite3 = require('sqlite3').verbose();
 const http = require('http');
 
-// 初始化 SQLite 資料庫 (持久化玩家數據)
+// 初始化 SQLite 資料庫
 const db = new sqlite3.Database('./game_database.db', (err) => {
   if (err) console.error('❌ 資料庫連接失敗:', err.message);
   else console.log('📦 已成功連接至 SQLite 資料庫');
@@ -30,15 +30,14 @@ db.serialize(() => {
 const server = http.createServer();
 const wss = new WebSocket.Server({ server });
 
-// 儲存目前記憶體狀態 (保留你原本的命名結構)
-let users = {};              // 記憶體快取：username -> userData
-let onlineUsers = new Map(); // username -> ws
-let queue = [];              // 1v1 匹配隊列
-let rooms = new Map();       // roomId -> roomState
+let users = {};
+let onlineUsers = new Map();
+let queue = [];
+let rooms = new Map();
 
-// 升級所需經驗值公式 (保留你原本的 1.5 次方公式)
+// 🎯 對齊前端經驗公式：level * 100 (例如 LV.11 為 1100)
 function getMaxExp(level) {
-  return Math.floor(100 * Math.pow(level || 1, 1.5));
+  return (level || 1) * 100;
 }
 
 // 廣播給大廳玩家
@@ -103,17 +102,19 @@ setInterval(() => {
           [newGold, newExp, newLevel, now, username],
           (err) => {
             if (!err) {
-              // 同步更新記憶體與前端
+              // 同步記憶體
               ws.user.gold = newGold;
               ws.user.exp = newExp;
               ws.user.level = newLevel;
 
+              // 🎯 回傳前端 addExp 能正確吃的 gainedExp，並夾帶即時背包
               ws.send(JSON.stringify({
                 type: 'idle_reward',
                 message: `✨ 修練收益：金幣 +${goldGain}, 經驗 +${expGain}`,
-                level: newLevel,
-                exp: newExp,
+                gainedExp: expGain, 
                 inventory: {
+                  level: newLevel,
+                  exp: newExp,
                   gold: newGold,
                   hpPotion: dbUser.hp_potion,
                   mpPotion: dbUser.mp_potion,
@@ -128,22 +129,22 @@ setInterval(() => {
   }
 }, 10000);
 
-// WebSocket 連線處理
+// WebSocket 訊息監聽
 wss.on('connection', (ws) => {
   ws.on('message', (message) => {
     try {
       const data = JSON.parse(message);
 
-      // --- 1. 帳號註冊 ---
+      // --- 1. 註冊 ---
       if (data.type === 'register') {
-        const { username, password, name, role } = data;
+        const { username, password } = data;
         db.get(`SELECT username FROM users WHERE username = ?`, [username], (err, row) => {
           if (row) {
             return ws.send(JSON.stringify({ type: 'error', message: '❌ 該帳號已被註冊！' }));
           }
           db.run(
             `INSERT INTO users (username, password, name, role, last_online) VALUES (?, ?, ?, ?, ?)`,
-            [username, password, name, role || 'berserker', Date.now()],
+            [username, password, username, 'berserker', Date.now()],
             (err) => {
               if (err) return ws.send(JSON.stringify({ type: 'error', message: '註冊失敗！' }));
               ws.send(JSON.stringify({ type: 'register_success', message: '🎉 註冊成功，請進行登入！' }));
@@ -152,7 +153,7 @@ wss.on('connection', (ws) => {
         });
       }
 
-      // --- 2. 帳號登入 ---
+      // --- 2. 登入 ---
       else if (data.type === 'login') {
         const { username, password } = data;
         db.get(`SELECT * FROM users WHERE username = ? AND password = ?`, [username, password], (err, user) => {
@@ -165,6 +166,7 @@ wss.on('connection', (ws) => {
           users[username] = user;
           onlineUsers.set(username, ws);
 
+          // 回傳給前端 login_success (包含 level, exp 及完整背包)
           ws.send(JSON.stringify({
             type: 'login_success',
             user: {
@@ -174,6 +176,8 @@ wss.on('connection', (ws) => {
               level: user.level,
               exp: user.exp,
               inventory: {
+                level: user.level,
+                exp: user.exp,
                 gold: user.gold,
                 hpPotion: user.hp_potion,
                 mpPotion: user.mp_potion,
@@ -186,33 +190,26 @@ wss.on('connection', (ws) => {
         });
       }
 
-      // --- 3. 大廳聊天 ---
-      else if (data.type === 'lobby_chat') {
+      // --- 3. 聊天 ---
+      else if (data.type === 'send_lobby_chat') {
         if (!ws.user) return;
         broadcastLobby({
           type: 'lobby_chat',
-          sender: ws.user.name,
+          sender: data.name || ws.user.name,
           message: data.message,
           time: new Date().toLocaleTimeString()
         });
       }
 
-      // --- 4. 商店購買 (相容前端 hpPotion / hp_potion 兩種傳送格式) ---
+      // --- 4. 商店購買 (扣款並更新 DB) ---
       else if (data.type === 'buy_item') {
         if (!ws.user) return;
         
-        // 映射前端格式
-        const itemMap = {
-          'hpPotion': 'hp_potion',
-          'mpPotion': 'mp_potion',
-          'expScroll': 'exp_scroll'
-        };
-        const itemType = itemMap[data.itemType] || data.itemType || itemMap[data.itemKey] || data.itemKey;
-        
-        const prices = { hp_potion: 10, mp_potion: 10, exp_scroll: 50 };
-        const price = prices[itemType];
+        const itemMap = { 'hpPotion': 'hp_potion', 'mpPotion': 'mp_potion', 'expScroll': 'exp_scroll' };
+        const dbField = itemMap[data.itemKey];
+        const price = data.price || 50;
 
-        if (!price) return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 查無此商品！' }));
+        if (!dbField) return;
 
         db.get(`SELECT * FROM users WHERE username = ?`, [ws.username], (err, user) => {
           if (user.gold < price) {
@@ -220,18 +217,20 @@ wss.on('connection', (ws) => {
           }
 
           const newGold = user.gold - price;
-          const newItemCount = user[itemType] + 1;
+          const newItemCount = user[dbField] + 1;
 
-          db.run(`UPDATE users SET gold = ?, ${itemType} = ? WHERE username = ?`, [newGold, newItemCount, ws.username], (err) => {
+          db.run(`UPDATE users SET gold = ?, ${dbField} = ? WHERE username = ?`, [newGold, newItemCount, ws.username], (err) => {
             if (!err) {
               user.gold = newGold;
-              user[itemType] = newItemCount;
+              user[dbField] = newItemCount;
               ws.user = user;
 
               ws.send(JSON.stringify({
-                type: 'shop_success',
+                type: 'idle_reward',
                 message: `🛒 購買成功！`,
                 inventory: {
+                  level: user.level,
+                  exp: user.exp,
                   gold: user.gold,
                   hpPotion: user.hp_potion,
                   mpPotion: user.mp_potion,
@@ -243,16 +242,14 @@ wss.on('connection', (ws) => {
         });
       }
 
-      // --- 5. 使用經驗卷軸 (新增後端 DB 寫入與升級判斷) ---
+      // --- 5. 使用經驗卷軸 (同步寫入 DB) ---
       else if (data.type === 'use_exp_scroll') {
         if (!ws.user) return;
 
         db.get(`SELECT * FROM users WHERE username = ?`, [ws.username], (err, user) => {
-          if (!user || user.exp_scroll <= 0) {
-            return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 經驗卷軸數量不足！' }));
-          }
+          if (!user || user.exp_scroll <= 0) return;
 
-          let newExpScroll = user.exp_scroll - 1;
+          let newScroll = user.exp_scroll - 1;
           let newExp = user.exp + 150;
           let newLevel = user.level;
           let maxExp = getMaxExp(newLevel);
@@ -264,22 +261,23 @@ wss.on('connection', (ws) => {
           }
 
           db.run(`UPDATE users SET exp_scroll = ?, exp = ?, level = ? WHERE username = ?`,
-            [newExpScroll, newExp, newLevel, ws.username], (err) => {
+            [newScroll, newExp, newLevel, ws.username], (err) => {
               if (!err) {
-                ws.user.exp_scroll = newExpScroll;
+                ws.user.exp_scroll = newScroll;
                 ws.user.exp = newExp;
                 ws.user.level = newLevel;
 
                 ws.send(JSON.stringify({
                   type: 'idle_reward',
-                  message: `📜 使用了經驗卷軸，獲得 +150 EXP！`,
-                  level: newLevel,
-                  exp: newExp,
+                  message: `📜 使用經驗卷軸！+150 EXP`,
+                  gainedExp: 150,
                   inventory: {
+                    level: newLevel,
+                    exp: newExp,
                     gold: user.gold,
                     hpPotion: user.hp_potion,
                     mpPotion: user.mp_potion,
-                    expScroll: newExpScroll
+                    expScroll: newScroll
                   }
                 }));
               }
@@ -287,9 +285,12 @@ wss.on('connection', (ws) => {
         });
       }
 
-      // --- 6. 1v1 隨機配對 ---
+      // --- 6. 1v1 配對 (對齊前端 join_queue 參數格式) ---
       else if (data.type === 'join_queue') {
         if (queue.includes(ws)) return;
+        if (data.name) ws.user.name = data.name;
+        if (data.role) ws.user.role = data.role;
+
         queue.push(ws);
         ws.send(JSON.stringify({ type: 'queue_joined' }));
 
@@ -301,11 +302,13 @@ wss.on('connection', (ws) => {
           p1.roomId = roomId;
           p2.roomId = roomId;
 
-          // 保留你原本職業屬性初始化邏輯
           const roleStats = {
-            berserker: { hp: 6000, mp: 1500 },
-            mage: { hp: 3500, mp: 4000 },
-            paladin: { hp: 5000, mp: 2500 }
+            berserker: { hp: 16000, mp: 1500 },
+            mage: { hp: 9000, mp: 4000 },
+            priest: { hp: 10000, mp: 3000 },
+            knight: { hp: 20000, mp: 2000 },
+            assassin: { hp: 11000, mp: 2000 },
+            archer: { hp: 10500, mp: 2200 }
           };
 
           const p1Role = p1.user.role || 'berserker';
@@ -313,17 +316,19 @@ wss.on('connection', (ws) => {
 
           const roomData = {
             roomId,
+            status: 'playing',
             players: [
               {
                 id: 'p1',
                 name: p1.user.name,
                 role: p1Role,
                 team: 'A',
+                level: p1.user.level || 1,
                 hp: roleStats[p1Role].hp,
                 maxHp: roleStats[p1Role].hp,
                 mp: roleStats[p1Role].mp,
                 maxMp: roleStats[p1Role].mp,
-                isDead: false,
+                inventory: { gold: p1.user.gold, hpPotion: p1.user.hp_potion, mpPotion: p1.user.mp_potion, expScroll: p1.user.exp_scroll },
                 ws: p1
               },
               {
@@ -331,11 +336,12 @@ wss.on('connection', (ws) => {
                 name: p2.user.name,
                 role: p2Role,
                 team: 'B',
+                level: p2.user.level || 1,
                 hp: roleStats[p2Role].hp,
                 maxHp: roleStats[p2Role].hp,
                 mp: roleStats[p2Role].mp,
                 maxMp: roleStats[p2Role].mp,
-                isDead: false,
+                inventory: { gold: p2.user.gold, hpPotion: p2.user.hp_potion, mpPotion: p2.user.mp_potion, expScroll: p2.user.exp_scroll },
                 ws: p2
               }
             ]
@@ -343,80 +349,91 @@ wss.on('connection', (ws) => {
 
           rooms.set(roomId, roomData);
 
-          p1.send(JSON.stringify({ type: 'match_found', roomId, player: { id: 'p1', ...roomData.players[0] } }));
-          p2.send(JSON.stringify({ type: 'match_found', roomId, player: { id: 'p2', ...roomData.players[1] } }));
+          p1.send(JSON.stringify({ type: 'match_found', roomId, player: roomData.players[0] }));
+          p2.send(JSON.stringify({ type: 'match_found', roomId, player: roomData.players[1] }));
 
           broadcastRoomState(roomId);
         }
       }
 
-      // --- 7. 取消匹配 ---
+      // --- 7. 取消配對 ---
       else if (data.type === 'leave_queue') {
         queue = queue.filter(socket => socket !== ws);
         ws.send(JSON.stringify({ type: 'queue_left' }));
       }
 
-      // --- 8. 自訂房間 (建立/加入) 保留你原本邏輯 ---
-      else if (data.type === 'join_custom_room') {
-        const { customRoomId } = data;
-        let room = rooms.get(customRoomId);
+      // --- 8. 建立與加入自訂房間 ---
+      else if (data.type === 'create_room' || data.type === 'join_room') {
+        const roomId = data.roomId || 'room_' + Math.floor(Math.random() * 8999 + 1000);
+        let room = rooms.get(roomId);
+
+        if (data.name) ws.user.name = data.name;
+        if (data.role) ws.user.role = data.role;
+
+        const roleStats = {
+          berserker: { hp: 16000, mp: 1500 },
+          mage: { hp: 9000, mp: 4000 },
+          priest: { hp: 10000, mp: 3000 },
+          knight: { hp: 20000, mp: 2000 },
+          assassin: { hp: 11000, mp: 2000 },
+          archer: { hp: 10500, mp: 2200 }
+        };
+        const role = ws.user.role || 'berserker';
 
         if (!room) {
-          const roleStats = { berserker: { hp: 6000, mp: 1500 }, mage: { hp: 3500, mp: 4000 }, paladin: { hp: 5000, mp: 2500 } };
-          const role = ws.user.role || 'berserker';
-
           room = {
-            roomId: customRoomId,
+            roomId,
+            status: 'waiting',
             players: [{
               id: 'p1',
               name: ws.user.name,
               role: role,
-              team: 'A',
+              team: data.team || 'A',
+              level: ws.user.level || 1,
               hp: roleStats[role].hp,
               maxHp: roleStats[role].hp,
               mp: roleStats[role].mp,
               maxMp: roleStats[role].mp,
-              isDead: false,
+              inventory: { gold: ws.user.gold, hpPotion: ws.user.hp_potion, mpPotion: ws.user.mp_potion, expScroll: ws.user.exp_scroll },
               ws: ws
             }]
           };
-          rooms.set(customRoomId, room);
-          ws.roomId = customRoomId;
-          ws.send(JSON.stringify({ type: 'room_created', roomId: customRoomId, player: { id: 'p1', ...room.players[0] } }));
-        } else if (room.players.length < 2) {
-          const roleStats = { berserker: { hp: 6000, mp: 1500 }, mage: { hp: 3500, mp: 4000 }, paladin: { hp: 5000, mp: 2500 } };
-          const role = ws.user.role || 'berserker';
-
+          rooms.set(roomId, room);
+          ws.roomId = roomId;
+          ws.send(JSON.stringify({ type: 'room_created', roomId, player: room.players[0] }));
+        } else if (room.players.length < 4) {
+          const pId = 'p' + (room.players.length + 1);
           const newPlayer = {
-            id: 'p2',
+            id: pId,
             name: ws.user.name,
             role: role,
-            team: 'B',
+            team: data.targetTeam || 'B',
+            level: ws.user.level || 1,
             hp: roleStats[role].hp,
             maxHp: roleStats[role].hp,
             mp: roleStats[role].mp,
             maxMp: roleStats[role].mp,
-            isDead: false,
+            inventory: { gold: ws.user.gold, hpPotion: ws.user.hp_potion, mpPotion: ws.user.mp_potion, expScroll: ws.user.exp_scroll },
             ws: ws
           };
           room.players.push(newPlayer);
-          ws.roomId = customRoomId;
-          ws.send(JSON.stringify({ type: 'room_joined', roomId: customRoomId, player: { id: 'p2', ...newPlayer } }));
+          ws.roomId = roomId;
+          ws.send(JSON.stringify({ type: 'room_joined', roomId, player: newPlayer }));
         } else {
-          return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 該房間已滿！' }));
+          return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 房間已滿！' }));
         }
 
-        broadcastRoomState(customRoomId);
+        broadcastRoomState(roomId);
       }
 
-      // --- 9. 戰鬥：使用技能 (完整保留你的各種效果/吸血/復活/AOE判斷) ---
+      // --- 9. 使用技能 (完美相容前端多職業) ---
       else if (data.type === 'use_skill') {
         if (!ws.roomId) return;
         const room = rooms.get(ws.roomId);
         if (!room) return;
 
         const caster = room.players.find(p => p.ws === ws);
-        if (!caster || caster.isDead) return;
+        if (!caster || caster.hp <= 0) return;
 
         if (caster.mp < data.mpCost) {
           return ws.send(JSON.stringify({ type: 'error', message: '💧 魔力 (MP) 不足！' }));
@@ -425,46 +442,38 @@ wss.on('connection', (ws) => {
         caster.mp -= data.mpCost;
         let val = Math.floor(Math.random() * (data.maxVal - data.minVal + 1)) + data.minVal;
 
-        // 復活技能
         if (data.isRevive) {
-          let deadAlly = room.players.find(p => p.team === caster.team && p.isDead);
+          let deadAlly = room.players.find(p => p.team === caster.team && p.hp <= 0);
           if (deadAlly) {
-            deadAlly.isDead = false;
-            deadAlly.hp = val;
-            broadcastBattleLog(room.roomId, `✨ ${caster.name} 使用了【${data.skillName}】，復活了 ${deadAlly.name} 並回復 ${val} HP！`);
+            deadAlly.hp = deadAlly.maxHp * 0.5;
+            broadcastBattleLog(room.roomId, `✨ ${caster.name} 使用了【${data.skillName}】，復活了 ${deadAlly.name}！`);
           } else {
-            caster.mp += data.mpCost; // 無對象退回 MP
+            caster.mp += data.mpCost;
             return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 沒有陣亡的隊友可復活！' }));
           }
-        }
-        // 治癒技能
-        else if (data.isHeal) {
-          let target = room.players.find(p => p.id === data.targetId && p.team === caster.team && !p.isDead) || caster;
+        } else if (data.isHeal) {
+          let target = room.players.find(p => p.id === data.targetId && p.team === caster.team && p.hp > 0) || caster;
           target.hp = Math.min(target.maxHp, target.hp + val);
-          broadcastBattleLog(room.roomId, `💖 ${caster.name} 對 ${target.name} 使用了【${data.skillName}】，恢復了 ${val} 生命值！`);
-        }
-        // 攻擊技能
-        else {
+          broadcastBattleLog(room.roomId, `💖 ${caster.name} 對 ${target.name} 使用【${data.skillName}】，恢復 ${val} HP！`);
+        } else {
           let targets = [];
           if (data.isAoe) {
-            targets = room.players.filter(p => p.team !== caster.team && !p.isDead);
+            targets = room.players.filter(p => p.team !== caster.team && p.hp > 0);
           } else {
-            let t = room.players.find(p => p.id === data.targetId && p.team !== caster.team && !p.isDead) ||
-                    room.players.find(p => p.team !== caster.team && !p.isDead);
+            let t = room.players.find(p => p.id === data.targetId && p.team !== caster.team && p.hp > 0) ||
+                    room.players.find(p => p.team !== caster.team && p.hp > 0);
             if (t) targets.push(t);
           }
 
           targets.forEach(target => {
             target.hp = Math.max(0, target.hp - val);
-            if (target.hp === 0) target.isDead = true;
 
-            // 吸血邏輯
             if (data.lifesteal) {
               let healAmt = Math.floor(val * data.lifesteal);
               caster.hp = Math.min(caster.maxHp, caster.hp + healAmt);
-              broadcastBattleLog(room.roomId, `⚔️ ${caster.name} 對 ${target.name} 使用了【${data.skillName}】，造成 ${val} 傷害，並吸取了 ${healAmt} HP！`);
+              broadcastBattleLog(room.roomId, `⚔️ ${caster.name} 對 ${target.name} 使用【${data.skillName}】，造成 ${val} 傷害並吸取 ${healAmt} HP！`);
             } else {
-              broadcastBattleLog(room.roomId, `⚔️ ${caster.name} 對 ${target.name} 使用了【${data.skillName}】，造成 ${val} 點傷害！`);
+              broadcastBattleLog(room.roomId, `⚔️ ${caster.name} 對 ${target.name} 使用【${data.skillName}】，造成 ${val} 傷害！`);
             }
           });
         }
@@ -472,59 +481,57 @@ wss.on('connection', (ws) => {
         broadcastRoomState(room.roomId);
       }
 
-      // --- 10. 戰鬥：使用藥水 (寫入 DB 扣除數量) ---
+      // --- 10. 使用藥水 (寫入 DB 扣除數量) ---
       else if (data.type === 'use_potion') {
         if (!ws.roomId || !ws.user) return;
         const room = rooms.get(ws.roomId);
         if (!room) return;
         const caster = room.players.find(p => p.ws === ws);
-        if (!caster || caster.isDead) return;
+        if (!caster || caster.hp <= 0) return;
 
-        const potionType = data.potionType === 'hp' ? 'hp_potion' : 'mp_potion';
+        const dbField = data.potionType === 'hp' ? 'hp_potion' : 'mp_potion';
 
         db.get(`SELECT * FROM users WHERE username = ?`, [ws.username], (err, user) => {
-          if (!user || user[potionType] <= 0) {
+          if (!user || user[dbField] <= 0) {
             return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 藥水數量不足！' }));
           }
 
-          let newCount = user[potionType] - 1;
-          db.run(`UPDATE users SET ${potionType} = ? WHERE username = ?`, [newCount, ws.username], (err) => {
+          let newCount = user[dbField] - 1;
+          db.run(`UPDATE users SET ${dbField} = ? WHERE username = ?`, [newCount, ws.username], (err) => {
             if (!err) {
-              if (data.potionType === 'hp') {
-                caster.hp = Math.min(caster.maxHp, caster.hp + 3000);
-              } else {
-                caster.mp = Math.min(caster.maxMp, caster.mp + 1500);
-              }
+              user[dbField] = newCount;
+              ws.user = user;
+
+              if (data.potionType === 'hp') caster.hp = Math.min(caster.maxHp, caster.hp + 3000);
+              else caster.mp = Math.min(caster.maxMp, caster.mp + 1500);
 
               broadcastBattleLog(room.roomId, `🧪 ${caster.name} 使用了 ${data.potionType.toUpperCase()} 藥水！`);
-              broadcastRoomState(room.roomId);
+              
+              // 更新玩家記憶體背包數據並廣播
+              caster.inventory = {
+                gold: user.gold,
+                hpPotion: user.hp_potion,
+                mpPotion: user.mp_potion,
+                expScroll: user.exp_scroll
+              };
 
-              ws.send(JSON.stringify({
-                type: 'shop_success',
-                message: `🧪 使用成功！`,
-                inventory: {
-                  gold: user.gold,
-                  hpPotion: potionType === 'hp_potion' ? newCount : user.hp_potion,
-                  mpPotion: potionType === 'mp_potion' ? newCount : user.mp_potion,
-                  expScroll: user.exp_scroll
-                }
-              }));
+              broadcastRoomState(room.roomId);
             }
           });
         });
       }
 
-      // --- 11. 離開戰鬥房間 ---
-      else if (data.type === 'leave_room') {
+      // --- 11. 返回大廳 ---
+      else if (data.type === 'go_idle') {
         if (ws.roomId) {
           rooms.delete(ws.roomId);
           ws.roomId = null;
-          ws.send(JSON.stringify({ type: 'returned_to_idle', message: '🚪 已離開戰鬥房間，回到大廳。' }));
+          ws.send(JSON.stringify({ type: 'returned_to_idle', message: '🚪 已離開房間，回到大廳。' }));
         }
       }
 
     } catch (e) {
-      console.error('訊息處理例外:', e);
+      console.error('解析例外:', e);
     }
   });
 
@@ -540,5 +547,5 @@ wss.on('connection', (ws) => {
 
 const PORT = process.env.PORT || 8080;
 server.listen(PORT, () => {
-  console.log(`🚀 原版邏輯 + 數據持久化 RPG 後端伺服器已啟動：http://localhost:${PORT}`);
+  console.log(`🚀 RPG 後端伺服器已啟動：http://localhost:${PORT}`);
 });
