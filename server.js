@@ -1134,23 +1134,6 @@ wss.on('connection', (ws) => {
         broadcastRoomState(room.id);
       }
 
-      else if (data.type === 'rematch') {
-        const room = rooms[ws.roomId];
-        if (room && room.status === 'game_over') {
-          room.status = 'waiting';
-          room.players.forEach(p => {
-            p.maxHp = getCalculatedMaxHp(p.role, p.stats ? p.stats.vit : 0);
-            p.hp = p.maxHp;
-            p.mp = (ROLE_STATS[p.role] || ROLE_STATS.berserker).mp;
-            p.maxMp = p.mp;
-            p.statusEffects = {};
-            p.cooldowns = {};
-          });
-          broadcastBattleLog(room.id, "🔄 房間已重新開局，等待房主開始遊戲！");
-          broadcastRoomState(room.id);
-        }
-      }
-
       else if (data.type === 'go_idle') {
         if (ws.roomId && rooms[ws.roomId]) {
           const room = rooms[ws.roomId];
