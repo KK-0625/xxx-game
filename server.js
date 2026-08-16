@@ -77,7 +77,7 @@ const wss = new WebSocket.Server({ server });
 const rooms = {};
 let matchQueue = [];
 let matchQueue5v5 = []; // 👥 5V5 專用匹配佇列
-let simulatedOnlineCount = 10000;
+let simulatedOnlineCount = 5501;
 
 const ROLE_STATS = {
   berserker: { hp: 16000, mp: 2000 },
@@ -89,7 +89,7 @@ const ROLE_STATS = {
 };
 
 // 🎭 逼真的對手暱稱庫（已隱藏 AI 識別字眼）
-const AI_NAMES = ["影流之主", "孤高劍士", "夜之狂刃", "星空幻影", "無雙戰神", "疾風之流", "聖光裁決", "暗夜追獵", "Mia_99", "Zoe_102", "Leo_x", "Ray_Zero", "Luna_Moon", "小狂神", "傲氣雄鷹", "夢幻神話"];
+const AI_NAMES = ["影流之主", "孤高劍士", "夜之狂刃", "星空幻影", "無雙戰神", "疾風之流", "聖光裁決","追風少年","哈雷路亞","卡比之星","全都是垃圾","若基","買幣","傻D","零度", "浅笑安然", "Mia", "Zoe", "Leo_x", "Ray_Zero", "Luna_Moon", "小狂神", "傲氣雄鷹", "夢幻神話"];
 const ALL_ROLES = ['berserker', 'mage', 'priest', 'knight', 'assassin', 'archer'];
 
 function getNextExpReq(level) {
@@ -169,7 +169,7 @@ function broadcastLobbyChat(senderName, message) {
 
 function broadcastOnlineCount() {
   const fluctuation = Math.floor(Math.random() * 44) - 12;
-  simulatedOnlineCount = Math.max(20000, Math.min(10, simulatedOnlineCount + fluctuation));
+  simulatedOnlineCount = Math.max(10, Math.min(9999, simulatedOnlineCount + fluctuation));
   const payload = JSON.stringify({
     type: 'online_count',
     onlineCount: simulatedOnlineCount + wss.clients.size
