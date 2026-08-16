@@ -169,7 +169,7 @@ function broadcastLobbyChat(senderName, message) {
 
 function broadcastOnlineCount() {
   const fluctuation = Math.floor(Math.random() * 44) - 12;
-  simulatedOnlineCount = Math.max(10, Math.min(15000, simulatedOnlineCount + fluctuation));
+  simulatedOnlineCount = Math.max(20000, Math.min(10, simulatedOnlineCount + fluctuation));
   const payload = JSON.stringify({
     type: 'online_count',
     onlineCount: simulatedOnlineCount + wss.clients.size
