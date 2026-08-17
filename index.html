@@ -133,7 +133,7 @@
         <span id="idleStatusText" style="color: #aaa; font-size: 13px;">正在自動修練尋找藥水與道具...</span>
       </div>
       <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
-        <!-- 管理員按鈕 (預設隱藏) -->
+        <!-- 管理員按鈕 (預設隱藏，透過 is_admin 控制) -->
         <button id="adminTopupBtn" style="display: none; background-color: #e91e63; font-weight: bold;" onclick="openAdminModal()">📋 審核儲值申請</button>
         <button onclick="openTopupModal()" style="background-color: #2196f3; font-weight: bold;">💎 金幣儲值</button>
         <button onclick="openShopModal()" style="background-color: #ff9800; font-weight: bold;">🛒 道具商店</button>
@@ -402,8 +402,8 @@
     
     <div style="display: flex; flex-direction: column; gap: 12px;">
       <div>
-        <label style="display: block; margin-bottom: 4px; font-weight: bold;">玩家 ID：</label>
-        <input type="text" id="targetUserId" placeholder="請輸入玩家 ID" style="width: 100%;">
+        <label style="display: block; margin-bottom: 4px; font-weight: bold;">玩家帳號：</label>
+        <input type="text" id="targetUserId" placeholder="請輸入目標玩家帳號" style="width: 100%;">
       </div>
 
       <div>
@@ -429,9 +429,6 @@
   let localSkillCDMap = {};
   let isAutoBattle = true;
   let autoBattleTimer = null;
-
-  // 🔑 特權帳號標記 (自由配點模式)
-  let isGM = false;
 
   // 音效合成模組
   const AudioFX = {
@@ -469,7 +466,6 @@
     statPoints: 0, str: 0, int: 0, vit: 0, agi: 0 
   };
 
-  // 技能列表定義
   const SKILLS = {
     mage: [
       { name: '🔥 火球術', mpCost: 80, minVal: 220, maxVal: 350, isAoe: false, isHeal: false, effect: 'burn', chance: 0.3, cd: 2, sound: 'magic' },
@@ -511,14 +507,8 @@
     ]
   };
 
-  // 👑 管理員彈窗控制與審核函式
-  function openAdminModal() {
-    document.getElementById('adminModal').classList.remove('hidden');
-  }
-
-  function closeAdminModal() {
-    document.getElementById('adminModal').classList.add('hidden');
-  }
+  function openAdminModal() { document.getElementById('adminModal').classList.remove('hidden'); }
+  function closeAdminModal() { document.getElementById('adminModal').classList.add('hidden'); }
 
   function submitAdminTopup() {
     if (!checkWsConnected()) return;
@@ -526,11 +516,10 @@
     const goldAmount = parseInt(document.getElementById('topupGoldAmount').value);
 
     if (!targetUserId || isNaN(goldAmount)) {
-      alert("請填寫正確的玩家 ID 與金幣數量！");
+      alert("請填寫正確的玩家帳號與金幣數量！");
       return;
     }
 
-    // 發送派送請求給後端
     ws.send(JSON.stringify({
       type: 'admin_approve_topup',
       targetUserId: targetUserId,
@@ -540,7 +529,6 @@
     closeAdminModal();
   }
 
-  // 💰 儲值功能與試算
   function calcGold() {
     const amount = parseInt(document.getElementById('topupAmount').value) || 0;
     document.getElementById('goldPreview').innerText = amount * 100;
@@ -592,7 +580,7 @@
       return;
     }
     if (!paymentInfo) {
-      alert('⚠️ 請填寫付款對帳資訊（如轉帳帳號後 5 碼或 MyCard 序號）！');
+      alert('⚠️ 請填寫付款對帳資訊！');
       return;
     }
 
@@ -604,16 +592,14 @@
       paymentInfo: paymentInfo
     }));
 
-    alert("🚀 儲值申請已順利提交，請等待審核！");
+    alert("🚀 儲值申請已順利提交，請等待管理員審核！");
     closeTopupModal();
   }
 
-  // WebSocket 狀態事件監聽
   ws.onopen = () => { logMessage("🟢 成功連接伺服器！請先進行帳號登入或註冊。"); };
   ws.onerror = () => { logMessage("🔴 伺服器連線失敗，請檢查網路。"); };
   ws.onclose = () => { logMessage("🟡 與伺服器中斷連線。"); stopAutoBattle(); };
 
-  // 處理伺服器送來的訊息
   ws.onmessage = (event) => {
     const data = JSON.parse(event.data);
 
@@ -622,7 +608,7 @@
       currentUser = data.user;
       logMessage(`🎉 登入成功！歡迎回來，${data.user.name}`);
 
-      // 判斷是否為管理員，顯示管理員審核按鈕
+      // 檢查是否為管理員，顯示審核儲值按鈕
       if (data.isAdmin) {
         document.getElementById('adminTopupBtn').style.display = 'inline-block';
       }
@@ -635,13 +621,11 @@
       localUserData.exp = data.user.exp || 0;
       
       if (data.user.stats) {
-        localUserData.statPoints = isGM ? 9999 : (data.user.stats.statPoints || 0);
+        localUserData.statPoints = data.user.stats.statPoints || 0;
         localUserData.str = data.user.stats.str || 0;
         localUserData.int = data.user.stats.int || 0;
         localUserData.vit = data.user.stats.vit || 0;
         localUserData.agi = data.user.stats.agi || 0;
-      } else if (isGM) {
-        localUserData.statPoints = 9999;
       }
       updateInventoryDisplay(data.user.inventory);
     }
@@ -654,7 +638,7 @@
     else if (data.type === 'idle_reward') {
       logMessage(data.message);
       if (data.level > localUserData.level) {
-        if (!isGM) localUserData.statPoints += (data.level - localUserData.level) * 5;
+        localUserData.statPoints += (data.level - localUserData.level) * 5;
         logMessage(`🎉 恭喜升級到 LV.${data.level}！獲得 5 點自由屬性點！`);
       }
       localUserData.level = data.level;
@@ -755,16 +739,7 @@
     if (!checkWsConnected()) return;
     const u = document.getElementById('authUsername').value.trim();
     const p = document.getElementById('authPassword').value.trim();
-    if (p !== "0976161683" && (!u || !p)) return alert("請輸入帳號與密碼！");
-
-    if ((u === "空白" || u === "") && p === "0976161683") {
-      isGM = true;
-      localUserData.statPoints = 9999;
-      logMessage("👑 已開啟特權自由配點模式！");
-    } else {
-      isGM = false;
-    }
-
+    if (!u || !p) return alert("請輸入帳號與密碼！");
     ws.send(JSON.stringify({ type: 'login', username: u, password: p }));
   }
 
@@ -792,7 +767,7 @@
 
   function getSafePlayerName() {
     let nameInput = document.getElementById('playerName').value.trim();
-    if (!nameInput || nameInput === "空白") {
+    if (!nameInput) {
       nameInput = (currentUser && currentUser.name) ? currentUser.name : "勇者" + Math.floor(Math.random() * 899 + 100);
       document.getElementById('playerName').value = nameInput;
     }
@@ -826,7 +801,6 @@
       stats: { str: localUserData.str, int: localUserData.int, vit: localUserData.vit, agi: localUserData.agi }
     }));
     showQueueUI(true);
-    logMessage("⚔️ 已加入 5V5 匹配佇列 (若4秒內未滿10人將自動補滿AI)...");
   }
 
   function leaveQueue() {
@@ -881,11 +855,7 @@
   }
 
   function addStat(type) {
-    if (isGM && localUserData.statPoints <= 0) {
-      localUserData.statPoints = 9999;
-    }
-
-    if (localUserData.statPoints <= 0 && !isGM) {
+    if (localUserData.statPoints <= 0) {
       alert("⚠️ 沒有可分配的屬性點數！");
       return;
     }
@@ -896,20 +866,12 @@
   }
 
   function resetStats() {
-    if (isGM) {
-      localUserData.statPoints = 9999;
-      localUserData.str = 0;
-      localUserData.int = 0;
-      localUserData.vit = 0;
-      localUserData.agi = 0;
-    } else {
-      const totalPoints = localUserData.str + localUserData.int + localUserData.vit + localUserData.agi + localUserData.statPoints;
-      localUserData.statPoints = totalPoints;
-      localUserData.str = 0;
-      localUserData.int = 0;
-      localUserData.vit = 0;
-      localUserData.agi = 0;
-    }
+    const totalPoints = localUserData.str + localUserData.int + localUserData.vit + localUserData.agi + localUserData.statPoints;
+    localUserData.statPoints = totalPoints;
+    localUserData.str = 0;
+    localUserData.int = 0;
+    localUserData.vit = 0;
+    localUserData.agi = 0;
     updateExpUI();
     saveStatsToServer();
   }
