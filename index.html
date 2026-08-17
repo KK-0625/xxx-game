@@ -87,7 +87,7 @@
     .queue-status { margin-top: 10px; padding: 8px; background: #332200; border: 1px dashed #ff9800; border-radius: 4px; color: #ffca28; }
     .target-indicator { font-size: 13px; color: #ffca28; font-weight: bold; margin-bottom: 5px; }
     .shop-modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.7); display: flex; justify-content: center; align-items: center; z-index: 1000; }
-    .shop-modal { background: #1e1e1e; border: 2px solid #ffca28; border-radius: 8px; width: 90%; max-width: 450px; padding: 20px; box-shadow: 0 5px 15px rgba(0,0,0,0.8); }
+    .shop-modal { background: #1e1e1e; border: 2px solid #ffca28; border-radius: 8px; width: 90%; max-width: 450px; padding: 20px; box-shadow: 0 5px 15px rgba(0,0,0,0.8); max-height: 90vh; overflow-y: auto; }
     .shop-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #444; padding-bottom: 10px; margin-bottom: 15px; }
     .shop-item { display: flex; justify-content: space-between; align-items: center; background: #2a2a2a; padding: 10px; margin-bottom: 10px; border-radius: 6px; }
     #skillFxContainer { position: fixed; top: 25px; right: 25px; pointer-events: none; z-index: 9999; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
@@ -133,6 +133,7 @@
         <span id="idleStatusText" style="color: #aaa; font-size: 13px;">正在自動修練尋找藥水與道具...</span>
       </div>
       <div style="display: flex; gap: 10px; align-items: center;">
+        <button onclick="openTopupModal()" style="background-color: #2196f3; font-weight: bold;">💎 金幣儲值</button>
         <button onclick="openShopModal()" style="background-color: #ff9800; font-weight: bold;">🛒 道具商店</button>
         <div class="online-badge">🟢 在線玩家：<span id="displayOnlineCount">---</span> 人</div>
       </div>
@@ -249,6 +250,7 @@
       <h3>🏰 戰鬥房間 - 房號: <span id="displayRoomId" style="color: #ff9800;">-</span></h3>
       <div style="display: flex; gap: 8px; align-items: center;">
         <button id="btnAutoBattle" class="btn-auto active" onclick="toggleAutoBattle()">🤖 自動戰鬥: ON</button>
+        <button onclick="openTopupModal()" style="background-color: #2196f3; font-weight: bold;">💎 儲值</button>
         <button onclick="openShopModal()" style="background-color: #ff9800;">🛒 商店</button>
         <button id="btnStartGame" onclick="startGame()" class="hidden">⚔️ 開始遊戲</button>
         <button onclick="leaveToIdle()" style="background-color: #d32f2f;">🚪 離開房間</button>
@@ -340,6 +342,50 @@
         <span style="color: #ffd700; font-weight: bold; margin-right: 8px;">💰 50</span>
         <button onclick="buyItem('exp_scroll', 50)">購買</button>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- 金幣儲值 Modal -->
+<div id="topupModal" class="shop-modal-overlay hidden">
+  <div class="shop-modal">
+    <div class="shop-header">
+      <h3 style="margin: 0; color: #2196f3;">💎 金幣儲值中心</h3>
+      <button onclick="closeTopupModal()" style="background-color: #d32f2f; padding: 4px 10px;">❌ 關閉</button>
+    </div>
+    
+    <div style="display: flex; flex-direction: column; gap: 12px;">
+      <div>
+        <label style="display: block; margin-bottom: 4px; font-weight: bold;">1. 選擇支付管道：</label>
+        <select id="payMethod" style="width: 100%;" onchange="togglePayInfo()">
+          <option value="jkopay">街口支付 (JkoPay)</option>
+          <option value="linepay">LINE Pay / Bank</option>
+          <option value="bank">銀行轉帳 (中國信託)</option>
+          <option value="mycard">MyCard 點數卡</option>
+        </select>
+      </div>
+
+      <div>
+        <label style="display: block; margin-bottom: 4px; font-weight: bold;">2. 輸入儲值金額 (TWD)：</label>
+        <input type="number" id="topupAmount" min="1" placeholder="請輸入金額" style="width: 100%;" oninput="calcGold()">
+        <div style="font-size: 12px; color: #ffca28; margin-top: 4px;">
+          💰 預計獲得金幣：<span id="goldPreview">0</span> 金幣
+        </div>
+      </div>
+
+      <div style="background: #2a2a2a; padding: 10px; border-radius: 6px; text-align: center;">
+        <div id="payInstruction" style="font-weight: bold; font-size: 13px; margin-bottom: 8px;">請使用街口支付掃碼：</div>
+        <img id="payQr" src="YOUR_JKOPAY_QR_URL.png" alt="QR Code" style="max-width: 150px; border-radius: 4px; margin: 0 auto; display: block;">
+      </div>
+
+      <div>
+        <label id="infoLabel" style="display: block; margin-bottom: 4px; font-weight: bold;">轉帳帳號後 5 碼 / 街口顯示名稱：</label>
+        <input type="text" id="paymentInfo" placeholder="例如：12345" style="width: 100%;">
+      </div>
+
+      <button onclick="submitTopup()" style="background-color: #2196f3; font-weight: bold; padding: 10px; font-size: 15px; margin-top: 5px;">
+        🚀 提交儲值對帳申請
+      </button>
     </div>
   </div>
 </div>
@@ -470,6 +516,65 @@
     ]
   };
 
+  // 💰 儲值功能與試算 logic
+  function calcGold() {
+    const amount = parseInt(document.getElementById('topupAmount').value) || 0;
+    document.getElementById('goldPreview').innerText = amount * 100;
+  }
+
+  function togglePayInfo() {
+    const method = document.getElementById('payMethod').value;
+    const qrImg = document.getElementById('payQr');
+    const instruction = document.getElementById('payInstruction');
+    const infoLabel = document.getElementById('infoLabel');
+    const infoInput = document.getElementById('paymentInfo');
+
+    if (method === 'jkopay') {
+      instruction.innerText = '請使用街口支付掃碼：';
+      qrImg.src = 'YOUR_JKOPAY_QR_URL.png';
+      qrImg.style.display = 'block';
+      infoLabel.innerText = '轉帳帳號後 5 碼 / 街口顯示名稱：';
+      infoInput.placeholder = '例如：12345';
+    } else if (method === 'linepay') {
+      instruction.innerText = '請使用 LINE Pay / Bank 掃碼：';
+      qrImg.src = 'YOUR_LINEPAY_QR_URL.png';
+      qrImg.style.display = 'block';
+      infoLabel.innerText = '轉帳帳號後 5 碼：';
+      infoInput.placeholder = '例如：67890';
+    } else if (method === 'bank') {
+      instruction.innerText = '銀行代碼：822 (中國信託) \n帳號：123456789012';
+      qrImg.style.display = 'none';
+      infoLabel.innerText = '轉帳帳號後 5 碼：';
+      infoInput.placeholder = '例如：98765';
+    } else if (method === 'mycard') {
+      instruction.innerText = '請填寫您購買的 MyCard 點數卡卡號與密碼：';
+      qrImg.style.display = 'none';
+      infoLabel.innerText = 'MyCard 卡號與密碼：';
+      infoInput.placeholder = '格式：卡號 / 密碼';
+    }
+  }
+
+  function openTopupModal() { document.getElementById('topupModal').classList.remove('hidden'); }
+  function closeTopupModal() { document.getElementById('topupModal').classList.add('hidden'); }
+
+  function submitTopup() {
+    if (!checkWsConnected()) return;
+    const method = document.getElementById('payMethod').value;
+    const amount = parseInt(document.getElementById('topupAmount').value);
+    const paymentInfo = document.getElementById('paymentInfo').value.trim();
+
+    if (!amount || amount <= 0) return alert('請輸入正確金額！');
+    if (!paymentInfo) return alert('請填寫付款比對資訊（帳號後 5 碼或 MyCard 序號）！');
+
+    ws.send(JSON.stringify({
+      type: 'submit_topup',
+      paymentMethod: method,
+      amount: amount,
+      goldToAdd: amount * 100,
+      paymentInfo: paymentInfo
+    }));
+  }
+
   // WebSocket 狀態事件監聽
   ws.onopen = () => { logMessage("🟢 成功連接伺服器！請先進行帳號登入或註冊。"); };
   ws.onerror = () => { logMessage("🔴 伺服器連線失敗，請檢查網路。"); };
@@ -520,6 +625,16 @@
     else if (data.type === 'shop_success') {
       logMessage(data.message);
       updateInventoryDisplay(data.inventory);
+    }
+    else if (data.type === 'topup_response') {
+      alert(data.message);
+      if (data.success) closeTopupModal();
+    }
+    else if (data.type === 'gold_received') {
+      alert(data.message);
+      if (data.inventory) {
+        updateInventoryDisplay(data.inventory);
+      }
     }
     else if (data.type === 'queue_joined') {
       logMessage("🎲 成功進入匹配隊列...");
