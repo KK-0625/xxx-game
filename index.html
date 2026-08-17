@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>多人線上 RPG 戰鬥房間 - 完整儲值與審核後台版</title>
+  <title>多人線上 RPG 戰鬥房間 - 屬性加點完整版</title>
   <style>
     * { box-sizing: border-box; font-family: "Segoe UI", Microsoft JhengHei, sans-serif; }
     
@@ -133,20 +133,14 @@
         <span id="idleStatusText" style="color: #aaa; font-size: 13px;">正在自動修練尋找藥水與道具...</span>
       </div>
       <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+        <!-- 管理員按鈕 -->
+        <button id="adminTopupBtn" style="display: none; background-color: #e91e63; font-weight: bold;" onclick="openAdminModal()">📋 審核儲值申請</button>
         <button onclick="openTopupModal()" style="background-color: #2196f3; font-weight: bold;">💎 金幣儲值</button>
         <button onclick="openShopModal()" style="background-color: #ff9800; font-weight: bold;">🛒 道具商店</button>
         <div class="online-badge">🟢 在線玩家：<span id="displayOnlineCount">---</span> 人</div>
       </div>
     </div>
     
-    <!-- 👑 管理員審核後台面板 (僅管理員登入後透過後端廣播開啟) -->
-    <div id="adminTopupPanel" style="display:none; border: 2px solid red; padding: 10px; margin-bottom: 15px; border-radius: 6px; background: #221111;">
-      <h3 style="color: #ff5252; margin-top: 0;">👑 管理員專區：待審核儲值佇列</h3>
-      <div id="pendingTopupsList">
-        <p>目前沒有待審核的儲值申請。</p>
-      </div>
-    </div>
-
     <div class="lobby-content">
       <!-- 戰鬥選擇面板 -->
       <div class="lobby-box card">
@@ -354,7 +348,7 @@
   </div>
 </div>
 
-<!-- 金幣儲值 Modal -->
+<!-- 金幣儲值 Modal (已整合自訂金額與付款備註) -->
 <div id="topupModal" class="shop-modal-overlay hidden">
   <div class="shop-modal">
     <div class="shop-header">
@@ -394,6 +388,34 @@
       <button type="button" onclick="submitTopupRequest()" style="background-color: #2196f3; font-weight: bold; padding: 10px; font-size: 15px; margin-top: 5px;">
         🚀 送出審核申請
       </button>
+    </div>
+  </div>
+</div>
+
+<!-- 管理員儲值申請審核 Modal -->
+<div id="adminModal" class="shop-modal-overlay hidden">
+  <div class="shop-modal" style="border-color: #e91e63;">
+    <div class="shop-header">
+      <h3 style="margin: 0; color: #e91e63;">📋 審核儲值申請與派送金幣</h3>
+      <button onclick="closeAdminModal()" style="background-color: #d32f2f; padding: 4px 10px;">❌ 關閉</button>
+    </div>
+    
+    <div style="display: flex; flex-direction: column; gap: 12px;">
+      <div>
+        <label style="display: block; margin-bottom: 4px; font-weight: bold;">玩家帳號：</label>
+        <input type="text" id="targetUserId" placeholder="請輸入目標玩家帳號" style="width: 100%;">
+      </div>
+
+      <div>
+        <label style="display: block; margin-bottom: 4px; font-weight: bold;">派送金幣數量：</label>
+        <input type="number" id="topupGoldAmount" placeholder="請輸入數量" style="width: 100%;">
+      </div>
+
+      <div style="display: flex; gap: 10px; margin-top: 10px;">
+        <button onclick="submitAdminTopup()" style="flex: 1; background-color: #e91e63; font-weight: bold; padding: 10px;">確認派送</button>
+        <button onclick="submitAdminRejectTopup()" style="flex: 1; background-color: #d32f2f; font-weight: bold; padding: 10px;">拒絕申請</button>
+        <button onclick="closeAdminModal()" style="background-color: #555; padding: 10px;">取消</button>
+      </div>
     </div>
   </div>
 </div>
@@ -486,6 +508,49 @@
     ]
   };
 
+  function openAdminModal() { document.getElementById('adminModal').classList.remove('hidden'); }
+  function closeAdminModal() { document.getElementById('adminModal').classList.add('hidden'); }
+
+  function submitAdminTopup() {
+    if (!checkWsConnected()) return;
+    const targetUserId = document.getElementById('targetUserId').value.trim();
+    const goldAmount = parseInt(document.getElementById('topupGoldAmount').value);
+
+    if (!targetUserId || isNaN(goldAmount)) {
+      alert("請填寫正確的玩家帳號與金幣數量！");
+      return;
+    }
+
+    ws.send(JSON.stringify({
+      type: 'admin_approve_topup',
+      targetUserId: targetUserId,
+      goldAmount: goldAmount
+    }));
+
+    closeAdminModal();
+  }
+
+  function submitAdminRejectTopup() {
+    if (!checkWsConnected()) return;
+    const targetUserId = document.getElementById('targetUserId').value.trim();
+
+    if (!targetUserId) {
+      alert("請填寫要拒絕的玩家帳號！");
+      return;
+    }
+
+    if (!confirm(`確定要拒絕玩家 [${targetUserId}] 的儲值申請嗎？`)) {
+      return;
+    }
+
+    ws.send(JSON.stringify({
+      type: 'admin_reject_topup',
+      targetUserId: targetUserId
+    }));
+
+    closeAdminModal();
+  }
+
   function calcGold() {
     const amount = parseInt(document.getElementById('topupAmount').value) || 0;
     document.getElementById('goldPreview').innerText = amount * 100;
@@ -553,16 +618,6 @@
     closeTopupModal();
   }
 
-  // 2. 管理員點擊「核准」按鈕時觸發
-  function approveTopup(requestId) {
-    if (!confirm('確定要核准這筆儲值申請並自動派發金幣給玩家嗎？')) return;
-
-    ws.send(JSON.stringify({
-      type: 'admin_approve_topup_request',
-      requestId: requestId
-    }));
-  }
-
   ws.onopen = () => { logMessage("🟢 成功連接伺服器！請先進行帳號登入或註冊。"); };
   ws.onerror = () => { logMessage("🔴 伺服器連線失敗，請檢查網路。"); };
   ws.onclose = () => { logMessage("🟡 與伺服器中斷連線。"); stopAutoBattle(); };
@@ -574,6 +629,10 @@
     else if (data.type === 'login_success') {
       currentUser = data.user;
       logMessage(`🎉 登入成功！歡迎回來，${data.user.name}`);
+
+      if (data.isAdmin) {
+        document.getElementById('adminTopupBtn').style.display = 'inline-block';
+      }
 
       document.getElementById('authSection').classList.add('hidden');
       document.getElementById('lobbySection').classList.remove('hidden');
@@ -596,44 +655,6 @@
     }
     else if (data.type === 'lobby_chat') {
       appendLobbyChat(data.sender, data.message, data.time);
-    }
-    // 1. 接收後端廣播的「待審核清單」
-    else if (data.type === 'update_pending_topups') {
-      const listContainer = document.getElementById('pendingTopupsList');
-      const adminPanel = document.getElementById('adminTopupPanel');
-      
-      // 確保管理員看得到這個面板
-      adminPanel.style.display = 'block';
-      
-      if (!data.list || data.list.length === 0) {
-        listContainer.innerHTML = '<p>目前沒有待審核的儲值申請。</p>';
-        return;
-      }
-
-      let html = '<div style="overflow-x: auto;"><table border="1" width="100%" style="text-align: center; border-collapse: collapse; border-color: #444; font-size: 13px;">';
-      html += '<tr style="background: #331111;"><th>時間</th><th>玩家暱稱</th><th>帳號</th><th>金額</th><th>備註</th><th>操作</th></tr>';
-      
-      data.list.forEach(item => {
-        html += `
-          <tr>
-            <td style="padding: 6px;">${item.time}</td>
-            <td style="padding: 6px;"><b>${item.playerName}</b></td>
-            <td style="padding: 6px;">${item.username}</td>
-            <td style="padding: 6px; color: gold;">${item.amount} TWD</td>
-            <td style="padding: 6px;">${item.paymentInfo}</td>
-            <td style="padding: 6px;">
-              <button onclick="approveTopup('${item.requestId}')" style="background-color: green; color: white; padding: 4px 8px; font-size: 12px;">核准並派發</button>
-            </td>
-          </tr>
-        `;
-      });
-      html += '</table></div>';
-      
-      listContainer.innerHTML = html;
-    }
-    // 3. 處理管理員操作成功的回饋
-    else if (data.type === 'admin_action_success') {
-      alert(data.message);
     }
     else if (data.type === 'idle_reward') {
       logMessage(data.message);
