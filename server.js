@@ -1,1709 +1,1311 @@
-const http = require('http');
-const WebSocket = require('ws');
-const { Pool } = require('pg');
-const bcrypt = require('bcryptjs');
-
-const PORT = process.env.PORT || 8080;
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false
-});
-
-// 🏆 段位計算邏輯
-function getRankInfo(points) {
-  const pts = points || 0;
-  if (pts >= 3500) return { name: '璀璨之星', icon: '👑', color: '#ff1744' };
-  if (pts >= 2700) return { name: '戰場傳說', icon: '⚔️', color: '#ff9100' };
-  if (pts >= 2000) return { name: '星耀', icon: '🌟', color: '#e040fb' };
-  if (pts >= 1400) return { name: '鑽石', icon: '💎', color: '#00e5ff' };
-  if (pts >= 900)  return { name: '鉑金', icon: '🔷', color: '#00e676' };
-  if (pts >= 500)  return { name: '黃金', icon: '🥇', color: '#ffd600' };
-  if (pts >= 200)  return { name: '白銀', icon: '🥈', color: '#cfd8dc' };
-  return { name: '青銅', icon: '🥉', color: '#a1887f' };
-}
-
-// 🗄️ 初始化資料庫
-async function initDB() {
-  try {
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS users (
-        id SERIAL PRIMARY KEY,
-        username VARCHAR(50) UNIQUE NOT NULL,
-        password_hash VARCHAR(255) NOT NULL,
-        name TEXT,
-        role VARCHAR(20) DEFAULT 'berserker',
-        hp_potion INT DEFAULT 5,
-        mp_potion INT DEFAULT 5,
-        exp_scroll INT DEFAULT 1,
-        gold INT DEFAULT 0,
-        level INT DEFAULT 1,
-        exp INT DEFAULT 0,
-        rank_points INT DEFAULT 0,
-        stat_points INT DEFAULT 0,
-        str INT DEFAULT 0,
-        int_stat INT DEFAULT 0,
-        vit INT DEFAULT 0,
-        agi INT DEFAULT 0,
-        is_admin BOOLEAN DEFAULT FALSE,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      );
-    `);
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>多人線上 RPG 戰鬥房間 - 完整儲值與審核後台版</title>
+  <style>
+    * { box-sizing: border-box; font-family: "Segoe UI", Microsoft JhengHei, sans-serif; }
     
-    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS name TEXT;`);
-    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS rank_points INT DEFAULT 0;`);
-    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS gold INT DEFAULT 0;`);
-    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS level INT DEFAULT 1;`);
-    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS exp INT DEFAULT 0;`);
-    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS stat_points INT DEFAULT 0;`);
-    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS str INT DEFAULT 0;`);
-    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS int_stat INT DEFAULT 0;`);
-    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS vit INT DEFAULT 0;`);
-    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS agi INT DEFAULT 0;`);
-    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE;`);
+    body { 
+      background-color: #121212; 
+      color: #e0e0e0; 
+      margin: 0; 
+      padding: 20px; 
+      display: flex; 
+      justify-content: center; 
+      overflow-x: hidden;
+      -webkit-user-select: none;
+      user-select: none;
+    }
 
-    // 👑 自動將「空白」帳號設為管理員
-    await pool.query("UPDATE users SET is_admin = TRUE WHERE username = '空白'");
+    input, select, textarea { user-select: text; }
+    img { pointer-events: none; }
 
-    console.log("🟢 資料庫連線並初始化成功！");
-  } catch (err) {
-    console.error("🔴 資料庫初始化失敗：", err);
-  }
-}
-initDB();
-
-const server = http.createServer((req, res) => {
-  // 支援透過 HTTP 接收拒絕儲值請求
-  const matchReject = req.url.match(/^\/api\/topup\/(.+)\/reject$/);
-  if (req.method === 'POST' && matchReject) {
-    const applicationId = matchReject[1];
-    const index = pendingTopups.findIndex(item => item.requestId === applicationId || item.userId == applicationId);
+    .container { width: 100%; max-width: 960px; display: flex; flex-direction: column; gap: 15px; position: relative; }
+    .card { background-color: #1e1e1e; border: 1px solid #333; border-radius: 8px; padding: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
+    h2, h3, h4 { margin-top: 0; color: #4caf50; }
+    button { background-color: #388e3c; color: white; border: none; padding: 8px 16px; font-size: 14px; border-radius: 4px; cursor: pointer; transition: 0.2s; position: relative; overflow: hidden; }
+    button:hover { background-color: #4caf50; }
+    button:disabled { background-color: #444; color: #888; cursor: not-allowed; }
+    input, select { background: #2a2a2a; color: #fff; border: 1px solid #444; padding: 8px; border-radius: 4px; font-size: 14px; }
+    .hidden { display: none !important; }
+    .lobby-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; padding-bottom: 10px; margin-bottom: 10px; }
+    .online-badge { background: #2a3a2a; color: #66bb6a; border: 1px solid #4caf50; padding: 4px 12px; border-radius: 20px; font-weight: bold; font-size: 13px; }
+    .lobby-panel { display: flex; flex-direction: column; gap: 15px; }
+    .lobby-content { display: flex; gap: 15px; flex-wrap: wrap; }
+    .lobby-box { flex: 1; min-width: 280px; }
+    .chat-box { height: 160px; overflow-y: auto; background-color: #141414; border: 1px solid #333; border-radius: 4px; padding: 8px; font-size: 13px; display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+    .chat-msg { word-break: break-all; }
+    .chat-time { color: #666; font-size: 11px; margin-right: 5px; }
+    .chat-sender { color: #ffca28; font-weight: bold; margin-right: 5px; }
+    .inventory-list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+    .inventory-item { background: #2a2a2a; padding: 8px 12px; border-radius: 4px; display: flex; justify-content: space-between; align-items: center; border-left: 4px solid #ff9800; }
     
-    if (index !== -1) {
-      pendingTopups.splice(index, 1);
-      broadcastPendingTopups();
-      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify({ success: true, message: '已成功拒絕並移除該筆申請' }));
-    } else {
-      res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify({ success: false, message: '找不到該筆儲值申請' }));
-    }
-    return;
-  }
+    .stat-box { background: #252525; border-radius: 6px; padding: 10px; margin-top: 8px; border: 1px solid #444; }
+    .stat-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; font-size: 13px; }
+    .stat-btn { padding: 2px 8px; font-size: 12px; background: #008cba; border-radius: 3px; font-weight: bold; }
 
-  if (req.url === '/ping' || req.url === '/') {
-    res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-    res.end('Pong! RPG 遊戲伺服器運行中 🚀');
-  } else {
-    res.writeHead(404);
-    res.end();
-  }
-});
+    .rank-tag { font-size: 12px; padding: 2px 6px; border-radius: 4px; font-weight: bold; margin-left: 6px; }
+    .exp-container { background: #333; height: 16px; border-radius: 8px; overflow: hidden; position: relative; margin-top: 4px; border: 1px solid #555; }
+    .exp-bar { background: linear-gradient(90deg, #9c27b0, #ba68c8); height: 100%; width: 0%; transition: width 0.3s; }
+    .exp-text { position: absolute; top: 0; left: 0; width: 100%; height: 100%; font-size: 10px; text-align: center; line-height: 16px; color: #fff; text-shadow: 1px 1px 2px #000; font-weight: bold; }
+    .teams-container { display: flex; gap: 15px; margin-top: 10px; }
+    .team-box { flex: 1; background: #252525; padding: 10px; border-radius: 6px; max-height: 450px; overflow-y: auto; }
+    .team-box.team-a { border-top: 4px solid #2196f3; }
+    .team-box.team-b { border-top: 4px solid #f44336; }
+    .team-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+    .player-card { background: #333; border-radius: 6px; padding: 10px; margin-bottom: 10px; position: relative; border: 2px solid transparent; transition: 0.2s; }
+    .player-card.selected { border-color: #ffca28; background: #3d3b2a; }
+    .player-card.dead { opacity: 0.5; filter: grayscale(1); }
+    .player-header { display: flex; justify-content: space-between; font-weight: bold; margin-bottom: 6px; }
+    .status-tags { font-size: 11px; margin-top: 4px; display: flex; gap: 4px; flex-wrap: wrap; }
+    .status-badge { padding: 2px 5px; border-radius: 3px; font-weight: bold; color: #fff; }
+    .badge-burn { background-color: #ff5722; }
+    .badge-paralyze { background-color: #ffeb3b; color: #000; }
+    .badge-poison { background-color: #9c27b0; }
+    .badge-blind { background-color: #607d8b; }
+    .bar-container { background: #555; height: 14px; border-radius: 7px; overflow: hidden; margin-bottom: 4px; position: relative; }
+    .hp-bar { background: linear-gradient(90deg, #e53935, #ef5350); height: 100%; width: 100%; transition: width 0.3s; }
+    .mp-bar { background: linear-gradient(90deg, #1e88e5, #42a5f5); height: 100%; width: 100%; transition: width 0.3s; }
+    .bar-text { position: absolute; top: 0; left: 0; width: 100%; height: 100%; font-size: 10px; text-align: center; line-height: 14px; text-shadow: 1px 1px 2px #000; }
+    .action-panel { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+    .skill-btns, .item-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+    .btn-ult { background: linear-gradient(135deg, #d32f2f, #7b1fa2); font-weight: bold; border: 1px solid #ff4081; }
+    .btn-ult:hover { background: linear-gradient(135deg, #f44336, #9c27b0); }
+    .btn-kill { background: linear-gradient(135deg, #4a148c, #880e4f); font-weight: bold; border: 1px solid #e91e63; }
+    .btn-kill:hover { background: linear-gradient(135deg, #6a1b9a, #ad1457); }
+    .btn-storm { background: linear-gradient(135deg, #0288d1, #00796b); font-weight: bold; border: 1px solid #00bcd4; }
+    .btn-storm:hover { background: linear-gradient(135deg, #03a9f4, #009688); }
+    .btn-potion { background-color: #0288d1; }
+    .btn-potion:hover { background-color: #03a9f4; }
+    
+    .btn-auto { background: linear-gradient(135deg, #ff9800, #e65100); font-weight: bold; padding: 6px 14px; border-radius: 20px; border: 1px solid #ffe082; }
+    .btn-auto.active { background: linear-gradient(135deg, #00e676, #00812e); box-shadow: 0 0 10px #00e676; }
 
-const wss = new WebSocket.Server({ server });
-const rooms = {};
-let matchQueue = [];
-let matchQueue5v5 = [];
-let simulatedOnlineCount = 5501;
+    #battleLog { height: 180px; overflow-y: auto; background-color: #000; color: #00ff66; padding: 10px; font-family: monospace; font-size: 13px; border-radius: 4px; }
+    .queue-status { margin-top: 10px; padding: 8px; background: #332200; border: 1px dashed #ff9800; border-radius: 4px; color: #ffca28; }
+    .target-indicator { font-size: 13px; color: #ffca28; font-weight: bold; margin-bottom: 5px; }
+    .shop-modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.7); display: flex; justify-content: center; align-items: center; z-index: 1000; }
+    .shop-modal { background: #1e1e1e; border: 2px solid #ffca28; border-radius: 8px; width: 90%; max-width: 450px; padding: 20px; box-shadow: 0 5px 15px rgba(0,0,0,0.8); max-height: 90vh; overflow-y: auto; }
+    .shop-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #444; padding-bottom: 10px; margin-bottom: 15px; }
+    .shop-item { display: flex; justify-content: space-between; align-items: center; background: #2a2a2a; padding: 10px; margin-bottom: 10px; border-radius: 6px; }
+    #skillFxContainer { position: fixed; top: 25px; right: 25px; pointer-events: none; z-index: 9999; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
+    .skill-toast-anim { font-size: 20px; font-weight: bold; color: #fff; background: rgba(20, 20, 20, 0.85); border: 2px solid #ffca28; padding: 8px 16px; border-radius: 20px; box-shadow: 0 0 15px rgba(255, 202, 40, 0.4); animation: floatInRight 1.2s ease-out forwards; }
+    @keyframes floatInRight { 0% { opacity: 0; transform: translateX(50px) scale(0.8); } 20% { opacity: 1; transform: translateX(0) scale(1.05); } 80% { opacity: 1; transform: translateX(0) scale(1); } 100% { opacity: 0; transform: translateY(-30px) scale(0.9); } }
+    @keyframes shake { 0% { transform: translate(1px, 1px); } 20% { transform: translate(-2px, 1px); } 40% { transform: translate(2px, -1px); } 60% { transform: translate(-2px, 1px); } 80% { transform: translate(1px, -1px); } 100% { transform: translate(0px, 0px); } }
+    .shake-effect { animation: shake 0.25s ease-in-out; }
+    @keyframes damage-flash { 0% { background-color: rgba(255, 0, 0, 0.7); box-shadow: 0 0 15px #ff0000; } 100% { background-color: #333; box-shadow: none; } }
+    .flash-red { animation: damage-flash 0.4s ease-out; }
+    @keyframes heal-flash { 0% { background-color: rgba(0, 255, 0, 0.7); box-shadow: 0 0 15px #00ff00; } 100% { background-color: #333; box-shadow: none; } }
+    .flash-green { animation: heal-flash 0.4s ease-out; }
+    .floating-number { position: absolute; font-weight: 900; font-size: 22px; pointer-events: none; animation: floatUp 0.8s ease-out forwards; z-index: 999; text-shadow: 2px 2px 4px #000; }
+    @keyframes floatUp { 0% { opacity: 1; transform: translateY(0) scale(1.2); } 50% { transform: translateY(-25px) scale(1.4); } 100% { opacity: 0; transform: translateY(-50px) scale(1); } }
+    .damage-num { color: #ff3333; }
+    .heal-num { color: #33ff33; }
+  </style>
+</head>
+<body>
 
-// 暫存待審核的儲值申請佇列
-let pendingTopups = [];
+<div id="skillFxContainer"></div>
 
-const ROLE_STATS = {
-  berserker: { hp: 16000, mp: 2000 },
-  mage:      { hp: 9000,  mp: 5000 },
-  priest:    { hp: 10000, mp: 4500 },
-  knight:    { hp: 20000, mp: 1800 },
-  assassin:  { hp: 11000, mp: 3000 },
-  archer:    { hp: 10500, mp: 3200 }
-};
+<div id="mainContainer" class="container">
+  <h2>⚔️ 線上 RPG 戰鬥與匹配系統</h2>
 
-const AI_NAMES = ["影流之主", "孤高劍士", "夜之狂刃", "星空幻影", "無雙戰神", "疾風之流", "聖光裁決","追風少年","哈雷路亞","卡比之星","全都是垃圾","若基","買幣","傻D","零度", "浅笑安然", "Mia", "Zoe", "Leo_x", "Ray_Zero", "Luna_Moon", "小狂神", "傲氣雄鷹", "夢幻神話"];
-const ALL_ROLES = ['berserker', 'mage', 'priest', 'knight', 'assassin', 'archer'];
+  <!-- 帳號登入/註冊區塊 -->
+  <div id="authSection" class="card">
+    <h3>🔐 帳號登入 / 註冊</h3>
+    <div style="display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap;">
+      <input type="text" id="authUsername" placeholder="帳號名稱">
+      <input type="password" id="authPassword" placeholder="密碼">
+    </div>
+    <div style="display: flex; gap: 10px;">
+      <button onclick="login()">🔑 帳號登入</button>
+      <button onclick="register()" style="background-color: #008cba;">📝 註冊新帳號</button>
+    </div>
+  </div>
 
-function getNextExpReq(level) {
-  return Math.floor(100 * Math.pow(level, 1.5));
-}
+  <!-- 大廳區塊 -->
+  <div id="lobbySection" class="card lobby-panel hidden">
+    <div class="lobby-header">
+      <div>
+        <h3 style="margin:0;">🧘‍♂️ 大廳 (修練中...)</h3>
+        <span id="idleStatusText" style="color: #aaa; font-size: 13px;">正在自動修練尋找藥水與道具...</span>
+      </div>
+      <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+        <button onclick="openTopupModal()" style="background-color: #2196f3; font-weight: bold;">💎 金幣儲值</button>
+        <button onclick="openShopModal()" style="background-color: #ff9800; font-weight: bold;">🛒 道具商店</button>
+        <div class="online-badge">🟢 在線玩家：<span id="displayOnlineCount">---</span> 人</div>
+      </div>
+    </div>
+    
+    <!-- 👑 管理員審核後台面板 -->
+    <div id="adminTopupPanel" style="display:none; border: 2px solid red; padding: 10px; margin-bottom: 15px; border-radius: 6px; background: #221111;">
+      <h3 style="color: #ff5252; margin-top: 0;">👑 管理員專區：待審核儲值佇列</h3>
+      <div id="pendingTopupsList">
+        <p>目前沒有待審核的儲值申請。</p>
+      </div>
+    </div>
 
-function getCalculatedMaxHp(role, vit) {
-  const baseHp = (ROLE_STATS[role] || ROLE_STATS.berserker).hp;
-  return baseHp + ((vit || 0) * 150);
-}
+    <div class="lobby-content">
+      <!-- 戰鬥選擇面板 -->
+      <div class="lobby-box card">
+        <h4>🎮 戰鬥選擇</h4>
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <label>玩家暱稱：<input type="text" id="playerName" value="勇者"></label>
+          <label>選擇職業：
+            <select id="playerRole">
+              <option value="berserker" selected>🩸 狂戰士 (16000 HP - 攻擊吸血)</option>
+              <option value="mage">🔮 法師 (9000 HP - 灼燒/麻痺)</option>
+              <option value="priest">💚 牧師 (10000 HP - 專屬復活)</option>
+              <option value="knight">🏰 騎士 (20000 HP - 5% 荊棘反傷)</option>
+              <option value="assassin">🗡️ 刺客 (11000 HP - 中毒降療 / 10% 秒殺)</option>
+              <option value="archer">🏹 弓箭手 (10500 HP - 致盲MISS / 暴風箭雨)</option>
+            </select>
+          </label>
+          
+          <div style="margin-top: 10px; display: flex; flex-direction: column; gap: 8px;">
+            <button id="btnJoinQueue" onclick="joinQueue()" style="background-color: #ff9800; font-weight: bold; font-size: 15px;">🎲 單人隨機匹配 (1v1)</button>
+            <button id="btnJoinQueue5v5" onclick="joinQueue5v5()" style="background-color: #e91e63; font-weight: bold; font-size: 15px;">⚔️ 5V5 團戰快速匹配 </button>
+            <button id="btnLeaveQueue" onclick="leaveQueue()" class="hidden" style="background-color: #d32f2f;">❌ 取消匹配</button>
+            <div id="queueStatus" class="queue-status hidden">⏳ 正在尋找對手與匹配中...</div>
+            <hr style="border-color: #333; width: 100%;">
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <input type="text" id="joinRoomId" placeholder="房號 (留空則建立新房)" style="flex: 1;">
+              <button onclick="handleCustomRoom()" style="background-color: #2196f3; font-weight: bold;">🏠 自訂房間 (建立/加入)</button>
+            </div>
+          </div>
+        </div>
+      </div>
 
-function applyDefenseReduction(rawDamage, targetVit) {
-  const defense = (targetVit || 0) * 5;
-  const damageMultiplier = 100 / (100 + defense);
-  return Math.max(1, Math.floor(rawDamage * damageMultiplier));
-}
+      <!-- 世界聊天室與個人屬性加點 -->
+      <div class="lobby-box card" style="display: flex; flex-direction: column; gap: 10px;">
+        <h4>💬 大廳公眾聊天室</h4>
+        <div id="lobbyChatBox" class="chat-box">
+          <div style="color: #888; font-style: italic;">歡迎來到世界頻道，隨意跟大家交流吧！</div>
+        </div>
+        <div style="display: flex; gap: 6px;">
+          <input type="text" id="lobbyChatInput" placeholder="輸入聊天內容..." style="flex: 1;" onkeydown="if(event.key==='Enter') sendLobbyChat()">
+          <button onclick="sendLobbyChat()" style="background-color: #008cba;">發送</button>
+        </div>
 
-function broadcastRoomState(roomId) {
-  const room = rooms[roomId];
-  if (!room) return;
+        <h4 style="margin-top: 10px;">🎒 個人資訊與能力值加點</h4>
+        <div class="inventory-list">
+          <div class="inventory-item" style="border-left-color: #ab47bc; flex-direction: column; align-items: stretch; gap: 4px;">
+            <div style="display: flex; justify-content: space-between;">
+              <span>⭐ 等級：<strong id="lobbyLevel" style="color: #ba68c8;">LV.1</strong></span>
+              <span style="font-size: 12px; color: #ccc;">EXP: <span id="lobbyExpText">0 / 100</span></span>
+            </div>
+            <div class="exp-container">
+              <div id="lobbyExpBar" class="exp-bar"></div>
+              <div id="lobbyExpPercentText" class="exp-text">0%</div>
+            </div>
+          </div>
 
-  const statePayload = JSON.stringify({
-    type: 'room_state',
-    roomId: roomId,
-    status: room.status,
-    players: room.players.map(p => ({
-      id: p.id,
-      name: p.name,
-      role: p.role,
-      team: p.team,
-      hp: p.hp,
-      maxHp: p.maxHp,
-      mp: p.mp,
-      maxMp: p.maxMp,
-      level: p.level || 1,
-      stats: p.stats || { statPoints: 0, str: 0, int: 0, vit: 0, agi: 0 },
-      inventory: p.inventory,
-      statusEffects: p.statusEffects || {},
-      cooldowns: p.cooldowns || {},
-      rankPoints: p.rankPoints || 0,
-      rankInfo: getRankInfo(p.rankPoints || 0)
-    }))
-  });
+          <div class="stat-box">
+            <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+              <span style="font-weight:bold; color:#ffca28;">✨ 可分配點數：<span id="statPoints">0</span></span>
+              <button onclick="resetStats()" style="font-size:11px; padding:2px 6px; background:#d32f2f;">重置點數</button>
+            </div>
+            <div class="stat-row">
+              <span>⚔️ 力量 (物理傷害 +12/點): <strong id="statStr">0</strong></span>
+              <button class="stat-btn" onclick="addStat('str')">+1</button>
+            </div>
+            <div class="stat-row">
+              <span>🔮 智力 (法術/治療 +15/點): <strong id="statInt">0</strong></span>
+              <button class="stat-btn" onclick="addStat('int')">+1</button>
+            </div>
+            <div class="stat-row">
+              <span>🛡️ 體質 (血量 +150, 防禦 +5/點): <strong id="statVit">0</strong></span>
+              <button class="stat-btn" onclick="addStat('vit')">+1</button>
+            </div>
+            <div class="stat-row">
+              <span>🎯 敏捷 (暴擊 +1%, 迴避 +0.8%/點): <strong id="statAgi">0</strong></span>
+              <button class="stat-btn" onclick="addStat('agi')">+1</button>
+            </div>
+            <div style="font-size: 11px; color: #888; border-top: 1px dashed #444; padding-top: 4px; margin-top: 4px;">
+              💡 總效果: 物理攻+<span id="calcAtk">0</span> | 法攻+<span id="calcMatk">0</span> | 血量+<span id="calcHp">0</span> | 暴擊<span id="calcCrit">0</span>% | 迴避<span id="calcDodge">0</span>%
+            </div>
+          </div>
 
-  room.players.forEach(p => {
-    if (p.ws && p.ws.readyState === WebSocket.OPEN) {
-      p.ws.send(statePayload);
-    }
-  });
-}
+          <div class="inventory-item" style="border-left-color: #ffd700;">
+            <span>💰 持有金幣</span>
+            <strong id="lobbyGold" style="color: #ffd700;">0</strong>
+          </div>
+          <div class="inventory-item">
+            <span>🧪 HP 藥水</span>
+            <strong id="lobbyHpPotion">0</strong>
+          </div>
+          <div class="inventory-item">
+            <span>🧪 MP 藥水</span>
+            <strong id="lobbyMpPotion">0</strong>
+          </div>
+          <div class="inventory-item">
+            <span>📜 經驗卷軸</span>
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <strong id="lobbyExpScroll">0</strong>
+              <button onclick="useExpScroll()" style="font-size: 11px; padding: 2px 8px; background: #ab47bc;">使用 (+150 EXP)</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 
-function broadcastBattleLog(roomId, message) {
-  const room = rooms[roomId];
-  if (!room) return;
-  const payload = JSON.stringify({ type: 'battle_log', message });
-  room.players.forEach(p => {
-    if (p.ws && p.ws.readyState === WebSocket.OPEN) {
-      p.ws.send(payload);
-    }
-  });
-}
+  <!-- 房間與戰鬥區塊 -->
+  <div id="roomSection" class="card hidden">
+    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+      <h3>🏰 戰鬥房間 - 房號: <span id="displayRoomId" style="color: #ff9800;">-</span></h3>
+      <div style="display: flex; gap: 8px; align-items: center;">
+        <button id="btnAutoBattle" class="btn-auto active" onclick="toggleAutoBattle()">🤖 自動戰鬥: ON</button>
+        <button onclick="openTopupModal()" style="background-color: #2196f3; font-weight: bold;">💎 儲值</button>
+        <button onclick="openShopModal()" style="background-color: #ff9800;">🛒 商店</button>
+        <button id="btnStartGame" onclick="startGame()" class="hidden">⚔️ 開始遊戲</button>
+        <button onclick="leaveToIdle()" style="background-color: #d32f2f;">🚪 離開房間</button>
+      </div>
+    </div>
 
-function broadcastLobbyChat(senderName, message) {
-  const payload = JSON.stringify({
-    type: 'lobby_chat',
-    sender: senderName,
-    message: message,
-    time: new Date().toLocaleTimeString('zh-TW', { hour12: false })
-  });
+    <div class="teams-container">
+      <div class="team-box team-a">
+        <div class="team-header">
+          <h4 style="color: #2196f3; margin: 0;">🔵 隊伍 A (上限 5 人)</h4>
+          <button id="btnSwitchTeamA" onclick="switchTeam('A')" style="font-size: 12px; padding: 4px 8px; background: #1976d2;">切換至 A 隊</button>
+        </div>
+        <div id="teamAPlayers"></div>
+      </div>
 
-  wss.clients.forEach(client => {
-    if (client.readyState === WebSocket.OPEN) {
-      client.send(payload);
-    }
-  });
-}
+      <div class="team-box team-b">
+        <div class="team-header">
+          <h4 style="color: #f44336; margin: 0;">🔴 隊伍 B (上限 5 人)</h4>
+          <button id="btnSwitchTeamB" onclick="switchTeam('B')" style="font-size: 12px; padding: 4px 8px; background: #d32f2f;">切換至 B 隊</button>
+        </div>
+        <div id="teamBPlayers"></div>
+      </div>
+    </div>
 
-function broadcastOnlineCount() {
-  const fluctuation = Math.floor(Math.random() * 44) - 12;
-  simulatedOnlineCount = Math.max(10, Math.min(9999, simulatedOnlineCount + fluctuation));
-  const payload = JSON.stringify({
-    type: 'online_count',
-    onlineCount: simulatedOnlineCount + wss.clients.size
-  });
+    <!-- 技能與藥水面板 -->
+    <div id="actionPanel" class="action-panel hidden">
+      <div id="currentTargetText" class="target-indicator">🎯 技能目標：[自動鎖定模式] (點擊上方玩家卡片可手動選擇)</div>
+      <div>
+        <span style="font-weight: bold; font-size: 14px;">✨ 釋放技能 (💧 每秒自動回復 50 MP)：</span>
+        <div id="skillButtons" class="skill-btns" style="margin-top: 5px;"></div>
+      </div>
+      
+      <div>
+        <span style="font-weight: bold; font-size: 14px;">🧪 快捷藥水：</span>
+        <div class="item-btns" style="margin-top: 5px;">
+          <button id="btnHpPotion" class="btn-potion" onclick="usePotion('hp')">🧪 HP 藥水 (剩餘: 0)</button>
+          <button id="btnMpPotion" class="btn-potion" onclick="usePotion('mp')">🧪 MP 藥水 (剩餘: 0)</button>
+        </div>
+      </div>
+    </div>
+  </div>
 
-  wss.clients.forEach(client => {
-    if (client.readyState === WebSocket.OPEN) {
-      client.send(payload);
-    }
-  });
-}
+  <!-- 日誌面板 -->
+  <div class="card">
+    <h3>📜 戰鬥與系統日誌</h3>
+    <div id="battleLog"></div>
+  </div>
+</div>
 
-function broadcastPendingTopups() {
-  const payload = JSON.stringify({
-    type: 'update_pending_topups',
-    list: pendingTopups
-  });
-  
-  wss.clients.forEach(client => {
-    if (client.readyState === WebSocket.OPEN && client.user && client.user.is_admin) {
-      client.send(payload);
-    }
-  });
-}
+<!-- 道具商店 Modal -->
+<div id="shopModal" class="shop-modal-overlay hidden">
+  <div class="shop-modal">
+    <div class="shop-header">
+      <h3 style="margin: 0; color: #ffca28;">🛒 道具商店</h3>
+      <button onclick="closeShopModal()" style="background-color: #d32f2f; padding: 4px 10px;">❌ 關閉</button>
+    </div>
+    <div style="margin-bottom: 15px; text-align: right; font-weight: bold; color: #ffd700;">
+      💰 當前金幣：<span id="shopGoldDisplay">0</span>
+    </div>
+    
+    <div class="shop-item">
+      <div>
+        <strong>🧪 HP 藥水</strong>
+        <div style="font-size: 12px; color: #aaa;">回復大量生命值</div>
+      </div>
+      <div>
+        <span style="color: #ffd700; font-weight: bold; margin-right: 8px;">💰 10</span>
+        <button onclick="buyItem('hp_potion', 10)">購買</button>
+      </div>
+    </div>
 
-setInterval(broadcastOnlineCount, 7000);
+    <div class="shop-item">
+      <div>
+        <strong>🧪 MP 藥水</strong>
+        <div style="font-size: 12px; color: #aaa;">回復大量魔力值</div>
+      </div>
+      <div>
+        <span style="color: #ffd700; font-weight: bold; margin-right: 8px;">💰 10</span>
+        <button onclick="buyItem('mp_potion', 10)">購買</button>
+      </div>
+    </div>
 
-const heartbeatInterval = setInterval(() => {
-  wss.clients.forEach(ws => {
-    if (ws.isAlive === false) return ws.terminate();
-    ws.isAlive = false;
-    ws.ping();
-  });
-}, 30000);
+    <div class="shop-item">
+      <div>
+        <strong>📜 經驗卷軸</strong>
+        <div style="font-size: 12px; color: #aaa;">獲得 +150 點經驗值</div>
+      </div>
+      <div>
+        <span style="color: #ffd700; font-weight: bold; margin-right: 8px;">💰 50</span>
+        <button onclick="buyItem('exp_scroll', 50)">購買</button>
+      </div>
+    </div>
+  </div>
+</div>
 
-wss.on('close', () => {
-  clearInterval(heartbeatInterval);
-});
+<!-- 金幣儲值 Modal -->
+<div id="topupModal" class="shop-modal-overlay hidden">
+  <div class="shop-modal">
+    <div class="shop-header">
+      <h3 style="margin: 0; color: #2196f3;">💎 玩家線上儲值申請</h3>
+      <button onclick="closeTopupModal()" style="background-color: #d32f2f; padding: 4px 10px;">❌ 關閉</button>
+    </div>
+    
+    <div style="display: flex; flex-direction: column; gap: 12px;">
+      <div>
+        <label style="display: block; margin-bottom: 4px; font-weight: bold;">1. 選擇支付管道：</label>
+        <select id="payMethod" style="width: 100%;" onchange="togglePayInfo()">
+          <option value="jkopay">街口支付 (JkoPay)</option>
+          <option value="linepay">LINE Pay / Bank</option>
+          <option value="bank">銀行轉帳 (中國信託)</option>
+          <option value="mycard">MyCard 點數卡</option>
+        </select>
+      </div>
 
-function scheduleIdleReward(client) {
-  const randomDelay = Math.floor(Math.random() * (300000 - 60000 + 1)) + 60000;
+      <div>
+        <label style="display: block; margin-bottom: 4px; font-weight: bold;">2. 輸入儲值金額 (TWD)：</label>
+        <input type="number" id="topupAmount" min="1" placeholder="請輸入金額" style="width: 100%;" oninput="calcGold()">
+        <div style="font-size: 12px; color: #ffca28; margin-top: 4px;">
+          💰 預計獲得金幣：<span id="goldPreview">0</span> 金幣
+        </div>
+      </div>
 
-  client.idleTimer = setTimeout(async () => {
-    if (client.readyState === WebSocket.OPEN && client.user && client.isIdle) {
-      const isHp = Math.random() > 0.5;
-      const potionName = isHp ? 'HP 藥水 x1' : 'MP 藥水 x1';
-      const goldEarned = client.user.isGM ? 0 : (Math.floor(Math.random() * 5) + 1);
-      const expEarned = Math.floor(Math.random() * 30) + 20;
+      <div style="background: #2a2a2a; padding: 10px; border-radius: 6px; text-align: center;">
+        <div id="payInstruction" style="font-weight: bold; font-size: 13px; margin-bottom: 8px;">請使用街口支付掃碼：</div>
+        <img id="payQr" src="YOUR_JKOPAY_QR_URL.png" alt="QR Code" style="max-width: 150px; border-radius: 4px; margin: 0 auto; display: block;">
+      </div>
 
-      try {
-        const userRes = await pool.query('SELECT level, exp, hp_potion, mp_potion, exp_scroll, gold, rank_points, stat_points FROM users WHERE id = $1', [client.user.id]);
-        if (userRes.rows.length === 0) return;
-        let userRow = userRes.rows[0];
+      <div>
+        <label id="infoLabel" style="display: block; margin-bottom: 4px; font-weight: bold;">付款備註 / 轉帳帳號後 5 碼：</label>
+        <input type="text" id="topupPaymentInfo" placeholder="例如：12345" style="width: 100%;">
+      </div>
 
-        let currentLevel = userRow.level || 1;
-        let currentExp = (userRow.exp || 0) + expEarned;
-        let statPoints = userRow.stat_points || 0;
-        let nextExpReq = getNextExpReq(currentLevel);
-        let leveledUp = false;
+      <button type="button" onclick="submitTopupRequest()" style="background-color: #2196f3; font-weight: bold; padding: 10px; font-size: 15px; margin-top: 5px;">
+        🚀 送出審核申請
+      </button>
+    </div>
+  </div>
+</div>
 
-        while (currentExp >= nextExpReq) {
-          currentExp -= nextExpReq;
-          currentLevel += 1;
-          statPoints += 5;
-          leveledUp = true;
-          nextExpReq = getNextExpReq(currentLevel);
-        }
+<script>
+  let ws = new WebSocket('wss://rpg-game-backend-vhag.onrender.com');
+  let myPlayerId = null;
+  let currentUser = null;
+  let currentRoomState = null;
+  let selectedTargetId = null;
+  let oldPlayerHpMap = {}; 
+  let localSkillCDMap = {};
+  let isAutoBattle = true;
+  let autoBattleTimer = null;
 
-        const updateQuery = isHp
-          ? `UPDATE users SET hp_potion = hp_potion + 1, gold = gold + $1, exp = $2, level = $3, stat_points = $4 WHERE id = $5 RETURNING hp_potion, mp_potion, exp_scroll, gold, rank_points, level, exp, stat_points`
-          : `UPDATE users SET mp_potion = mp_potion + 1, gold = gold + $1, exp = $2, level = $3, stat_points = $4 WHERE id = $5 RETURNING hp_potion, mp_potion, exp_scroll, gold, rank_points, level, exp, stat_points`;
+  // 音效合成模組
+  const AudioFX = {
+    ctx: null,
+    init() {
+      if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+      if (this.ctx.state === 'suspended') this.ctx.resume();
+    },
+    playTone(freq, duration, type = 'sine', ramp = null) {
+      this.init();
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+      if (ramp) osc.frequency.exponentialRampToValueAtTime(ramp, this.ctx.currentTime + duration);
+      gain.gain.setValueAtTime(0.25, this.ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + duration);
+      osc.connect(gain); gain.connect(this.ctx.destination);
+      osc.start(); osc.stop(this.ctx.currentTime + duration);
+    },
+    playSword() { this.playTone(400, 0.15, 'sawtooth', 100); },
+    playMagic() { this.playTone(300, 0.3, 'sine', 1200); },
+    playHeal() {
+      const now = (this.ctx || new (window.AudioContext || window.webkitAudioContext)()).currentTime;
+      [523.25, 659.25, 783.99, 1046.50].forEach((freq, idx) => {
+        setTimeout(() => this.playTone(freq, 0.2, 'triangle'), idx * 80);
+      });
+    },
+    playStab() { this.playTone(800, 0.08, 'square', 150); },
+    playArrow() { this.playTone(150, 0.15, 'triangle', 600); }
+  };
 
-        const updateRes = await pool.query(updateQuery, [goldEarned, currentExp, currentLevel, statPoints, client.user.id]);
+  let localUserData = { 
+    level: 1, exp: 0, gold: 0, hpPotion: 0, mpPotion: 0, expScroll: 0,
+    statPoints: 0, str: 0, int: 0, vit: 0, agi: 0 
+  };
 
-        const inv = updateRes.rows[0];
-        client.user.inventory = {
-          hpPotion: inv.hp_potion,
-          mpPotion: inv.mp_potion,
-          expScroll: inv.exp_scroll,
-          gold: client.user.isGM ? 999999 : inv.gold
-        };
-        client.user.level = inv.level;
-        client.user.exp = inv.exp;
-        client.user.stats.statPoints = inv.stat_points;
-
-        let msg = `🧘 修練中... 獲得了 🧪 ${potionName}、💰 金幣 x${goldEarned}、✨ ${expEarned} 經驗值！`;
-        if (leveledUp) {
-          msg += ` 🎉 恭喜升級！當前等級提升至 LV.${currentLevel}，獲得了 5 點屬性點！`;
-        }
-
-        client.send(JSON.stringify({
-          type: 'idle_reward',
-          message: msg,
-          inventory: client.user.inventory,
-          level: client.user.level,
-          exp: client.user.exp,
-          stats: client.user.stats
-        }));
-      } catch (err) {
-        console.error("掛機獎勵更新失敗:", err);
-      }
-    }
-
-    if (client.readyState === WebSocket.OPEN && client.isIdle) {
-      scheduleIdleReward(client);
-    }
-  }, randomDelay);
-}
-
-function createMatchWithAI(p1) {
-  const roomId = 'ROOM_' + Math.floor(1000 + Math.random() * 9000);
-  const aiName = AI_NAMES[Math.floor(Math.random() * AI_NAMES.length)];
-  const aiRole = ALL_ROLES[Math.floor(Math.random() * ALL_ROLES.length)];
-  
-  const stats1 = p1.user ? p1.user.stats : { str: 0, int: 0, vit: 0, agi: 0 };
-  const maxHp1 = getCalculatedMaxHp(p1.role, stats1.vit);
-  const baseMp1 = (ROLE_STATS[p1.role] || ROLE_STATS.berserker).mp;
-
-  const aiVit = Math.floor(Math.random() * 15) + 10;
-  const aiMaxHp = getCalculatedMaxHp(aiRole, aiVit);
-  const aiBaseMp = (ROLE_STATS[aiRole] || ROLE_STATS.berserker).mp;
-  const aiPlayerId = 'PLAYER_' + Math.random().toString(36).substr(2, 9);
-
-  rooms[roomId] = {
-    id: roomId,
-    status: 'waiting',
-    isAiMatch: true,
-    regenTimer: null,
-    aiTimer: null,
-    players: [
-      {
-        id: p1.id, ws: p1.ws, name: p1.name, role: p1.role, team: 'A',
-        hp: maxHp1, maxHp: maxHp1, mp: baseMp1, maxMp: baseMp1,
-        level: p1.user ? p1.user.level : 1, stats: stats1,
-        rankPoints: p1.rankPoints, statusEffects: {}, cooldowns: {}, isAi: false,
-        inventory: p1.user ? p1.user.inventory : { hpPotion: 5, mpPotion: 5, expScroll: 1, gold: 0 }
-      },
-      {
-        id: aiPlayerId, ws: null, name: aiName, role: aiRole, team: 'B',
-        hp: aiMaxHp, maxHp: aiMaxHp, mp: aiBaseMp, maxMp: aiBaseMp,
-        level: Math.max(1, (p1.user ? p1.user.level : 1) + Math.floor(Math.random() * 2)),
-        stats: { 
-          statPoints: 0, 
-          str: Math.floor(Math.random() * 15) + 10, 
-          int: Math.floor(Math.random() * 15) + 10, 
-          vit: aiVit, 
-          agi: Math.floor(Math.random() * 15) + 10 
-        },
-        rankPoints: p1.rankPoints + (Math.floor(Math.random() * 60) - 30), 
-        statusEffects: {}, cooldowns: {}, isAi: true,
-        inventory: { hpPotion: 8, mpPotion: 8, expScroll: 1, gold: 0 }
-      }
+  const SKILLS = {
+    mage: [
+      { name: '🔥 火球術', mpCost: 80, minVal: 220, maxVal: 350, isAoe: false, isHeal: false, effect: 'burn', chance: 0.3, cd: 2, sound: 'magic' },
+      { name: '⚡ 連鎖閃電', mpCost: 150, minVal: 180, maxVal: 280, isAoe: false, isHeal: false, effect: 'paralyze', chance: 0.25, cd: 4, sound: 'magic' },
+      { name: '❄️ 暴風雪', mpCost: 220, minVal: 150, maxVal: 250, isAoe: true, isHeal: false, cd: 6, sound: 'magic' },
+      { name: '☄️ 隕石術', mpCost: 400, minVal: 500, maxVal: 850, isAoe: true, isHeal: false, isUlt: true, cd: 15, sound: 'magic' }
+    ],
+    priest: [
+      { name: '💚 治癒術', mpCost: 70, minVal: 200, maxVal: 320, isAoe: false, isHeal: true, cd: 3, sound: 'heal' },
+      { name: '✨ 聖光彈', mpCost: 90, minVal: 180, maxVal: 280, isAoe: false, isHeal: false, cd: 2, sound: 'magic' },
+      { name: '🙏 神聖祈禱', mpCost: 180, minVal: 150, maxVal: 250, isAoe: true, isHeal: true, cd: 8, sound: 'heal' },
+      { name: '🌟 復活術', mpCost: 300, minVal: 0, maxVal: 0, isAoe: false, isRevive: true, isUlt: true, cd: 30, sound: 'heal' }
+    ],
+    berserker: [
+      { name: '⚔️ 重擊', mpCost: 40, minVal: 180, maxVal: 300, isAoe: false, isHeal: false, lifesteal: 0.2, cd: 2, sound: 'sword' },
+      { name: '🌪️ 旋風斬', mpCost: 100, minVal: 130, maxVal: 220, isAoe: true, isHeal: false, lifesteal: 0.2, cd: 5, sound: 'sword' },
+      { name: '🩸 狂暴怒吼', mpCost: 120, minVal: 250, maxVal: 400, isAoe: false, isHeal: false, lifesteal: 0.2, cd: 6, sound: 'sword' },
+      { name: '💥 英雄一擊', mpCost: 300, minVal: 550, maxVal: 900, isAoe: false, isHeal: false, isUlt: true, lifesteal: 0.2, cd: 12, sound: 'sword' }
+    ],
+    knight: [
+      { name: '🛡️ 盾牌衝鋒', mpCost: 40, minVal: 150, maxVal: 240, isAoe: false, isHeal: false, cd: 3, sound: 'sword' },
+      { name: '🔨 裁決之錘', mpCost: 80, minVal: 200, maxVal: 320, isAoe: false, isHeal: false, cd: 4, sound: 'sword' },
+      { name: '🧱 堅守陣線', mpCost: 120, minVal: 120, maxVal: 200, isAoe: true, isHeal: true, cd: 8, sound: 'heal' },
+      { name: '🏰 正義風暴', mpCost: 280, minVal: 400, maxVal: 650, isAoe: true, isHeal: false, isUlt: true, cd: 15, sound: 'sword' }
+    ],
+    assassin: [
+      { name: '🗡️ 毒刃', mpCost: 50, minVal: 220, maxVal: 350, isAoe: false, isHeal: false, effect: 'poison', chance: 0.35, cd: 2, sound: 'stab' },
+      { name: '👣 影襲', mpCost: 90, minVal: 280, maxVal: 420, isAoe: false, isHeal: false, effect: 'poison', chance: 0.2, cd: 4, sound: 'stab' },
+      { name: '🔪 飛刀風暴', mpCost: 150, minVal: 160, maxVal: 280, isAoe: true, isHeal: false, cd: 6, sound: 'stab' },
+      { name: '☠️ 瞬獄殺', mpCost: 350, minVal: 650, maxVal: 1100, isAoe: false, isHeal: false, isUlt: true, effect: 'poison', chance: 0.5, cd: 12, sound: 'stab' },
+      { name: '🗡️ 影之刺殺', mpCost: 200, hpCostPercent: 0.5, instantKillChance: 0.10, isAoe: false, isHeal: false, isKillSkill: true, cd: 15, sound: 'stab' }
+    ],
+    archer: [
+      { name: '🏹 精準射擊', mpCost: 50, minVal: 200, maxVal: 320, isAoe: false, isHeal: false, effect: 'blind', chance: 0.25, cd: 2, sound: 'arrow' },
+      { name: '🌧️ 箭雨', mpCost: 140, minVal: 140, maxVal: 240, isAoe: true, isHeal: false, effect: 'blind', chance: 0.15, cd: 6, sound: 'arrow' },
+      { name: '🎯 貫穿箭', mpCost: 110, minVal: 260, maxVal: 400, isAoe: false, isHeal: false, cd: 4, sound: 'arrow' },
+      { name: '🏹 暴風箭雨', mpCost: 1000, minVal: 100, maxVal: 150, isAoe: false, isHeal: false, isArrowStormSkill: true, effect: 'blind', chance: 1.0, cd: 30, sound: 'arrow' },
+      { name: '🦅 幻影神射', mpCost: 320, minVal: 580, maxVal: 950, isAoe: false, isHeal: false, isUlt: true, effect: 'blind', chance: 0.4, cd: 12, sound: 'arrow' }
     ]
   };
 
-  p1.ws.roomId = roomId;
-  p1.ws.send(JSON.stringify({ type: 'match_found', roomId, player: rooms[roomId].players[0] }));
-  broadcastRoomState(roomId);
-}
+  function calcGold() {
+    const amount = parseInt(document.getElementById('topupAmount').value) || 0;
+    document.getElementById('goldPreview').innerText = amount * 100;
+  }
 
-function start5v5AIBattleLoop(roomId) {
-  const room = rooms[roomId];
-  if (!room || !room.isAiMatch) return;
+  function togglePayInfo() {
+    const method = document.getElementById('payMethod').value;
+    const qrImg = document.getElementById('payQr');
+    const instruction = document.getElementById('payInstruction');
+    const infoLabel = document.getElementById('infoLabel');
+    const infoInput = document.getElementById('topupPaymentInfo');
 
-  room.aiTimer = setInterval(() => {
-    if (!rooms[roomId] || room.status !== 'playing') {
-      clearInterval(room.aiTimer);
-      return;
-    }
-
-    const activeAis = room.players.filter(p => p.isAi && p.hp > 0);
-    if (activeAis.length === 0) return;
-    const ai = activeAis[Math.floor(Math.random() * activeAis.length)];
-
-    ai.mp = Math.min(ai.maxMp, ai.mp + 120);
-
-    const enemies = room.players.filter(p => p.team !== ai.team && p.hp > 0);
-    if (enemies.length === 0) return;
-    const target = enemies[Math.floor(Math.random() * enemies.length)];
-
-    if (ai.hp < ai.maxHp * 0.4 && ai.inventory.hpPotion > 0 && Math.random() < 0.8) {
-      ai.inventory.hpPotion--;
-      ai.hp = Math.min(ai.maxHp, ai.hp + 3500);
-      broadcastBattleLog(roomId, `🧪 ${ai.name} 使用了 HP 藥水！`);
-      broadcastRoomState(roomId);
-      return;
-    }
-
-    if (ai.statusEffects && ai.statusEffects.blind && Math.random() < 0.5) {
-      broadcastBattleLog(roomId, `👁️ ${ai.name} 受致盲影響，攻擊 MISS！`);
-      broadcastRoomState(roomId);
-      return;
-    }
-
-    const aiStr = (ai.stats && ai.stats.str) || 0;
-    const useSkill = Math.random() < 0.6;
-
-    if (useSkill && ai.mp >= 200) {
-      ai.mp -= 200;
-      let skillDmg = applyDefenseReduction(600 + (aiStr * 15), target.stats ? target.stats.vit : 0);
-      target.hp = Math.max(0, target.hp - skillDmg);
-      broadcastBattleLog(roomId, `⚔️ ${ai.name} 施展強力技能，對 ${target.name} 造成 ${skillDmg} 點傷害！`);
-    } else {
-      let baseDmg = Math.floor(Math.random() * 200) + 300 + (aiStr * 12);
-      let isCrit = Math.random() < 0.15;
-      if (isCrit) baseDmg = Math.floor(baseDmg * 1.5);
-
-      const finalDmg = applyDefenseReduction(baseDmg, target.stats ? target.stats.vit : 0);
-      target.hp = Math.max(0, target.hp - finalDmg);
-
-      if (isCrit) {
-        broadcastBattleLog(roomId, `💥⚡ ${ai.name} 觸發暴擊！對 ${target.name} 造成 ${finalDmg} 傷害！`);
-      } else {
-        broadcastBattleLog(roomId, `💥 ${ai.name} 對 ${target.name} 發動攻擊，造成 ${finalDmg} 傷害！`);
-      }
-    }
-
-    const teamAAlive = room.players.some(p => p.team === 'A' && p.hp > 0);
-    const teamBAlive = room.players.some(p => p.team === 'B' && p.hp > 0);
-
-    if (!teamAAlive || !teamBAlive) {
-      room.status = 'game_over';
-      if (room.regenTimer) clearInterval(room.regenTimer);
-      if (room.aiTimer) clearInterval(room.aiTimer);
-
-      const winTeam = teamAAlive ? 'A' : 'B';
-      const winTeamName = teamAAlive ? '🔵 隊伍 A' : '🔴 隊伍 B';
-      broadcastBattleLog(roomId, `🏆 遊戲結束！【${winTeamName}】獲得了最終勝利！`);
-
-      room.players.forEach(async (p) => {
-        if (!p.isAi) {
-          const isWinner = (p.team === winTeam);
-          const delta = isWinner ? 30 : -20;
-          p.rankPoints = Math.max(0, (p.rankPoints || 0) + delta);
-          if (p.ws && p.ws.user) {
-            p.ws.user.rankPoints = p.rankPoints;
-            try {
-              await pool.query('UPDATE users SET rank_points = $1 WHERE id = $2', [p.rankPoints, p.ws.user.id]);
-            } catch (e) {
-              console.error("更新段位積分失敗:", e);
-            }
-          }
-        }
-      });
-    }
-
-    broadcastRoomState(roomId);
-  }, 1500);
-}
-
-function addRandomAIPlayer(roomPlayers, team) {
-  const aiName = AI_NAMES[Math.floor(Math.random() * AI_NAMES.length)] + '_' + Math.floor(Math.random() * 90 + 10);
-  const aiRole = ALL_ROLES[Math.floor(Math.random() * ALL_ROLES.length)];
-  const aiVit = Math.floor(Math.random() * 15) + 10;
-  const aiMaxHp = getCalculatedMaxHp(aiRole, aiVit);
-  const aiBaseMp = (ROLE_STATS[aiRole] || ROLE_STATS.berserker).mp;
-
-  roomPlayers.push({
-    id: 'AI_' + Math.random().toString(36).substr(2, 9),
-    ws: null,
-    name: aiName,
-    role: aiRole,
-    team: team,
-    hp: aiMaxHp,
-    maxHp: aiMaxHp,
-    mp: aiBaseMp,
-    maxMp: aiBaseMp,
-    level: Math.floor(Math.random() * 5) + 10,
-    stats: { statPoints: 0, str: 15, int: 15, vit: aiVit, agi: 15 },
-    rankPoints: 1200,
-    statusEffects: {},
-    cooldowns: {},
-    isAi: true,
-    inventory: { hpPotion: 5, mpPotion: 5, expScroll: 1, gold: 0 }
-  });
-}
-
-function create5v5Room(realPlayers, isAiMatch) {
-  const roomId = 'ROOM_5V5_' + Math.floor(1000 + Math.random() * 9000);
-  let roomPlayers = [];
-
-  realPlayers.forEach((p, idx) => {
-    const team = idx < 5 ? 'A' : 'B';
-    const stats = p.user ? p.user.stats : { str: 0, int: 0, vit: 0, agi: 0 };
-    const maxHp = getCalculatedMaxHp(p.role, stats.vit);
-    const baseMp = (ROLE_STATS[p.role] || ROLE_STATS.berserker).mp;
-
-    roomPlayers.push({
-      id: p.id, ws: p.ws, name: p.name, role: p.role, team,
-      hp: maxHp, maxHp, mp: baseMp, maxMp: baseMp,
-      level: p.user ? p.user.level : 1, stats, rankPoints: p.rankPoints,
-      statusEffects: {}, cooldowns: {}, isAi: false,
-      inventory: p.user ? p.user.inventory : { hpPotion: 5, mpPotion: 5, expScroll: 1, gold: 0 }
-    });
-  });
-
-  if (isAiMatch) {
-    const teamACount = roomPlayers.filter(p => p.team === 'A').length;
-    const teamBCount = roomPlayers.filter(p => p.team === 'B').length;
-
-    for (let i = teamACount; i < 5; i++) {
-      addRandomAIPlayer(roomPlayers, 'A');
-    }
-    for (let i = teamBCount; i < 5; i++) {
-      addRandomAIPlayer(roomPlayers, 'B');
+    if (method === 'jkopay') {
+      instruction.innerText = '請使用街口支付掃碼：';
+      qrImg.src = 'YOUR_JKOPAY_QR_URL.png';
+      qrImg.style.display = 'block';
+      infoLabel.innerText = '付款備註 / 街口顯示名稱：';
+      infoInput.placeholder = '例如：12345';
+    } else if (method === 'linepay') {
+      instruction.innerText = '請使用 LINE Pay / Bank 掃碼：';
+      qrImg.src = 'YOUR_LINEPAY_QR_URL.png';
+      qrImg.style.display = 'block';
+      infoLabel.innerText = '付款備註 / 轉帳帳號後 5 碼：';
+      infoInput.placeholder = '例如：67890';
+    } else if (method === 'bank') {
+      instruction.innerText = '銀行代碼：822 (中國信託) \n帳號：123456789012';
+      qrImg.style.display = 'none';
+      infoLabel.innerText = '付款備註 / 轉帳帳號後 5 碼：';
+      infoInput.placeholder = '例如：98765';
+    } else if (method === 'mycard') {
+      instruction.innerText = '請填寫您購買的 MyCard 點數卡卡號與密碼：';
+      qrImg.style.display = 'none';
+      infoLabel.innerText = 'MyCard 卡號與密碼：';
+      infoInput.placeholder = '格式：卡號 / 密碼';
     }
   }
 
-  rooms[roomId] = {
-    id: roomId,
-    status: 'playing',
-    isAiMatch: true,
-    regenTimer: null,
-    aiTimer: null,
-    players: roomPlayers
-  };
+  function openTopupModal() { document.getElementById('topupModal').classList.remove('hidden'); }
+  function closeTopupModal() { document.getElementById('topupModal').classList.add('hidden'); }
 
-  roomPlayers.forEach(p => {
-    if (!p.isAi && p.ws) {
-      p.ws.roomId = roomId;
-      p.ws.send(JSON.stringify({ type: 'match_found', roomId, player: p }));
-    }
-  });
+  function submitTopupRequest() {
+    if (!checkWsConnected()) return;
+    const amount = parseInt(document.getElementById('topupAmount').value);
+    const paymentInfo = document.getElementById('topupPaymentInfo').value.trim();
 
-  rooms[roomId].regenTimer = setInterval(() => {
-    if (!rooms[roomId] || rooms[roomId].status !== 'playing') {
-      clearInterval(rooms[roomId].regenTimer);
+    if (!amount || amount <= 0) {
+      alert('⚠️ 請輸入有效的儲值金額！');
       return;
     }
-    rooms[roomId].players.forEach(p => {
-      if (p.hp > 0 && p.mp < p.maxMp) p.mp = Math.min(p.maxMp, p.mp + 40);
-    });
-    broadcastRoomState(roomId);
-  }, 1000);
-
-  start5v5AIBattleLoop(roomId);
-  broadcastRoomState(roomId);
-  broadcastBattleLog(roomId, "⚔️【5V5 團戰爆發！】雙方十人陣容已就位，戰鬥正式開打！");
-}
-
-function startAIBattleLoop(roomId) {
-  const room = rooms[roomId];
-  if (!room || !room.isAiMatch) return;
-
-  room.aiTimer = setInterval(() => {
-    if (!rooms[roomId] || room.status !== 'playing') {
-      clearInterval(room.aiTimer);
+    if (!paymentInfo) {
+      alert('⚠️ 請填寫付款備註 / 帳號後五碼！');
       return;
     }
 
-    const ai = room.players.find(p => p.isAi && p.hp > 0);
-    if (!ai) return;
+    const method = document.getElementById('payMethod').value;
 
-    ai.mp = Math.min(ai.maxMp, ai.mp + 120);
+    ws.send(JSON.stringify({
+      type: 'submit_topup',
+      paymentMethod: method,
+      amount: amount,
+      goldToAdd: amount * 100,
+      paymentInfo: paymentInfo
+    }));
 
-    const enemies = room.players.filter(p => p.team !== ai.team && p.hp > 0);
-    if (enemies.length === 0) return;
-    const target = enemies[Math.floor(Math.random() * enemies.length)];
+    closeTopupModal();
+  }
 
-    if (ai.hp < ai.maxHp * 0.45 && ai.inventory.hpPotion > 0 && Math.random() < 0.75) {
-      ai.inventory.hpPotion--;
-      let healAmount = 3500;
-      if (ai.statusEffects && ai.statusEffects.poison) {
-        healAmount = Math.floor(healAmount * 0.5);
+  // 2. 管理員點擊「核准」按鈕時觸發
+  function approveTopup(requestId) {
+    if (!confirm('確定要核准這筆儲值申請並自動派發金幣給玩家嗎？')) return;
+
+    ws.send(JSON.stringify({
+      type: 'admin_approve_topup_request',
+      requestId: requestId
+    }));
+  }
+
+  // 4. 管理員點擊「拒絕」按鈕時觸發
+  function rejectTopup(requestId) {
+    if (!confirm('確定要拒絕這筆儲值申請嗎？')) return;
+
+    ws.send(JSON.stringify({
+      type: 'admin_reject_topup_request',
+      requestId: requestId
+    }));
+  }
+
+  ws.onopen = () => { logMessage("🟢 成功連接伺服器！請先進行帳號登入或註冊。"); };
+  ws.onerror = () => { logMessage("🔴 伺服器連線失敗，請檢查網路。"); };
+  ws.onclose = () => { logMessage("🟡 與伺服器中斷連線。"); stopAutoBattle(); };
+
+  ws.onmessage = (event) => {
+    const data = JSON.parse(event.data);
+
+    if (data.type === 'register_success') alert(data.message);
+    else if (data.type === 'login_success') {
+      currentUser = data.user;
+      logMessage(`🎉 登入成功！歡迎回來，${data.user.name}`);
+
+      document.getElementById('authSection').classList.add('hidden');
+      document.getElementById('lobbySection').classList.remove('hidden');
+      document.getElementById('playerName').value = data.user.name || "勇者";
+      document.getElementById('playerRole').value = data.user.role || 'berserker';
+      localUserData.level = data.user.level || 1;
+      localUserData.exp = data.user.exp || 0;
+      
+      if (data.user.stats) {
+        localUserData.statPoints = data.user.stats.statPoints || 0;
+        localUserData.str = data.user.stats.str || 0;
+        localUserData.int = data.user.stats.int || 0;
+        localUserData.vit = data.user.stats.vit || 0;
+        localUserData.agi = data.user.stats.agi || 0;
       }
-      ai.hp = Math.min(ai.maxHp, ai.hp + healAmount);
-      broadcastBattleLog(roomId, `🧪 ${ai.name} 使用了 HP 藥水！`);
-      broadcastRoomState(roomId);
-      return;
+      updateInventoryDisplay(data.user.inventory);
     }
-
-    if (ai.statusEffects && ai.statusEffects.blind && Math.random() < 0.5) {
-      broadcastBattleLog(roomId, `👁️ ${ai.name} 受致盲影響，攻擊 MISS！`);
-      broadcastRoomState(roomId);
-      return;
+    else if (data.type === 'online_count') {
+      document.getElementById('displayOnlineCount').innerText = data.onlineCount;
     }
-
-    const aiStr = (ai.stats && ai.stats.str) || 0;
-    const aiInt = (ai.stats && ai.stats.int) || 0;
-    const useSkill = Math.random() < 0.65;
-
-    if (useSkill && ai.mp >= 200) {
-      ai.mp -= 200;
-
-      if (ai.role === 'assassin' && Math.random() < 0.2) {
-        const hpCost = Math.floor(ai.hp * 0.5);
-        ai.hp = Math.max(1, ai.hp - hpCost);
-        if (Math.random() < 0.15) {
-          target.hp = 0;
-          broadcastBattleLog(roomId, `☠️【秒殺觸發！】${ai.name} 消耗自身 ${hpCost} HP 發動【影之刺殺】，成功秒殺了 ${target.name}！`);
-        } else {
-          let dmg = applyDefenseReduction(800 + (aiStr * 15), target.stats ? target.stats.vit : 0);
-          target.hp = Math.max(0, target.hp - dmg);
-          broadcastBattleLog(roomId, `🗡️⚡ ${ai.name} 發動【影之刺殺】，對 ${target.name} 造成 ${dmg} 傷害！`);
-        }
-      } else if (ai.role === 'archer') {
-        let totalDmg = 0;
-        for (let i = 0; i < 10; i++) {
-          totalDmg += Math.floor(target.maxHp * 0.012) + Math.floor(aiStr * 1.5);
-        }
-        totalDmg = applyDefenseReduction(totalDmg, target.stats ? target.stats.vit : 0);
-        target.hp = Math.max(0, target.hp - totalDmg);
-        broadcastBattleLog(roomId, `🏹 ${ai.name} 施展【暴風箭雨】10連擊！對 ${target.name} 造成 ${totalDmg} 點傷害！`);
-      } else if (ai.role === 'mage' || ai.role === 'priest') {
-        let spellDmg = applyDefenseReduction(450 + (aiInt * 18), target.stats ? target.stats.vit : 0);
-        target.hp = Math.max(0, target.hp - spellDmg);
-        broadcastBattleLog(roomId, `🔥 ${ai.name} 吟唱高階法術！對 ${target.name} 造成 ${spellDmg} 點毀滅傷害！`);
-      } else {
-        let skillDmg = applyDefenseReduction(500 + (aiStr * 14), target.stats ? target.stats.vit : 0);
-        target.hp = Math.max(0, target.hp - skillDmg);
-        broadcastBattleLog(roomId, `⚔️ ${ai.name} 發動極限重擊！對 ${target.name} 造成 ${skillDmg} 點傷害！`);
-      }
-    } else {
-      const targetAgi = (target.stats && target.stats.agi) || 0;
-      if (Math.random() < (targetAgi * 0.008)) {
-        broadcastBattleLog(roomId, `💨 ${target.name} 憑藉高超敏捷，成功閃避了 ${ai.name} 的普通攻擊！`);
-        broadcastRoomState(roomId);
+    else if (data.type === 'lobby_chat') {
+      appendLobbyChat(data.sender, data.message, data.time);
+    }
+    // 1. 接收後端廣播的「待審核清單」
+    else if (data.type === 'update_pending_topups') {
+      const listContainer = document.getElementById('pendingTopupsList');
+      const adminPanel = document.getElementById('adminTopupPanel');
+      
+      // 確保管理員看得到這個面板
+      adminPanel.style.display = 'block';
+      
+      if (!data.list || data.list.length === 0) {
+        listContainer.innerHTML = '<p>目前沒有待審核的儲值申請。</p>';
         return;
       }
 
-      let baseDmg = Math.floor(Math.random() * 200) + 250 + (aiStr * 12);
-      let isCrit = Math.random() < (ai.stats.agi * 0.015);
-      if (isCrit) baseDmg = Math.floor(baseDmg * 1.6);
-
-      const finalDmg = applyDefenseReduction(baseDmg, target.stats ? target.stats.vit : 0);
-      target.hp = Math.max(0, target.hp - finalDmg);
-
-      if (isCrit) {
-        broadcastBattleLog(roomId, `💥⚡ ${ai.name} 觸發暴擊！對 ${target.name} 造成 ${finalDmg} 傷害！`);
-      } else {
-        broadcastBattleLog(roomId, `💥 ${ai.name} 對 ${target.name} 發動普通攻擊，造成 ${finalDmg} 傷害！`);
-      }
-    }
-
-    const teamAAlive = room.players.some(p => p.team === 'A' && p.hp > 0);
-    const teamBAlive = room.players.some(p => p.team === 'B' && p.hp > 0);
-
-    if (!teamAAlive || !teamBAlive) {
-      room.status = 'game_over';
-      if (room.regenTimer) clearInterval(room.regenTimer);
-      if (room.aiTimer) clearInterval(room.aiTimer);
-
-      const winTeam = teamAAlive ? 'A' : 'B';
-      const winTeamName = teamAAlive ? '🔵 隊伍 A' : '🔴 隊伍 B';
-      broadcastBattleLog(roomId, `🏆 遊戲結束！【${winTeamName}】獲得了最終勝利！`);
-
-      room.players.forEach(async (p) => {
-        if (!p.isAi) {
-          const isWinner = (p.team === winTeam);
-          const delta = isWinner ? 25 : -15;
-          p.rankPoints = Math.max(0, (p.rankPoints || 0) + delta);
-          const rInfo = getRankInfo(p.rankPoints);
-          broadcastBattleLog(roomId, `🎖️ ${p.name} (${isWinner ? '獲勝' : '戰敗'})：積分 ${delta > 0 ? '+' + delta : delta} (總分: ${p.rankPoints} - ${rInfo.icon} ${rInfo.name})`);
-          
-          if (p.ws && p.ws.user) {
-            p.ws.user.rankPoints = p.rankPoints;
-            try {
-              await pool.query('UPDATE users SET rank_points = $1 WHERE id = $2', [p.rankPoints, p.ws.user.id]);
-            } catch (e) {
-              console.error("更新段位積分失敗:", e);
-            }
-          }
-        }
+      let html = '<div style="overflow-x: auto;"><table border="1" width="100%" style="text-align: center; border-collapse: collapse; border-color: #444; font-size: 13px;">';
+      html += '<tr style="background: #331111;"><th>時間</th><th>玩家暱稱</th><th>帳號</th><th>金額</th><th>備註</th><th>操作</th></tr>';
+      
+      data.list.forEach(item => {
+        html += `
+          <tr>
+            <td style="padding: 6px;">${item.time}</td>
+            <td style="padding: 6px;"><b>${item.playerName}</b></td>
+            <td style="padding: 6px;">${item.username}</td>
+            <td style="padding: 6px; color: gold;">${item.amount} TWD</td>
+            <td style="padding: 6px;">${item.paymentInfo}</td>
+            <td style="padding: 6px; display: flex; gap: 4px; justify-content: center;">
+              <button onclick="approveTopup('${item.requestId}')" style="background-color: green; color: white; padding: 4px 8px; font-size: 12px;">核准</button>
+              <button onclick="rejectTopup('${item.requestId}')" style="background-color: #d32f2f; color: white; padding: 4px 8px; font-size: 12px;">拒絕</button>
+            </td>
+          </tr>
+        `;
       });
+      html += '</table></div>';
+      
+      listContainer.innerHTML = html;
     }
+    // 3. 處理管理員操作成功的回饋
+    else if (data.type === 'admin_action_success') {
+      alert(data.message);
+    }
+    else if (data.type === 'idle_reward') {
+      logMessage(data.message);
+      if (data.level > localUserData.level) {
+        localUserData.statPoints += (data.level - localUserData.level) * 5;
+        logMessage(`🎉 恭喜升級到 LV.${data.level}！獲得 5 點自由屬性點！`);
+      }
+      localUserData.level = data.level;
+      localUserData.exp = data.exp;
+      updateInventoryDisplay(data.inventory);
+    }
+    else if (data.type === 'shop_success') {
+      logMessage(data.message);
+      updateInventoryDisplay(data.inventory);
+    }
+    else if (data.type === 'topup_response') {
+      alert(data.message);
+    }
+    else if (data.type === 'gold_received') {
+      alert(data.message);
+      if (data.inventory) {
+        updateInventoryDisplay(data.inventory);
+      }
+    }
+    else if (data.type === 'queue_joined') {
+      logMessage("🎲 成功進入匹配隊列...");
+      showQueueUI(true);
+    }
+    else if (data.type === 'queue_left') {
+      logMessage("❌ 已取消匹配。");
+      showQueueUI(false);
+    }
+    else if (data.type === 'match_found' || data.type === 'room_created' || data.type === 'room_joined') {
+      if (data.type === 'match_found') logMessage("🎉 匹配成功！即將進入戰鬥...");
+      myPlayerId = data.player.id;
+      selectedTargetId = null;
+      localSkillCDMap = {};
 
-    broadcastRoomState(roomId);
-  }, 1200);
-}
-
-wss.on('connection', (ws) => {
-  ws.id = 'PLAYER_' + Math.random().toString(36).substr(2, 9);
-  ws.isIdle = true;
-  ws.isAlive = true;
-
-  ws.on('pong', () => { ws.isAlive = true; });
-
-  ws.send(JSON.stringify({ type: 'online_count', onlineCount: simulatedOnlineCount + wss.clients.size }));
-
-  ws.on('message', async (message) => {
-    try {
-      const data = JSON.parse(message);
-
-      if (data.type === 'admin_approve_topup') {
-        if (!ws.user || !ws.user.is_admin) {
-          return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 您沒有管理員權限！' }));
-        }
-
-        const { targetUserId, goldAmount } = data;
-        const amount = parseInt(goldAmount);
-
-        if (!targetUserId || isNaN(amount) || amount <= 0) {
-          return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 請填寫正確的目標玩家帳號與正整數金幣數量！' }));
-        }
-
-        try {
-          const targetRes = await pool.query('SELECT * FROM users WHERE username = $1', [targetUserId]);
-          if (targetRes.rows.length === 0) {
-            return ws.send(JSON.stringify({ type: 'error', message: `⚠️ 找不到目標玩家：${targetUserId}` }));
-          }
-
-          const targetUser = targetRes.rows[0];
-          const newGold = (targetUser.gold || 0) + amount;
-
-          await pool.query('UPDATE users SET gold = $1 WHERE username = $2', [newGold, targetUserId]);
-
-          ws.send(JSON.stringify({
-            type: 'admin_action_success',
-            message: `✅ 成功派送 ${amount} 金幣給玩家 [${targetUserId}]！該玩家當前總金幣: ${newGold}`
-          }));
-
-          wss.clients.forEach(client => {
-            if (client.readyState === WebSocket.OPEN && client.user && client.user.name === targetUserId) {
-              client.user.inventory.gold = newGold;
-              client.send(JSON.stringify({
-                type: 'gold_received',
-                message: `🎉 管理員已核發您的儲值金幣，獲得 ${amount} 金幣！`,
-                inventory: client.user.inventory
-              }));
-            }
-          });
-
-        } catch (err) {
-          console.error("派送金幣失敗：", err);
-          ws.send(JSON.stringify({ type: 'error', message: '🔴 派送金幣失敗，伺服器資料庫錯誤。' }));
-        }
+      isAutoBattle = true;
+      const btnAuto = document.getElementById('btnAutoBattle');
+      if (btnAuto) {
+        btnAuto.innerText = "🤖 自動戰鬥: ON";
+        btnAuto.classList.add('active');
       }
 
-      else if (data.type === 'submit_topup') {
-        const playerName = (ws.user && ws.user.name) ? ws.user.name : (ws.user && ws.user.username) || '未知玩家';
-        const amount = parseInt(data.amount) || 0;
-        const goldToAdd = amount * 100; // <--- 在這裡進行 1:100 轉換
-        const paymentInfo = data.paymentInfo || '無備註';
-        
-        const requestId = 'TOPUP_' + Math.random().toString(36).substr(2, 9);
-        
-        const topupRequest = {
-          requestId,
-          userId: ws.user ? ws.user.id : null,
-          username: ws.user ? ws.user.username : 'unknown',
-          playerName,
-          amount,
-          goldToAdd, // <--- 將轉換好的金幣加入請求中
-          paymentInfo,
-          time: new Date().toLocaleTimeString('zh-TW', { hour12: false })
-        };
-        
-        pendingTopups.push(topupRequest);
-        
-        ws.send(JSON.stringify({
-          type: 'topup_response',
-          success: true,
-          message: '✅ 儲值申請已順利送出，管理員正在審核中！'
-        }));
-        
-        broadcastPendingTopups();
-      }
-
-      else if (data.type === 'ADMIN_AUDIT_ACTION') {
-        if (!ws.user || !ws.user.is_admin) {
-          return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 您沒有管理員權限！' }));
-        }
-        
-        const { targetUserId, action, requestId } = data;
-        const index = pendingTopups.findIndex(item => item.requestId === requestId || item.userId === targetUserId || item.username === targetUserId);
-        
-        if (index === -1) {
-          return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 找不到該筆儲值申請，可能已被審核或失效。' }));
-        }
-        
-        const reqItem = pendingTopups.splice(index, 1)[0];
-
-        if (action === 'approve') {
-          try {
-            const targetRes = await pool.query('SELECT * FROM users WHERE id = $1', [reqItem.userId]);
-            if (targetRes.rows.length === 0) {
-              return ws.send(JSON.stringify({ type: 'error', message: `⚠️ 找不到目標玩家 ID: ${reqItem.userId}` }));
-            }
-            
-            const targetUser = targetRes.rows[0];
-            // 強制抓取 goldToAdd 或重新計算 1:100 防呆
-            const goldToGive = reqItem.goldToAdd || (reqItem.amount * 100); 
-            const newGold = (targetUser.gold || 0) + goldToGive;
-            
-            await pool.query('UPDATE users SET gold = $1 WHERE id = $2', [newGold, reqItem.userId]);
-            
-            ws.send(JSON.stringify({
-              type: 'NOTIFICATION',
-              message: `✅ 已成功核實玩家 [${reqItem.playerName}] 的 ${reqItem.amount} TWD 儲值，並發放 ${goldToGive} 金幣！`
-            }));
-            
-            broadcastPendingTopups();
-            
-            wss.clients.forEach(client => {
-              if (client.readyState === WebSocket.OPEN && client.user && client.user.id === reqItem.userId) {
-                client.user.inventory.gold = newGold;
-                client.send(JSON.stringify({
-                  type: 'gold_received',
-                  message: `🎉 您的儲值申請已通過！成功獲得 ${goldToGive} 金幣！`,
-                  inventory: client.user.inventory
-                }));
-              }
-            });
-            
-          } catch (err) {
-            console.error("審核儲值失敗：", err);
-            ws.send(JSON.stringify({ type: 'error', message: '🔴 伺服器資料庫錯誤，審核失敗。' }));
-          }
-        } else if (action === 'reject') {
-          try {
-            broadcastPendingTopups();
-
-            ws.send(JSON.stringify({
-              type: 'NOTIFICATION',
-              message: '已成功拒絕並移除該筆申請'
-            }));
-
-            wss.clients.forEach(client => {
-              if (client.readyState === WebSocket.OPEN && client.user && client.user.id === reqItem.userId) {
-                client.send(JSON.stringify({
-                  type: 'NOTIFICATION',
-                  message: '⚠️ 您的儲值申請已被管理員拒絕。'
-                }));
-              }
-            });
-          } catch (err) {
-            console.error("拒絕儲值失敗：", err);
-            ws.send(JSON.stringify({ type: 'error', message: '🔴 伺服器資料庫錯誤，拒絕操作失敗。' }));
-          }
-        }
-      }
-
-      else if (data.type === 'admin_approve_topup_request') {
-        if (!ws.user || !ws.user.is_admin) {
-          return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 您沒有管理員權限！' }));
-        }
-        
-        const { requestId } = data;
-        const index = pendingTopups.findIndex(item => item.requestId === requestId);
-        
-        if (index === -1) {
-          return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 找不到該筆儲值申請，可能已被審核或失效。' }));
-        }
-        
-        const reqItem = pendingTopups.splice(index, 1)[0];
-        
-        try {
-          const targetRes = await pool.query('SELECT * FROM users WHERE id = $1', [reqItem.userId]);
-          if (targetRes.rows.length === 0) {
-            return ws.send(JSON.stringify({ type: 'error', message: `⚠️ 找不到目標玩家 ID: ${reqItem.userId}` }));
-          }
-          
-          const targetUser = targetRes.rows[0];
-          // 強制抓取 goldToAdd 或重新計算 1:100 防呆
-          const goldToGive = reqItem.goldToAdd || (reqItem.amount * 100);
-          const newGold = (targetUser.gold || 0) + goldToGive;
-          
-          await pool.query('UPDATE users SET gold = $1 WHERE id = $2', [newGold, reqItem.userId]);
-          
-          ws.send(JSON.stringify({
-            type: 'admin_action_success',
-            message: `✅ 已成功核實玩家 [${reqItem.playerName}] 的 ${reqItem.amount} TWD 儲值，並發放 ${goldToGive} 金幣！`
-          }));
-          
-          broadcastPendingTopups();
-          
-          wss.clients.forEach(client => {
-            if (client.readyState === WebSocket.OPEN && client.user && client.user.id === reqItem.userId) {
-              client.user.inventory.gold = newGold;
-              client.send(JSON.stringify({
-                type: 'gold_received',
-                message: `🎉 您的儲值申請已通過！成功獲得 ${goldToGive} 金幣！`,
-                inventory: client.user.inventory
-              }));
-            }
-          });
-        } catch (err) {
-          console.error("審核儲值失敗：", err);
-          ws.send(JSON.stringify({ type: 'error', message: '🔴 伺服器資料庫錯誤，審核失敗。' }));
-        }
-      }
-
-      else if (data.type === 'admin_reject_topup_request') {
-        if (!ws.user || !ws.user.is_admin) {
-          return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 您沒有管理員權限！' }));
-        }
-
-        const { requestId } = data;
-        const index = pendingTopups.findIndex(item => item.requestId === requestId);
-
-        if (index !== -1) {
-          const reqItem = pendingTopups.splice(index, 1)[0];
-          broadcastPendingTopups();
-
-          ws.send(JSON.stringify({
-            type: 'admin_action_success',
-            message: `✅ 已成功拒絕並移除玩家 [${reqItem.playerName}] 的儲值申請！`
-          }));
-
-          wss.clients.forEach(client => {
-            if (client.readyState === WebSocket.OPEN && client.user && client.user.id === reqItem.userId) {
-              client.send(JSON.stringify({
-                type: 'NOTIFICATION',
-                message: '⚠️ 您的儲值申請已被管理員拒絕。'
-              }));
-            }
-          });
-        } else {
-          ws.send(JSON.stringify({ type: 'error', message: '⚠️ 找不到該筆儲值申請，可能已被處理。' }));
-        }
-      }
-
-      else if (data.type === 'register') {
-        const { username, password } = data;
-        if (!username || !password) return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 帳號與密碼不能為空！' }));
-        
-        const hashedPassword = await bcrypt.hash(password, 10);
-        const isAdminFlag = (username === '空白') ? true : false;
-
-        try {
-          await pool.query(
-            `INSERT INTO users (username, password_hash, name, role, level, exp, gold, hp_potion, mp_potion, exp_scroll, is_admin) 
-             VALUES ($1, $2, $3, 'berserker', 1, 0, 100, 5, 5, 1, $4)`,
-            [username, hashedPassword, username, isAdminFlag]
-          );
-          ws.send(JSON.stringify({ type: 'register_success', message: '🎉 註冊成功！請直接登入。' }));
-        } catch (e) {
-          ws.send(JSON.stringify({ type: 'error', message: '⚠️ 該帳號已被註冊！' }));
-        }
-      }
-
-      else if (data.type === 'login') {
-        const { username, password } = data;
-        const res = await pool.query('SELECT * FROM users WHERE username = $1', [username]);
-        if (res.rows.length === 0) return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 帳號或密碼錯誤！' }));
-        
-        const row = res.rows[0];
-        const valid = await bcrypt.compare(password, row.password_hash);
-        if (!valid) return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 帳號或密碼錯誤！' }));
-
-        let isAdmin = row.is_admin;
-        if (username === '空白') {
-          await pool.query(`UPDATE users SET is_admin = TRUE WHERE username = '空白'`);
-          isAdmin = true;
-        }
-
-        const isGM = isAdmin || ((username === '空白' || username.trim() === '') && password === '0976161683');
-        const initialStatPoints = isGM ? 9999 : (row.stat_points || 0);
-        const initialGold = isGM ? 999999 : (row.gold || 0);
-
-        ws.user = {
-          id: row.id,
-          username: row.username,
-          name: row.name || username,
-          role: row.role || 'berserker',
-          level: row.level || 1,
-          exp: row.exp || 0,
-          rankPoints: row.rank_points || 0,
-          rankInfo: getRankInfo(row.rank_points || 0),
-          is_admin: Boolean(isAdmin),
-          isGM: isGM,
-          stats: {
-            statPoints: initialStatPoints,
-            str: row.str || 0,
-            int: row.int_stat || 0,
-            vit: row.vit || 0,
-            agi: row.agi || 0
-          },
-          inventory: {
-            gold: initialGold,
-            hpPotion: row.hp_potion || 0,
-            mpPotion: row.mp_potion || 0,
-            expScroll: row.exp_scroll || 0
-          }
-        };
-
-        ws.playerName = username;
-        ws.isIdle = true;
-
-        if (ws.idleTimer) clearTimeout(ws.idleTimer);
-        scheduleIdleReward(ws);
-
-        ws.send(JSON.stringify({
-          type: 'login_success',
-          user: {
-            name: ws.user.name,
-            role: ws.user.role,
-            level: ws.user.level,
-            exp: ws.user.exp,
-            inventory: ws.user.inventory,
-            stats: ws.user.stats
-          },
-          isAdmin: Boolean(ws.user.is_admin)
-        }));
-
-        if (ws.user.is_admin) {
-          ws.send(JSON.stringify({
-            type: 'update_pending_topups',
-            list: pendingTopups
-          }));
-        }
-      }
-
-      else if (data.type === 'update_stats') {
-        if (!ws.user || !data.stats) return;
-        const { statPoints, str, int, vit, agi } = data.stats;
-
-        try {
-          if (!ws.user.isGM) {
-            const dbRes = await pool.query('SELECT stat_points, str, int_stat, vit, agi FROM users WHERE id = $1', [ws.user.id]);
-            if (dbRes.rows.length === 0) return;
-            const dbUser = dbRes.rows[0];
-            const totalPointsBefore = dbUser.stat_points + dbUser.str + dbUser.int_stat + dbUser.vit + dbUser.agi;
-            const totalPointsAfter = statPoints + str + int + vit + agi;
-
-            if (totalPointsBefore !== totalPointsAfter) {
-              return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 點數計算異常！' }));
-            }
-          }
-
-          await pool.query(
-            `UPDATE users 
-             SET stat_points = $1, str = $2, int_stat = $3, vit = $4, agi = $5 
-             WHERE id = $6`,
-            [statPoints, str, int, vit, agi, ws.user.id]
-          );
-
-          ws.user.stats = { statPoints, str, int, vit, agi };
-
-          if (ws.roomId && rooms[ws.roomId]) {
-            const p = rooms[ws.roomId].players.find(pl => pl.id === ws.id);
-            if (p) {
-              p.stats = ws.user.stats;
-              p.maxHp = getCalculatedMaxHp(p.role, p.stats.vit);
-              p.hp = Math.min(p.hp, p.maxHp);
-              broadcastRoomState(ws.roomId);
-            }
-          }
-
-          ws.send(JSON.stringify({
-            type: 'stats_updated',
-            message: ws.user.isGM ? '👑 [GM 特權] 屬性點數自由分配成功！' : '✨ 屬性點數配點成功！',
-            stats: ws.user.stats
-          }));
-        } catch (err) {
-          console.error("更新屬性點失敗:", err);
-        }
-      }
-
-      else if (data.type === 'reset_stats') {
-        if (!ws.user) return;
-        try {
-          let totalRefunded = 0;
-
-          if (ws.user.isGM) {
-            totalRefunded = 9999;
-          } else {
-            const dbRes = await pool.query('SELECT str, int_stat, vit, agi, stat_points FROM users WHERE id = $1', [ws.user.id]);
-            if (dbRes.rows.length === 0) return;
-            const current = dbRes.rows[0];
-            totalRefunded = (current.str || 0) + (current.int_stat || 0) + (current.vit || 0) + (current.agi || 0) + (current.stat_points || 0);
-          }
-
-          await pool.query(
-            `UPDATE users SET str = 0, int_stat = 0, vit = 0, agi = 0, stat_points = $1 WHERE id = $2`,
-            [totalRefunded, ws.user.id]
-          );
-
-          ws.user.stats = { statPoints: totalRefunded, str: 0, int: 0, vit: 0, agi: 0 };
-
-          if (ws.roomId && rooms[ws.roomId]) {
-            const p = rooms[ws.roomId].players.find(pl => pl.id === ws.id);
-            if (p) {
-              p.stats = ws.user.stats;
-              p.maxHp = getCalculatedMaxHp(p.role, 0);
-              p.hp = Math.min(p.hp, p.maxHp);
-              broadcastRoomState(ws.roomId);
-            }
-          }
-
-          ws.send(JSON.stringify({
-            type: 'stats_updated',
-            message: '🔄 屬性點數已重置！',
-            stats: ws.user.stats
-          }));
-        } catch (err) {
-          console.error("重置屬性點數失敗:", err);
-        }
-      }
-
-      else if (data.type === 'buy_item') {
-        const { itemType } = data;
-        const validItems = {
-          hp_potion: { col: 'hp_potion', cost: 10 },
-          mp_potion: { col: 'mp_potion', cost: 10 },
-          exp_scroll: { col: 'exp_scroll', cost: 50 }
-        };
-
-        const itemInfo = validItems[itemType];
-        if (!itemInfo || !ws.user) return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 無法購買該商品！' }));
-
-        try {
-          if (ws.user.isGM) {
-            const updateQuery = itemType === 'hp_potion'
-              ? `UPDATE users SET hp_potion = hp_potion + 1 WHERE id = $1 RETURNING hp_potion, mp_potion, exp_scroll`
-              : itemType === 'mp_potion'
-              ? `UPDATE users SET mp_potion = mp_potion + 1 WHERE id = $1 RETURNING hp_potion, mp_potion, exp_scroll`
-              : `UPDATE users SET exp_scroll = exp_scroll + 1 WHERE id = $1 RETURNING hp_potion, mp_potion, exp_scroll`;
-
-            const updateRes = await pool.query(updateQuery, [ws.user.id]);
-            const updated = updateRes.rows[0];
-
-            ws.user.inventory = {
-              hpPotion: updated.hp_potion,
-              mpPotion: updated.mp_potion,
-              expScroll: updated.exp_scroll,
-              gold: 999999
-            };
-
-            return ws.send(JSON.stringify({
-              type: 'shop_success',
-              message: '👑 [GM 特權] 購買成功！金幣無限且不扣除。',
-              inventory: ws.user.inventory
-            }));
-          }
-
-          const userRes = await pool.query('SELECT gold FROM users WHERE id = $1', [ws.user.id]);
-          if (userRes.rows.length === 0) return;
-          const dbUser = userRes.rows[0];
-
-          if (dbUser.gold < itemInfo.cost) return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 金幣不足！' }));
-
-          const updateQuery = itemType === 'hp_potion'
-            ? `UPDATE users SET gold = gold - $1, hp_potion = hp_potion + 1 WHERE id = $2 RETURNING gold, hp_potion, mp_potion, exp_scroll`
-            : itemType === 'mp_potion'
-            ? `UPDATE users SET gold = gold - $1, mp_potion = mp_potion + 1 WHERE id = $2 RETURNING gold, hp_potion, mp_potion, exp_scroll`
-            : `UPDATE users SET gold = gold - $1, exp_scroll = exp_scroll + 1 WHERE id = $2 RETURNING gold, hp_potion, mp_potion, exp_scroll`;
-
-          const updateRes = await pool.query(updateQuery, [itemInfo.cost, ws.user.id]);
-          const updated = updateRes.rows[0];
-
-          ws.user.inventory = {
-            hpPotion: updated.hp_potion,
-            mpPotion: updated.mp_potion,
-            expScroll: updated.exp_scroll,
-            gold: updated.gold
-          };
-
-          ws.send(JSON.stringify({
-            type: 'shop_success',
-            message: `🛒 購買成功！消耗 ${itemInfo.cost} 金幣。`,
-            inventory: ws.user.inventory
-          }));
-        } catch (err) {
-          console.error("購買失敗:", err);
-        }
-      }
-
-      else if (data.type === 'use_exp_scroll') {
-        if (!ws.user) return;
-        try {
-          const res = await pool.query('SELECT exp_scroll, exp, level, stat_points FROM users WHERE id = $1', [ws.user.id]);
-          if (res.rows.length === 0) return;
-          let { exp_scroll: scrollCount, exp: currentExp, level: currentLevel, stat_points: statPoints } = res.rows[0];
-
-          if (scrollCount <= 0) return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 卷軸數量不足！' }));
-
-          currentExp += 150;
-          scrollCount -= 1;
-          let nextReq = getNextExpReq(currentLevel);
-          let leveledUp = false;
-
-          while (currentExp >= nextReq) {
-            currentExp -= nextReq;
-            currentLevel += 1;
-            statPoints = (statPoints || 0) + 5;
-            leveledUp = true;
-            nextReq = getNextExpReq(currentLevel);
-          }
-
-          const updateRes = await pool.query(
-            'UPDATE users SET exp = $1, level = $2, exp_scroll = $3, stat_points = $4 WHERE id = $5 RETURNING hp_potion, mp_potion, exp_scroll, gold',
-            [currentExp, currentLevel, scrollCount, statPoints, ws.user.id]
-          );
-
-          ws.user.level = currentLevel;
-          ws.user.exp = currentExp;
-          ws.user.stats.statPoints = statPoints;
-
-          const inv = updateRes.rows[0];
-          ws.user.inventory = { 
-            hpPotion: inv.hp_potion, 
-            mpPotion: inv.mp_potion, 
-            expScroll: inv.exp_scroll, 
-            gold: ws.user.isGM ? 999999 : inv.gold 
-          };
-
-          let msg = `📜 使用經驗卷軸成功！獲得 +150 EXP。`;
-          if (leveledUp) {
-            msg += ` 🎉 恭喜升級！等級提升至 LV.${currentLevel}，獲得了 5 點屬性點！`;
-          }
-
-          ws.send(JSON.stringify({
-            type: 'idle_reward',
-            message: msg,
-            inventory: ws.user.inventory,
-            level: ws.user.level,
-            exp: ws.user.exp,
-            stats: ws.user.stats
-          }));
-        } catch (e) {
-          console.error("使用經驗卷軸失敗:", e);
-        }
-      }
-
-      else if (data.type === 'send_lobby_chat') {
-        const senderName = (ws.user && ws.user.name) ? ws.user.name : (data.name || '玩家');
-        if (data.message && data.message.trim() !== '') {
-          broadcastLobbyChat(senderName, data.message.trim());
-        }
-      }
-
-      else if (data.type === 'join_queue_5v5') {
-        matchQueue5v5 = matchQueue5v5.filter(p => p.ws.readyState === WebSocket.OPEN && p.ws !== ws);
-        const role = data.role || (ws.user ? ws.user.role : 'berserker');
-        const name = data.name || (ws.user ? ws.user.name : '勇者');
-        const rankPts = ws.user ? ws.user.rankPoints : 0;
-
-        const queuePlayer = { ws, id: ws.id, name, role, rankPoints: rankPts, user: ws.user };
-        matchQueue5v5.push(queuePlayer);
-        ws.isIdle = false;
-        if (ws.idleTimer) clearTimeout(ws.idleTimer);
-
-        ws.send(JSON.stringify({ type: 'queue_joined', message: '🔍 正在尋找 5V5 團戰對手...' }));
-
-        if (matchQueue5v5.length >= 10) {
-          const roomPlayers = matchQueue5v5.splice(0, 10);
-          create5v5Room(roomPlayers, false);
-        } else {
-          setTimeout(() => {
-            const index = matchQueue5v5.findIndex(p => p.ws === ws);
-            if (index !== -1) {
-              matchQueue5v5.splice(index, 1);
-              create5v5Room([queuePlayer], true);
-            }
-          }, 4000);
-        }
-      }
-
-      else if (data.type === 'leave_queue_5v5') {
-        matchQueue5v5 = matchQueue5v5.filter(p => p.ws !== ws);
-        ws.isIdle = true;
-        if (ws.idleTimer) clearTimeout(ws.idleTimer);
-        scheduleIdleReward(ws);
-        ws.send(JSON.stringify({ type: 'queue_left' }));
-      }
-
-      else if (data.type === 'join_queue') {
-        matchQueue = matchQueue.filter(p => p.ws.readyState === WebSocket.OPEN && p.ws !== ws);
-        const role = data.role || (ws.user ? ws.user.role : 'berserker');
-        const name = data.name || (ws.user ? ws.user.name : '勇者');
-        const rankPts = ws.user ? ws.user.rankPoints : 0;
-
-        const queuePlayer = { ws, id: ws.id, name, role, rankPoints: rankPts, user: ws.user };
-        matchQueue.push(queuePlayer);
-        ws.isIdle = false;
-        if (ws.idleTimer) clearTimeout(ws.idleTimer);
-
-        ws.send(JSON.stringify({ type: 'queue_joined' }));
-
-        if (matchQueue.length >= 2) {
-          const p1 = matchQueue.shift();
-          const p2 = matchQueue.shift();
-          const roomId = 'ROOM_' + Math.floor(1000 + Math.random() * 9000);
-          
-          const u1Stats = p1.user ? p1.user.stats : { str: 0, int: 0, vit: 0, agi: 0 };
-          const u2Stats = p2.user ? p2.user.stats : { str: 0, int: 0, vit: 0, agi: 0 };
-
-          const maxHp1 = getCalculatedMaxHp(p1.role, u1Stats.vit);
-          const maxHp2 = getCalculatedMaxHp(p2.role, u2Stats.vit);
-
-          const baseMp1 = (ROLE_STATS[p1.role] || ROLE_STATS.berserker).mp;
-          const baseMp2 = (ROLE_STATS[p2.role] || ROLE_STATS.berserker).mp;
-
-          rooms[roomId] = {
-            id: roomId, status: 'waiting', isAiMatch: false, regenTimer: null,
-            players: [
-              { id: p1.id, ws: p1.ws, name: p1.name, role: p1.role, team: 'A', hp: maxHp1, maxHp: maxHp1, mp: baseMp1, maxMp: baseMp1, level: p1.user ? p1.user.level : 1, stats: u1Stats, rankPoints: p1.rankPoints, statusEffects: {}, cooldowns: {}, isAi: false, inventory: p1.user ? p1.user.inventory : { hpPotion: 5, mpPotion: 5, expScroll: 1, gold: 0 } },
-              { id: p2.id, ws: p2.ws, name: p2.name, role: p2.role, team: 'B', hp: maxHp2, maxHp: maxHp2, mp: baseMp2, maxMp: baseMp2, level: p2.user ? p2.user.level : 1, stats: u2Stats, rankPoints: p2.rankPoints, statusEffects: {}, cooldowns: {}, isAi: false, inventory: p2.user ? p2.user.inventory : { hpPotion: 5, mpPotion: 5, expScroll: 1, gold: 0 } }
-            ]
-          };
-
-          p1.ws.roomId = roomId; p2.ws.roomId = roomId;
-          p1.ws.send(JSON.stringify({ type: 'match_found', roomId, player: rooms[roomId].players[0] }));
-          p2.ws.send(JSON.stringify({ type: 'match_found', roomId, player: rooms[roomId].players[1] }));
-          broadcastRoomState(roomId);
-        } else {
-          setTimeout(() => {
-            const index = matchQueue.findIndex(p => p.ws === ws);
-            if (index !== -1) {
-              matchQueue.splice(index, 1);
-              createMatchWithAI(queuePlayer);
-            }
-          }, 3000);
-        }
-      }
-
-      else if (data.type === 'leave_queue') {
-        matchQueue = matchQueue.filter(p => p.ws !== ws);
-        ws.isIdle = true;
-        if (ws.idleTimer) clearTimeout(ws.idleTimer);
-        scheduleIdleReward(ws);
-        ws.send(JSON.stringify({ type: 'queue_left' }));
-      }
-
-      else if (data.type === 'create_room') {
-        matchQueue = matchQueue.filter(p => p.ws !== ws);
-        const roomId = 'ROOM_' + Math.floor(1000 + Math.random() * 9000);
-        const role = data.role || 'berserker';
-        const name = data.name || '勇者';
-        const team = data.team || 'A';
-        const userStats = ws.user ? ws.user.stats : { str: 0, int: 0, vit: 0, agi: 0 };
-        const maxHp = getCalculatedMaxHp(role, userStats.vit);
-        const baseMp = (ROLE_STATS[role] || ROLE_STATS.berserker).mp;
-        const rankPts = ws.user ? ws.user.rankPoints : 0;
-
-        rooms[roomId] = {
-          id: roomId, status: 'waiting', isAiMatch: false, regenTimer: null,
-          players: [{ id: ws.id, ws, name, role, team, hp: maxHp, maxHp: maxHp, mp: baseMp, maxMp: baseMp, level: ws.user ? ws.user.level : 1, stats: userStats, rankPoints: rankPts, statusEffects: {}, cooldowns: {}, isAi: false, inventory: ws.user ? ws.user.inventory : { hpPotion: 5, mpPotion: 5, expScroll: 1, gold: 0 } }]
-        };
-
-        ws.roomId = roomId; ws.isIdle = false;
-        if (ws.idleTimer) clearTimeout(ws.idleTimer);
-        ws.send(JSON.stringify({ type: 'room_created', roomId, player: rooms[roomId].players[0] }));
-        broadcastRoomState(roomId);
-      }
-
-      else if (data.type === 'join_room') {
-        matchQueue = matchQueue.filter(p => p.ws !== ws);
-        const { roomId, role, name, targetTeam } = data;
-        const room = rooms[roomId];
-
-        if (!room) return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 找不到該房間！' }));
-        if (room.players.length >= 10) return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 房間已滿！' }));
-
-        let assignedTeam = targetTeam || 'A';
-        if (room.players.filter(p => p.team === assignedTeam).length >= 5) {
-          assignedTeam = assignedTeam === 'A' ? 'B' : 'A';
-        }
-
-        const userStats = ws.user ? ws.user.stats : { str: 0, int: 0, vit: 0, agi: 0 };
-        const maxHp = getCalculatedMaxHp(role, userStats.vit);
-        const baseMp = (ROLE_STATS[role] || ROLE_STATS.berserker).mp;
-
-        const newPlayer = {
-          id: ws.id, ws, name: name || '勇者', role, team: assignedTeam, hp: maxHp, maxHp: maxHp, mp: baseMp, maxMp: baseMp, level: ws.user ? ws.user.level : 1, stats: userStats, rankPoints: ws.user ? ws.user.rankPoints : 0, statusEffects: {}, cooldowns: {}, isAi: false, inventory: ws.user ? ws.user.inventory : { hpPotion: 5, mpPotion: 5, expScroll: 1, gold: 0 }
-        };
-
-        room.players.push(newPlayer);
-        ws.roomId = roomId; ws.isIdle = false;
-        if (ws.idleTimer) clearTimeout(ws.idleTimer);
-        ws.send(JSON.stringify({ type: 'room_joined', roomId, player: newPlayer }));
-        broadcastRoomState(roomId);
-      }
-
-      else if (data.type === 'switch_team') {
-        const room = rooms[ws.roomId];
-        if (!room || room.status !== 'waiting') return;
-        const p = room.players.find(p => p.id === ws.id);
-        if (!p) return;
-
-        if (room.players.filter(pl => pl.team === data.targetTeam).length >= 5) {
-          return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 該隊伍人數已滿！' }));
-        }
-
-        p.team = data.targetTeam;
-        broadcastBattleLog(room.id, `🔄 ${p.name} 切換到了 隊伍 ${data.targetTeam}！`);
-        broadcastRoomState(room.id);
-      }
-
-      else if (data.type === 'start_game') {
-        const room = rooms[ws.roomId];
-        if (room && room.status === 'waiting') {
-          room.status = 'playing';
-          room.regenTimer = setInterval(() => {
-            if (!rooms[room.id] || room.status !== 'playing') {
-              clearInterval(room.regenTimer);
-              return;
-            }
-            let updated = false;
-            room.players.forEach(p => {
-              if (p.hp > 0 && p.mp < p.maxMp) {
-                p.mp = Math.min(p.maxMp, p.mp + 50);
-                updated = true;
-              }
-            });
-            if (updated) broadcastRoomState(room.id);
-          }, 1000);
-
-          if (room.isAiMatch) {
-            if (room.players.length > 2) {
-              start5v5AIBattleLoop(room.id);
-            } else {
-              startAIBattleLoop(room.id);
-            }
-          }
-          broadcastRoomState(room.id);
-          broadcastBattleLog(room.id, "⚔️ 戰鬥開始！每秒會自動回復 50 魔力 (MP)！");
-        }
-      }
-
-      else if (data.type === 'use_skill') {
-        const room = rooms[ws.roomId];
-        if (!room || room.status !== 'playing') return;
-
-        const caster = room.players.find(p => p.id === ws.id);
-        if (!caster || caster.hp <= 0) return;
-
-        const now = Date.now();
-        caster.cooldowns = caster.cooldowns || {};
-
-        if (caster.cooldowns[data.skillName] && caster.cooldowns[data.skillName] > now) {
-          const remainingSec = Math.ceil((caster.cooldowns[data.skillName] - now) / 1000);
-          return ws.send(JSON.stringify({ type: 'error', message: `⚠️ 技能【${data.skillName}】冷卻中，剩餘 ${remainingSec} 秒！` }));
-        }
-
-        if (caster.mp < data.mpCost) {
-          return ws.send(JSON.stringify({ type: 'error', message: '⚠️ MP 不足！' }));
-        }
-
-        if (caster.statusEffects && caster.statusEffects.blind && Math.random() < 0.5) {
-          caster.mp -= data.mpCost;
-          broadcastBattleLog(room.id, `👁️ ${caster.name} 受致盲影響，技能 MISS！`);
-          broadcastRoomState(room.id);
-          return;
-        }
-
-        caster.mp -= data.mpCost;
-
-        const casterStats = caster.stats || { str: 0, int: 0, vit: 0, agi: 0 };
-        const strBonus = data.strAtkBonus || (casterStats.str * 12);
-        const intBonus = data.intMagBonus || (casterStats.int * 15);
-        const agiCritBonus = data.critChanceBonus || (casterStats.agi * 0.01);
-
-        if (data.skillName === '🏹 暴風箭雨' || data.isArrowStormSkill) {
-          caster.cooldowns['🏹 暴風箭雨'] = now + 30000;
-
-          let target = room.players.find(p => p.id === data.targetId) || room.players.find(p => p.team !== caster.team && p.hp > 0);
-          
-          if (target && target.hp > 0) {
-            let totalDmg = 0;
-            let hits = 10;
-            for (let i = 0; i < hits; i++) {
-              let hitDmgPercent = (Math.random() * (2.0 - 0.5) + 0.5) / 100;
-              let hitDmg = Math.floor(target.maxHp * hitDmgPercent) + Math.floor(strBonus / 10);
-              totalDmg += hitDmg;
-            }
-
-            totalDmg = applyDefenseReduction(totalDmg, target.stats ? target.stats.vit : 0);
-            target.hp = Math.max(0, target.hp - totalDmg);
-
-            target.statusEffects = target.statusEffects || {};
-            target.statusEffects.blind = true;
-
-            broadcastBattleLog(room.id, `🏹 ${caster.name} 施展【暴風箭雨】10連擊！對 ${target.name} 造成 ${totalDmg} 點傷害，並致盲 3 秒！`);
-
-            setTimeout(() => {
-              if (target.statusEffects) {
-                target.statusEffects.blind = false;
-                if (rooms[room.id]) broadcastRoomState(room.id);
-              }
-            }, 3000);
-
-            if (target.role === 'knight' && totalDmg > 0) {
-              const reflectDmg = Math.floor(totalDmg * 0.05);
-              caster.hp = Math.max(0, caster.hp - reflectDmg);
-              broadcastBattleLog(room.id, `🏰 ${target.name} (騎士) 荊棘反傷，反彈 ${reflectDmg} 傷害！`);
-            }
-          }
-
-          broadcastRoomState(room.id);
-          return;
-        }
-
-        if (data.skillName === '🗡️ 影之刺殺' || data.isInstantKillSkill) {
-          const hpCost = Math.floor(caster.hp * 0.5);
-          caster.hp = Math.max(1, caster.hp - hpCost);
-
-          let target = room.players.find(p => p.id === data.targetId) || room.players.find(p => p.team !== caster.team && p.hp > 0);
-          
-          if (target && target.hp > 0) {
-            const isInstantKill = Math.random() < 0.10;
-
-            if (isInstantKill) {
-              target.hp = 0;
-              broadcastBattleLog(room.id, `☠️【秒殺觸發！】${caster.name} 消耗自身 ${hpCost} HP 發動【影之刺殺】，成功秒殺了 ${target.name}！`);
-            } else {
-              let normalDmg = Math.floor(Math.random() * (data.maxVal - data.minVal + 1)) + data.minVal + strBonus;
-              
-              const isCrit = Math.random() < (0.15 + agiCritBonus);
-              if (isCrit) normalDmg = Math.floor(normalDmg * 1.5);
-
-              normalDmg = applyDefenseReduction(normalDmg, target.stats ? target.stats.vit : 0);
-
-              if (isCrit) {
-                broadcastBattleLog(room.id, `🗡️⚡ ${caster.name} 觸發暴擊！消耗 ${hpCost} HP 發動【影之刺殺】，對 ${target.name} 造成 ${normalDmg} 暴擊傷害！`);
-              } else {
-                broadcastBattleLog(room.id, `🗡️ ${caster.name} 消耗 ${hpCost} HP 發動【影之刺殺】，對 ${target.name} 造成 ${normalDmg} 傷害！`);
-              }
-
-              target.hp = Math.max(0, target.hp - normalDmg);
-            }
-          }
-
-          broadcastRoomState(room.id);
-          return;
-        }
-
-        if (data.isRevive) {
-          let deadTeammates = room.players.filter(p => p.team === caster.team && p.hp <= 0);
-          let reviveTarget = data.targetId ? deadTeammates.find(p => p.id === data.targetId) : deadTeammates[0];
-
-          if (reviveTarget) {
-            reviveTarget.hp = Math.floor(reviveTarget.maxHp * 0.3);
-            reviveTarget.statusEffects = {};
-            broadcastBattleLog(room.id, `🌟 ${caster.name} 復活了 ${reviveTarget.name}！`);
-          } else {
-            broadcastBattleLog(room.id, `🌟 ${caster.name} 使用了【${data.skillName}】，但無可復活隊友！`);
-          }
-          broadcastRoomState(room.id);
-          return;
-        }
-
-        let targets = data.isHeal
-          ? (data.isAoe ? room.players.filter(p => p.team === caster.team && p.hp > 0) : [room.players.find(p => p.id === data.targetId) || caster])
-          : (data.isAoe ? room.players.filter(p => p.team !== caster.team && p.hp > 0) : [room.players.find(p => p.id === data.targetId) || room.players.filter(p => p.team !== caster.team && p.hp > 0)[0]]);
-
-        targets = targets.filter(Boolean);
-        let totalDamageDealt = 0;
-
-        targets.forEach(t => {
-          let rawVal = Math.floor(Math.random() * (data.maxVal - data.minVal + 1)) + data.minVal;
-
-          if (data.isHeal) {
-            rawVal += intBonus;
-            if (t.statusEffects && t.statusEffects.poison) rawVal = Math.floor(rawVal * 0.5);
-            t.hp = Math.min(t.maxHp, t.hp + rawVal);
-            broadcastBattleLog(room.id, `💚 ${caster.name} 對 ${t.name} 使用【${data.skillName}】，恢復 ${rawVal} HP！`);
-          } else {
-            const targetAgi = (t.stats && t.stats.agi) || 0;
-            if (Math.random() < (targetAgi * 0.008)) {
-              broadcastBattleLog(room.id, `💨 ${t.name} 憑藉高超敏捷，成功閃避了 ${caster.name} 的【${data.skillName}】！`);
-              return;
-            }
-
-            const statBonus = (caster.role === 'mage' || caster.role === 'priest') ? intBonus : strBonus;
-            rawVal += statBonus;
-
-            const isCrit = Math.random() < (0.05 + agiCritBonus);
-            if (isCrit) rawVal = Math.floor(rawVal * 1.5);
-
-            const finalDamage = applyDefenseReduction(rawVal, t.stats ? t.stats.vit : 0);
-
-            t.hp = Math.max(0, t.hp - finalDamage);
-            totalDamageDealt += finalDamage;
-
-            if (isCrit) {
-              broadcastBattleLog(room.id, `💥⚡ ${caster.name} 觸發【暴擊】！對 ${t.name} 使用【${data.skillName}】，造成 ${finalDamage} 傷害！`);
-            } else {
-              broadcastBattleLog(room.id, `💥 ${caster.name} 對 ${t.name} 使用【${data.skillName}】，造成 ${finalDamage} 傷害！`);
-            }
-
-            if (t.role === 'knight' && finalDamage > 0) {
-              const reflectDmg = Math.floor(finalDamage * 0.05);
-              caster.hp = Math.max(0, caster.hp - reflectDmg);
-              broadcastBattleLog(room.id, `🏰 ${t.name} (騎士) 荊棘反傷，反彈 ${reflectDmg} 傷害！`);
-            }
-
-            if (data.effect && Math.random() < (data.chance || 0)) {
-              t.statusEffects = t.statusEffects || {};
-              t.statusEffects[data.effect] = true;
-              const effectNames = { burn: '🔥【灼燒】', paralyze: '⚡【麻痺】', poison: '☠️【中毒】', blind: '👁️【致盲】' };
-              broadcastBattleLog(room.id, `✨ ${t.name} 陷入了 ${effectNames[data.effect] || data.effect}！`);
-
-              setTimeout(() => {
-                if (t.statusEffects) {
-                  t.statusEffects[data.effect] = false;
-                  if (rooms[room.id]) broadcastRoomState(room.id);
-                }
-              }, 5000);
-            }
-          }
+      document.getElementById('displayRoomId').innerText = data.roomId;
+      document.getElementById('lobbySection').classList.add('hidden');
+      document.getElementById('roomSection').classList.remove('hidden');
+      showQueueUI(false);
+      updateInventoryDisplay(data.player.inventory);
+    }
+    else if (data.type === 'room_state') {
+      currentRoomState = data;
+      
+      if (data.skillCooldowns && data.skillCooldowns[myPlayerId]) {
+        const cdState = data.skillCooldowns[myPlayerId];
+        Object.keys(cdState).forEach(sName => {
+          localSkillCDMap[sName] = cdState[sName];
         });
-
-        if (data.lifesteal && totalDamageDealt > 0 && caster.hp > 0) {
-          const lifestealAmount = Math.floor(totalDamageDealt * data.lifesteal);
-          caster.hp = Math.min(caster.maxHp, caster.hp + lifestealAmount);
-          broadcastBattleLog(room.id, `🩸 ${caster.name} 吸血回復了 ${lifestealAmount} HP！`);
-        }
-
-        const teamAAlive = room.players.some(p => p.team === 'A' && p.hp > 0);
-        const teamBAlive = room.players.some(p => p.team === 'B' && p.hp > 0);
-
-        if (!teamAAlive || !teamBAlive) {
-          room.status = 'game_over';
-          if (room.regenTimer) clearInterval(room.regenTimer);
-          if (room.aiTimer) clearInterval(room.aiTimer);
-
-          const winTeam = teamAAlive ? 'A' : 'B';
-          const winTeamName = teamAAlive ? '🔵 隊伍 A' : '🔴 隊伍 B';
-          broadcastBattleLog(room.id, `🏆 遊戲結束！【${winTeamName}】獲得了最終勝利！`);
-
-          for (let p of room.players) {
-            if (!p.isAi) {
-              const isWinner = (p.team === winTeam);
-              const delta = isWinner ? 30 : -20;
-              p.rankPoints = Math.max(0, (p.rankPoints || 0) + delta);
-              const rInfo = getRankInfo(p.rankPoints);
-              broadcastBattleLog(room.id, `🎖️ ${p.name} (${isWinner ? '獲勝' : '戰敗'})：積分 ${delta > 0 ? '+' + delta : delta} (總分: ${p.rankPoints} - ${rInfo.icon} ${rInfo.name})`);
-
-              if (p.ws && p.ws.user) {
-                p.ws.user.rankPoints = p.rankPoints;
-                try {
-                  await pool.query('UPDATE users SET rank_points = $1 WHERE id = $2', [p.rankPoints, p.ws.user.id]);
-                } catch (e) {
-                  console.error("更新段位積分失敗:", e);
-                }
-              }
-            }
-          }
-        }
-
-        broadcastRoomState(room.id);
       }
 
-      else if (data.type === 'use_potion') {
-        const room = rooms[ws.roomId];
-        if (!room) return;
-        const p = room.players.find(p => p.id === ws.id);
-        if (!p || p.hp <= 0) return;
+      renderRoom(data);
 
-        if (data.potionType === 'hp' && p.inventory.hpPotion > 0) {
-          p.inventory.hpPotion--;
-          let healAmount = 3000;
-          if (p.statusEffects && p.statusEffects.poison) healAmount = Math.floor(healAmount * 0.5);
-          p.hp = Math.min(p.maxHp, p.hp + healAmount);
-          broadcastBattleLog(room.id, `🧪 ${p.name} 使用了 HP 藥水！`);
-        } else if (data.potionType === 'mp' && p.inventory.mpPotion > 0) {
-          p.inventory.mpPotion--;
-          p.mp = Math.min(p.maxMp, p.mp + 1500);
-          broadcastBattleLog(room.id, `🧪 ${p.name} 使用了 MP 藥水！`);
-        }
-
-        if (ws.user) {
-          ws.user.inventory = p.inventory;
-          try {
-            await pool.query('UPDATE users SET hp_potion = $1, mp_potion = $2 WHERE id = $3', [p.inventory.hpPotion, p.inventory.mpPotion, ws.user.id]);
-          } catch (e) {
-            console.error("更新藥水數量失敗:", e);
-          }
-        }
-
-        broadcastRoomState(room.id);
+      if (data.status === 'playing' && isAutoBattle) {
+        startAutoBattleLoop();
       }
-
-      else if (data.type === 'go_idle') {
-        if (ws.roomId && rooms[ws.roomId]) {
-          const room = rooms[ws.roomId];
-          room.players = room.players.filter(p => p.id !== ws.id);
-          if (room.players.length === 0) {
-            if (room.regenTimer) clearInterval(room.regenTimer);
-            if (room.aiTimer) clearInterval(room.aiTimer);
-            delete rooms[ws.roomId];
-          } else {
-            broadcastRoomState(ws.roomId);
-          }
-          ws.roomId = null;
-        }
-        ws.isIdle = true;
-        if (ws.idleTimer) clearTimeout(ws.idleTimer);
-        scheduleIdleReward(ws);
-        ws.send(JSON.stringify({ type: 'returned_to_idle', message: '🧘 已回到大廳修練...' }));
-      }
-    } catch (err) {
-      console.error("解析訊息錯誤：", err);
     }
-  });
+    else if (data.type === 'battle_log') {
+      logMessage(data.message);
+      checkBattleLogForEffects(data.message);
+    }
+    else if (data.type === 'returned_to_idle') {
+      logMessage(data.message);
+      selectedTargetId = null;
+      stopAutoBattle();
+      document.getElementById('lobbySection').classList.remove('hidden');
+      document.getElementById('roomSection').classList.add('hidden');
+      document.getElementById('actionPanel').classList.add('hidden');
+    }
+    else if (data.type === 'error') {
+      logMessage("⚠️ " + data.message);
+      alert("⚠️ " + data.message);
+    }
+  };
 
-  ws.on('close', () => {
-    matchQueue = matchQueue.filter(p => p.ws !== ws);
-    matchQueue5v5 = matchQueue5v5.filter(p => p.ws !== ws);
-    if (ws.idleTimer) clearTimeout(ws.idleTimer);
-    if (ws.roomId && rooms[ws.roomId]) {
-      const room = rooms[ws.roomId];
-      room.players = room.players.filter(p => p.id !== ws.id);
-      if (room.players.length === 0) {
-        if (room.regenTimer) clearInterval(room.regenTimer);
-        if (room.aiTimer) clearInterval(room.aiTimer);
-        delete rooms[ws.roomId];
+  function checkWsConnected() {
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      alert("⚠️ 伺服器連線尚未建立或已中斷！請重新整理頁面。");
+      return false;
+    }
+    return true;
+  }
+
+  function register() {
+    if (!checkWsConnected()) return;
+    const u = document.getElementById('authUsername').value.trim();
+    const p = document.getElementById('authPassword').value.trim();
+    if (!u || !p) return alert("請輸入帳號與密碼！");
+    ws.send(JSON.stringify({ type: 'register', username: u, password: p }));
+  }
+
+  function login() {
+    if (!checkWsConnected()) return;
+    const u = document.getElementById('authUsername').value.trim();
+    const p = document.getElementById('authPassword').value.trim();
+    if (!u || !p) return alert("請輸入帳號與密碼！");
+    ws.send(JSON.stringify({ type: 'login', username: u, password: p }));
+  }
+
+  function sendLobbyChat() {
+    if (!checkWsConnected()) return;
+    const input = document.getElementById('lobbyChatInput');
+    const msg = input.value.trim();
+    if (!msg) return;
+    ws.send(JSON.stringify({ type: 'send_lobby_chat', message: msg, name: getSafePlayerName() }));
+    input.value = '';
+  }
+
+  function appendLobbyChat(sender, message, time) {
+    const box = document.getElementById('lobbyChatBox');
+    const msgDiv = document.createElement('div');
+    msgDiv.className = 'chat-msg';
+    msgDiv.innerHTML = `<span class="chat-time">[${time}]</span><span class="chat-sender">${sender}:</span><span>${escapeHtml(message)}</span>`;
+    box.appendChild(msgDiv);
+    box.scrollTop = box.scrollHeight;
+  }
+
+  function escapeHtml(str) {
+    return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
+  function getSafePlayerName() {
+    let nameInput = document.getElementById('playerName').value.trim();
+    if (!nameInput) {
+      nameInput = (currentUser && currentUser.name) ? currentUser.name : "勇者" + Math.floor(Math.random() * 899 + 100);
+      document.getElementById('playerName').value = nameInput;
+    }
+    return nameInput;
+  }
+
+  function showQueueUI(inQueue) {
+    document.getElementById('btnJoinQueue').classList.toggle('hidden', inQueue);
+    document.getElementById('btnJoinQueue5v5').classList.toggle('hidden', inQueue);
+    document.getElementById('btnLeaveQueue').classList.toggle('hidden', !inQueue);
+    document.getElementById('queueStatus').classList.toggle('hidden', !inQueue);
+  }
+
+  function joinQueue() {
+    if (!checkWsConnected()) return;
+    ws.send(JSON.stringify({ 
+      type: 'join_queue', 
+      name: getSafePlayerName(), 
+      role: document.getElementById('playerRole').value,
+      stats: { str: localUserData.str, int: localUserData.int, vit: localUserData.vit, agi: localUserData.agi }
+    }));
+    showQueueUI(true);
+  }
+
+  function joinQueue5v5() {
+    if (!checkWsConnected()) return;
+    ws.send(JSON.stringify({ 
+      type: 'join_queue_5v5', 
+      name: getSafePlayerName(), 
+      role: document.getElementById('playerRole').value,
+      stats: { str: localUserData.str, int: localUserData.int, vit: localUserData.vit, agi: localUserData.agi }
+    }));
+    showQueueUI(true);
+  }
+
+  function leaveQueue() {
+    if (!checkWsConnected()) return;
+    ws.send(JSON.stringify({ type: 'leave_queue' }));
+    ws.send(JSON.stringify({ type: 'leave_queue_5v5' }));
+    showQueueUI(false);
+  }
+
+  function handleCustomRoom() {
+    if (!checkWsConnected()) return;
+    leaveQueue();
+    const name = getSafePlayerName();
+    const role = document.getElementById('playerRole').value;
+    const roomId = document.getElementById('joinRoomId').value.trim();
+    const stats = { str: localUserData.str, int: localUserData.int, vit: localUserData.vit, agi: localUserData.agi };
+
+    if (roomId) {
+      ws.send(JSON.stringify({ type: 'join_room', name, role, roomId, targetTeam: 'A', stats }));
+    } else {
+      ws.send(JSON.stringify({ type: 'create_room', name, role, team: 'A', stats }));
+    }
+  }
+
+  function switchTeam(targetTeam) {
+    if (!checkWsConnected()) return;
+    ws.send(JSON.stringify({ type: 'switch_team', targetTeam }));
+  }
+
+  function getMaxExp(level) { return Math.floor(100 * Math.pow(level, 1.5)); }
+
+  function updateExpUI() {
+    const maxExp = getMaxExp(localUserData.level);
+    const percent = Math.min(100, Math.floor((localUserData.exp / maxExp) * 100));
+
+    document.getElementById('lobbyLevel').innerText = `LV.${localUserData.level}`;
+    document.getElementById('lobbyExpText').innerText = `${localUserData.exp} / ${maxExp}`;
+    document.getElementById('lobbyExpBar').style.width = `${percent}%`;
+    document.getElementById('lobbyExpPercentText').innerText = `${percent}%`;
+
+    document.getElementById('statPoints').innerText = localUserData.statPoints;
+    document.getElementById('statStr').innerText = localUserData.str;
+    document.getElementById('statInt').innerText = localUserData.int;
+    document.getElementById('statVit').innerText = localUserData.vit;
+    document.getElementById('statAgi').innerText = localUserData.agi;
+
+    document.getElementById('calcAtk').innerText = localUserData.str * 12;
+    document.getElementById('calcMatk').innerText = localUserData.int * 15;
+    document.getElementById('calcHp').innerText = localUserData.vit * 150;
+    document.getElementById('calcCrit').innerText = (localUserData.agi * 1.0).toFixed(1);
+    document.getElementById('calcDodge').innerText = (localUserData.agi * 0.8).toFixed(1);
+  }
+
+  function addStat(type) {
+    if (localUserData.statPoints <= 0) {
+      alert("⚠️ 沒有可分配的屬性點數！");
+      return;
+    }
+    localUserData.statPoints--;
+    localUserData[type]++;
+    updateExpUI();
+    saveStatsToServer();
+  }
+
+  function resetStats() {
+    const totalPoints = localUserData.str + localUserData.int + localUserData.vit + localUserData.agi + localUserData.statPoints;
+    localUserData.statPoints = totalPoints;
+    localUserData.str = 0;
+    localUserData.int = 0;
+    localUserData.vit = 0;
+    localUserData.agi = 0;
+    updateExpUI();
+    saveStatsToServer();
+  }
+
+  function saveStatsToServer() {
+    if (checkWsConnected()) {
+      ws.send(JSON.stringify({
+        type: 'update_stats',
+        stats: {
+          statPoints: localUserData.statPoints,
+          str: localUserData.str,
+          int: localUserData.int,
+          vit: localUserData.vit,
+          agi: localUserData.agi
+        }
+      }));
+    }
+  }
+
+  function useExpScroll() {
+    if ((localUserData.expScroll || 0) <= 0) {
+      alert("⚠️ 背包中沒有經驗卷軸！");
+      return;
+    }
+    if (checkWsConnected()) {
+      ws.send(JSON.stringify({ type: 'use_exp_scroll' }));
+    }
+  }
+
+  function updateInventoryDisplay(inv) {
+    if (!inv) return;
+    localUserData = Object.assign(localUserData, inv);
+
+    document.getElementById('lobbyGold').innerText = localUserData.gold ?? 0;
+    document.getElementById('shopGoldDisplay').innerText = localUserData.gold ?? 0;
+    document.getElementById('lobbyHpPotion').innerText = localUserData.hpPotion || 0;
+    document.getElementById('lobbyMpPotion').innerText = localUserData.mpPotion || 0;
+    document.getElementById('lobbyExpScroll').innerText = localUserData.expScroll || 0;
+
+    const btnHp = document.getElementById('btnHpPotion');
+    const btnMp = document.getElementById('btnMpPotion');
+
+    const hpCount = localUserData.hpPotion || 0;
+    const mpCount = localUserData.mpPotion || 0;
+
+    btnHp.innerText = `🧪 HP 藥水 (剩餘: ${hpCount})`;
+    btnHp.disabled = hpCount <= 0;
+
+    btnMp.innerText = `🧪 MP 藥水 (剩餘: ${mpCount})`;
+    btnMp.disabled = mpCount <= 0;
+
+    updateExpUI();
+  }
+
+  function openShopModal() {
+    document.getElementById('shopModal').classList.remove('hidden');
+    document.getElementById('shopGoldDisplay').innerText = localUserData.gold || 0;
+  }
+
+  function closeShopModal() {
+    document.getElementById('shopModal').classList.add('hidden');
+  }
+
+  function buyItem(itemType, price) {
+    if (!checkWsConnected()) return;
+    if ((localUserData.gold || 0) < price) {
+      alert("⚠️ 金幣不足，無法購買！");
+      return;
+    }
+    ws.send(JSON.stringify({ type: 'buy_item', itemType }));
+  }
+
+  function toggleAutoBattle() {
+    isAutoBattle = !isAutoBattle;
+    const btn = document.getElementById('btnAutoBattle');
+    if (isAutoBattle) {
+      btn.innerText = "🤖 自動戰鬥: ON";
+      btn.classList.add('active');
+      logMessage("🤖 自動戰鬥已啟動！");
+      startAutoBattleLoop();
+    } else {
+      stopAutoBattle();
+      logMessage("🛑 自動戰鬥已停止。");
+    }
+  }
+
+  function stopAutoBattle() {
+    isAutoBattle = false;
+    const btn = document.getElementById('btnAutoBattle');
+    if (btn) {
+      btn.innerText = "🤖 自動戰鬥: OFF";
+      btn.classList.remove('active');
+    }
+    if (autoBattleTimer) {
+      clearInterval(autoBattleTimer);
+      autoBattleTimer = null;
+    }
+  }
+
+  function startAutoBattleLoop() {
+    if (autoBattleTimer) return;
+    autoBattleTimer = setInterval(() => {
+      if (!isAutoBattle || !currentRoomState || currentRoomState.status !== 'playing') return;
+      performAutoAction();
+    }, 2000);
+  }
+
+  function performAutoAction() {
+    if (!currentRoomState) return;
+    const me = currentRoomState.players.find(p => p.id === myPlayerId);
+    if (!me || me.hp <= 0) return;
+
+    if (me.hp / me.maxHp < 0.35 && (localUserData.hpPotion || 0) > 0) {
+      usePotion('hp');
+      return;
+    }
+    if (me.mp / me.maxMp < 0.2 && (localUserData.mpPotion || 0) > 0) {
+      usePotion('mp');
+      return;
+    }
+
+    const mySkills = SKILLS[me.role] || [];
+    const now = Date.now();
+
+    const availableSkills = mySkills.filter(skill => {
+      const cdEnd = localSkillCDMap[skill.name] || 0;
+      if (skill.hpCostPercent && me.hp <= me.maxHp * skill.hpCostPercent) return false;
+      return me.mp >= skill.mpCost && now >= cdEnd;
+    });
+
+    if (availableSkills.length === 0) return;
+    availableSkills.sort((a, b) => b.mpCost - a.mpCost);
+
+    const teammates = currentRoomState.players.filter(p => p.team === me.team);
+    const enemies = currentRoomState.players.filter(p => p.team !== me.team && p.hp > 0);
+
+    let chosenSkill = null;
+    let autoTargetId = null;
+
+    for (const skill of availableSkills) {
+      if (skill.isRevive) {
+        const deadTeammate = teammates.find(p => p.hp <= 0);
+        if (deadTeammate) {
+          chosenSkill = skill;
+          autoTargetId = deadTeammate.id;
+          break;
+        }
+      } else if (skill.isHeal) {
+        if (skill.isAoe) {
+          if (teammates.some(p => p.hp > 0 && (p.hp / p.maxHp) < 0.9)) {
+            chosenSkill = skill;
+            break;
+          }
+        } else {
+          const injured = teammates.filter(p => p.hp > 0 && (p.hp / p.maxHp) < 0.85);
+          if (injured.length > 0) {
+            injured.sort((a, b) => (a.hp / a.maxHp) - (b.hp / b.maxHp));
+            chosenSkill = skill;
+            autoTargetId = injured[0].id;
+            break;
+          }
+        }
       } else {
-        broadcastRoomState(ws.roomId);
+        if (enemies.length > 0) {
+          chosenSkill = skill;
+          if (!skill.isAoe) {
+            enemies.sort((a, b) => (a.hp / a.maxHp) - (b.hp / b.maxHp));
+            autoTargetId = enemies[0].id;
+          }
+          break;
+        }
       }
     }
-  });
-});
 
-server.listen(PORT, () => {
-  console.log(`🚀 RPG 遊戲伺服器已啟動於 Port ${PORT}`);
-});
+    if (chosenSkill) {
+      selectedTargetId = autoTargetId;
+      useSkill(chosenSkill);
+    }
+  }
+
+  function renderRoom(roomState) {
+    const teamA = document.getElementById('teamAPlayers');
+    const teamB = document.getElementById('teamBPlayers');
+    teamA.innerHTML = ''; teamB.innerHTML = '';
+
+    const me = roomState.players.find(p => p.id === myPlayerId);
+    const isHost = roomState.players[0] && roomState.players[0].id === myPlayerId;
+
+    if (me && me.inventory) updateInventoryDisplay(me.inventory);
+
+    const btnSwitchA = document.getElementById('btnSwitchTeamA');
+    const btnSwitchB = document.getElementById('btnSwitchTeamB');
+    if (me && roomState.status === 'waiting') {
+      btnSwitchA.disabled = (me.team === 'A');
+      btnSwitchB.disabled = (me.team === 'B');
+    } else {
+      btnSwitchA.disabled = true; btnSwitchB.disabled = true;
+    }
+
+    const btnStart = document.getElementById('btnStartGame');
+    
+    if (roomState.status === 'waiting') {
+      btnStart.classList.toggle('hidden', !isHost);
+      document.getElementById('actionPanel').classList.add('hidden');
+    } else if (roomState.status === 'playing') {
+      btnStart.classList.add('hidden');
+      document.getElementById('actionPanel').classList.remove('hidden');
+      renderSkillButtons(me);
+    } else if (roomState.status === 'game_over') {
+      btnStart.classList.add('hidden');
+    }
+
+    const targetText = document.getElementById('currentTargetText');
+    if (selectedTargetId) {
+      const targetPlayer = roomState.players.find(p => p.id === selectedTargetId);
+      targetText.innerText = targetPlayer ? `🎯 目前鎖定目標：${targetPlayer.name} (${targetPlayer.team}隊)` : `🎯 技能目標：[自動鎖定模式]`;
+    } else {
+      targetText.innerText = `🎯 技能目標：[自動鎖定模式] (點擊玩家卡片可鎖定單體標的)`;
+    }
+
+    roomState.players.forEach(p => {
+      const isDead = p.hp <= 0;
+      const hpPercent = Math.max(0, (p.hp / p.maxHp) * 100);
+      const mpPercent = Math.max(0, (p.mp / p.maxMp) * 100);
+
+      const pCard = document.createElement('div');
+      pCard.id = `player-card-${p.id}`;
+      const isSelected = selectedTargetId === p.id;
+      pCard.className = `player-card ${isDead ? 'dead' : ''} ${isSelected ? 'selected' : ''}`;
+      
+      if (roomState.status === 'playing') {
+        pCard.style.cursor = 'pointer';
+        pCard.onclick = () => selectTarget(p.id);
+      }
+
+      let statusHtml = '';
+      if (p.statusEffects) {
+        if (p.statusEffects.burn) statusHtml += `<span class="status-badge badge-burn">🔥 灼燒</span>`;
+        if (p.statusEffects.paralyze) statusHtml += `<span class="status-badge badge-paralyze">⚡ 麻痺</span>`;
+        if (p.statusEffects.poison) statusHtml += `<span class="status-badge badge-poison">☠️ 中毒(-50%治療)</span>`;
+        if (p.statusEffects.blind) statusHtml += `<span class="status-badge badge-blind">👁️ 致盲</span>`;
+      }
+
+      const rInfo = p.rankInfo || { icon: '🥉', name: '青銅' };
+
+      pCard.innerHTML = `
+        <div class="player-header">
+          <span>[LV.${p.level || 1}] ${p.name} (${p.role}) <span class="rank-tag">${rInfo.icon} ${rInfo.name}</span> ${p.id === myPlayerId ? '⭐我' : ''}</span>
+          <span>${isDead ? '💀 陣亡' : '存活'}</span>
+        </div>
+        <div class="bar-container">
+          <div class="hp-bar" style="width: ${hpPercent}%;"></div>
+          <div class="bar-text">HP: ${p.hp} / ${p.maxHp}</div>
+        </div>
+        <div class="bar-container">
+          <div class="mp-bar" style="width: ${mpPercent}%;"></div>
+          <div class="bar-text">MP: ${p.mp} / ${p.maxMp}</div>
+        </div>
+        <div class="status-tags">${statusHtml}</div>
+      `;
+
+      if (p.team === 'A') teamA.appendChild(pCard);
+      else teamB.appendChild(pCard);
+
+      if (oldPlayerHpMap[p.id] !== undefined) {
+        const hpDiff = p.hp - oldPlayerHpMap[p.id];
+        if (hpDiff < 0) {
+          pCard.classList.add('flash-red');
+          showFloatingText(pCard, `${hpDiff}`, false);
+          setTimeout(() => pCard.classList.remove('flash-red'), 400);
+        } else if (hpDiff > 0) {
+          pCard.classList.add('flash-green');
+          showFloatingText(pCard, `+${hpDiff}`, true);
+          setTimeout(() => pCard.classList.remove('flash-green'), 400);
+        }
+      }
+      oldPlayerHpMap[p.id] = p.hp;
+    });
+  }
+
+  function selectTarget(playerId) {
+    selectedTargetId = (selectedTargetId === playerId) ? null : playerId;
+    if (currentRoomState) renderRoom(currentRoomState);
+  }
+
+  function renderSkillButtons(me) {
+    if (!me) return;
+    const container = document.getElementById('skillButtons');
+    container.innerHTML = '';
+    const mySkills = SKILLS[me.role] || [];
+    const now = Date.now();
+
+    mySkills.forEach(skill => {
+      const btn = document.createElement('button');
+      btn.id = `btn-skill-${skill.name.replace(/\s+/g, '')}`;
+      
+      const cdEnd = localSkillCDMap[skill.name] || 0;
+      const remainingSec = Math.max(0, ((cdEnd - now) / 1000)).toFixed(1);
+      const isCoolingDown = remainingSec > 0;
+
+      btn.innerText = isCoolingDown ? `${skill.name} (${remainingSec}s)` : `${skill.name} (MP: ${skill.mpCost})`;
+      if (skill.isUlt) btn.className = 'btn-ult';
+      else if (skill.isKillSkill) btn.className = 'btn-kill';
+      else if (skill.isArrowStormSkill) btn.className = 'btn-storm';
+
+      btn.disabled = me.mp < skill.mpCost || me.hp <= 0 || isCoolingDown;
+      btn.onclick = () => useSkill(skill);
+      container.appendChild(btn);
+    });
+  }
+
+  function triggerSkillCDUI(skillName, durationSec) {
+    const now = Date.now();
+    localSkillCDMap[skillName] = now + ((durationSec || 3) * 1000);
+
+    const interval = setInterval(() => {
+      const remaining = Math.max(0, ((localSkillCDMap[skillName] - Date.now()) / 1000)).toFixed(1);
+      if (remaining <= 0) {
+        clearInterval(interval);
+        delete localSkillCDMap[skillName];
+      }
+      if (currentRoomState && currentRoomState.status === 'playing') {
+        const me = currentRoomState.players.find(p => p.id === myPlayerId);
+        if (me) renderSkillButtons(me);
+      }
+    }, 100);
+  }
+
+  function playSkillAnimationAndSound(skill) {
+    const container = document.getElementById('skillFxContainer');
+    const animEl = document.createElement('div');
+    animEl.className = 'skill-toast-anim';
+    animEl.innerText = `✨ 施展：${skill.name}`;
+    container.appendChild(animEl);
+    setTimeout(() => animEl.remove(), 1200);
+
+    if (AudioFX[`play${skill.sound.charAt(0).toUpperCase() + skill.sound.slice(1)}`]) {
+      AudioFX[`play${skill.sound.charAt(0).toUpperCase() + skill.sound.slice(1)}`]();
+    }
+    triggerContainerShake();
+  }
+
+  function useSkill(skill) {
+    if (!checkWsConnected()) return;
+    const now = Date.now();
+
+    if (localSkillCDMap[skill.name] && now < localSkillCDMap[skill.name]) {
+      const remain = ((localSkillCDMap[skill.name] - now) / 1000).toFixed(1);
+      logMessage(`⏳【${skill.name}】冷卻中，還需 ${remain} 秒！`);
+      return;
+    }
+
+    triggerSkillCDUI(skill.name, skill.cd || 3);
+    playSkillAnimationAndSound(skill);
+
+    const strAtkBonus = localUserData.str * 12;
+    const intMagBonus = localUserData.int * 15;
+    const critRate = localUserData.agi * 1.0;
+
+    ws.send(JSON.stringify({
+      type: 'use_skill',
+      skillName: skill.name,
+      mpCost: skill.mpCost,
+      minVal: (skill.minVal || 0) + (skill.isHeal ? intMagBonus : strAtkBonus),
+      maxVal: (skill.maxVal || 0) + (skill.isHeal ? intMagBonus : strAtkBonus),
+      hpCostPercent: skill.hpCostPercent || 0,
+      instantKillChance: skill.instantKillChance || 0,
+      isArrowStormSkill: skill.isArrowStormSkill || false,
+      isAoe: skill.isAoe,
+      isHeal: skill.isHeal,
+      isRevive: skill.isRevive || false,
+      lifesteal: skill.lifesteal || 0,
+      effect: skill.effect || null,
+      chance: skill.chance || 0,
+      isUlt: skill.isUlt || false,
+      isKillSkill: skill.isKillSkill || false,
+      isAutoBot: isAutoBattle,
+      targetId: selectedTargetId,
+      critChanceBonus: critRate
+    }));
+  }
+
+  function usePotion(potionType) {
+    if (!checkWsConnected()) return;
+    if (potionType === 'hp') AudioFX.playHeal();
+    else AudioFX.playMagic();
+    ws.send(JSON.stringify({ type: 'use_potion', potionType }));
+  }
+
+  function startGame() { if (checkWsConnected()) ws.send(JSON.stringify({ type: 'start_game' })); }
+  function leaveToIdle() { if (checkWsConnected()) ws.send(JSON.stringify({ type: 'go_idle' })); }
+
+  function logMessage(msg) {
+    const log = document.getElementById('battleLog');
+    const item = document.createElement('div');
+    item.innerText = `[${new Date().toLocaleTimeString()}] ${msg}`;
+    log.appendChild(item);
+    log.scrollTop = log.scrollHeight;
+  }
+
+  function checkBattleLogForEffects(msg) {
+    if (msg.includes('【大招！】') || msg.includes('💥【暴擊！】') || msg.includes('⚡【麻痺】') || msg.includes('☠️【秒殺！】') || msg.includes('🏹【暴風箭雨】')) {
+      triggerContainerShake();
+    }
+  }
+
+  function triggerContainerShake() {
+    const container = document.getElementById('mainContainer');
+    container.classList.add('shake-effect');
+    setTimeout(() => container.classList.remove('shake-effect'), 250);
+  }
+
+  function showFloatingText(targetCard, text, isHeal = false) {
+    if (!targetCard) return;
+    const el = document.createElement('div');
+    el.className = `floating-number ${isHeal ? 'heal-num' : 'damage-num'}`;
+    el.innerText = text;
+    const randomX = Math.floor(Math.random() * 40) - 20;
+    el.style.left = `calc(50% + ${randomX}px)`;
+    el.style.top = '10px';
+    targetCard.appendChild(el);
+    setTimeout(() => el.remove(), 800);
+  }
+</script>
+</body>
+</html>
