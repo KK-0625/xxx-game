@@ -413,7 +413,6 @@
 
       <div style="display: flex; gap: 10px; margin-top: 10px;">
         <button onclick="submitAdminTopup()" style="flex: 1; background-color: #e91e63; font-weight: bold; padding: 10px;">確認派送</button>
-        <button onclick="submitAdminRejectTopup()" style="flex: 1; background-color: #d32f2f; font-weight: bold; padding: 10px;">拒絕申請</button>
         <button onclick="closeAdminModal()" style="background-color: #555; padding: 10px;">取消</button>
       </div>
     </div>
@@ -530,27 +529,6 @@
     closeAdminModal();
   }
 
-  function submitAdminRejectTopup() {
-    if (!checkWsConnected()) return;
-    const targetUserId = document.getElementById('targetUserId').value.trim();
-
-    if (!targetUserId) {
-      alert("請填寫要拒絕的玩家帳號！");
-      return;
-    }
-
-    if (!confirm(`確定要拒絕玩家 [${targetUserId}] 的儲值申請嗎？`)) {
-      return;
-    }
-
-    ws.send(JSON.stringify({
-      type: 'admin_reject_topup',
-      targetUserId: targetUserId
-    }));
-
-    closeAdminModal();
-  }
-
   function calcGold() {
     const amount = parseInt(document.getElementById('topupAmount').value) || 0;
     document.getElementById('goldPreview').innerText = amount * 100;
@@ -591,6 +569,7 @@
   function openTopupModal() { document.getElementById('topupModal').classList.remove('hidden'); }
   function closeTopupModal() { document.getElementById('topupModal').classList.add('hidden'); }
 
+  // 整合後的送出儲值申請函式
   function submitTopupRequest() {
     if (!checkWsConnected()) return;
     const amount = parseInt(document.getElementById('topupAmount').value);
@@ -670,11 +649,12 @@
       logMessage(data.message);
       updateInventoryDisplay(data.inventory);
     }
+    // 整合後的儲值相關訊息處理
     else if (data.type === 'topup_response') {
-      alert(data.message);
+      alert(data.message); // 跳出「儲值申請已順利送出」等提示
     }
     else if (data.type === 'gold_received') {
-      alert(data.message);
+      alert(data.message); // 跳出「恭喜獲得金幣！」提示
       if (data.inventory) {
         updateInventoryDisplay(data.inventory);
       }
