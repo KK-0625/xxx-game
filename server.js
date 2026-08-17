@@ -788,11 +788,12 @@ wss.on('connection', (ws) => {
           }
         } else if (action === 'reject') {
           try {
+            // 已經透過上方 const reqItem = pendingTopups.splice(index, 1)[0] 從佇列中移除
             broadcastPendingTopups();
 
             ws.send(JSON.stringify({
               type: 'NOTIFICATION',
-              message: '已成功拒絕該筆申請'
+              message: '已成功拒絕並移除該筆申請'
             }));
 
             wss.clients.forEach(client => {
