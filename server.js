@@ -194,7 +194,6 @@ function broadcastOnlineCount() {
   });
 }
 
-// 輔助函式：廣播待審核清單給所有線上管理員
 function broadcastPendingTopups() {
   const payload = JSON.stringify({
     type: 'update_pending_topups',
@@ -234,6 +233,7 @@ function scheduleIdleReward(client) {
 
       try {
         const userRes = await pool.query('SELECT level, exp, hp_potion, mp_potion, exp_scroll, gold, rank_points, stat_points FROM users WHERE id = $1', [client.user.id]);
+        if (userRes.rows.length === 0) return;
         let userRow = userRes.rows[0];
 
         let currentLevel = userRow.level || 1;
@@ -342,7 +342,6 @@ function createMatchWithAI(p1) {
   broadcastRoomState(roomId);
 }
 
-// 🤖 5V5 專用 AI 戰鬥迴圈
 function start5v5AIBattleLoop(roomId) {
   const room = rooms[roomId];
   if (!room || !room.isAiMatch) return;
@@ -666,7 +665,6 @@ wss.on('connection', (ws) => {
     try {
       const data = JSON.parse(message);
 
-      // 👑 管理員審核派送金幣邏輯 (已整合至 Postgres)
       if (data.type === 'admin_approve_topup') {
         if (!ws.user || !ws.user.is_admin) {
           return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 您沒有管理員權限！' }));
@@ -712,7 +710,6 @@ wss.on('connection', (ws) => {
         }
       }
 
-      // 💳 儲值申請處理邏輯 (佇列化管理員審核系統)
       else if (data.type === 'submit_topup') {
         const playerName = (ws.user && ws.user.name) ? ws.user.name : (ws.user && ws.user.username) || '未知玩家';
         const amount = parseInt(data.amount) || 0;
@@ -741,20 +738,19 @@ wss.on('connection', (ws) => {
         broadcastPendingTopups();
       }
 
-      // 👑 管理員透過佇列審核並核准或拒絕特定儲值申請 (ADMIN_AUDIT_ACTION)
       else if (data.type === 'ADMIN_AUDIT_ACTION') {
         if (!ws.user || !ws.user.is_admin) {
           return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 您沒有管理員權限！' }));
         }
         
-        const { targetUserId, action, requestId } = data; // action 可以是 'approve' 或 'reject'
+        const { targetUserId, action, requestId } = data;
         const index = pendingTopups.findIndex(item => item.requestId === requestId || item.userId === targetUserId || item.username === targetUserId);
         
         if (index === -1) {
           return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 找不到該筆儲值申請，可能已被審核或失效。' }));
         }
         
-        const reqItem = pendingTopups.splice(index, 1)[0]; // 從佇列中移除
+        const reqItem = pendingTopups.splice(index, 1)[0];
 
         if (action === 'approve') {
           try {
@@ -773,7 +769,6 @@ wss.on('connection', (ws) => {
               message: `✅ 已成功核實玩家 [${reqItem.playerName}] 的 ${reqItem.amount} TWD 儲值！`
             }));
             
-            // 🔄 廣播更新後的佇列清單給所有線上管理員
             broadcastPendingTopups();
             
             wss.clients.forEach(client => {
@@ -793,7 +788,6 @@ wss.on('connection', (ws) => {
           }
         } else if (action === 'reject') {
           try {
-            // 🔄 執行拒絕時，確保確實從佇列移除並廣播更新清單
             broadcastPendingTopups();
 
             ws.send(JSON.stringify({
@@ -816,7 +810,6 @@ wss.on('connection', (ws) => {
         }
       }
 
-      // 相容舊版的單一核准呼叫
       else if (data.type === 'admin_approve_topup_request') {
         if (!ws.user || !ws.user.is_admin) {
           return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 您沒有管理員權限！' }));
@@ -865,7 +858,6 @@ wss.on('connection', (ws) => {
         }
       }
 
-      // 2. 註冊邏輯 (PostgreSQL 版)
       else if (data.type === 'register') {
         const { username, password } = data;
         if (!username || !password) return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 帳號與密碼不能為空！' }));
@@ -885,7 +877,6 @@ wss.on('connection', (ws) => {
         }
       }
 
-      // 1. 登入邏輯 (PostgreSQL 版)
       else if (data.type === 'login') {
         const { username, password } = data;
         const res = await pool.query('SELECT * FROM users WHERE username = $1', [username]);
@@ -965,6 +956,7 @@ wss.on('connection', (ws) => {
         try {
           if (!ws.user.isGM) {
             const dbRes = await pool.query('SELECT stat_points, str, int_stat, vit, agi FROM users WHERE id = $1', [ws.user.id]);
+            if (dbRes.rows.length === 0) return;
             const dbUser = dbRes.rows[0];
             const totalPointsBefore = dbUser.stat_points + dbUser.str + dbUser.int_stat + dbUser.vit + dbUser.agi;
             const totalPointsAfter = statPoints + str + int + vit + agi;
@@ -1012,6 +1004,7 @@ wss.on('connection', (ws) => {
             totalRefunded = 9999;
           } else {
             const dbRes = await pool.query('SELECT str, int_stat, vit, agi, stat_points FROM users WHERE id = $1', [ws.user.id]);
+            if (dbRes.rows.length === 0) return;
             const current = dbRes.rows[0];
             totalRefunded = (current.str || 0) + (current.int_stat || 0) + (current.vit || 0) + (current.agi || 0) + (current.stat_points || 0);
           }
@@ -1080,6 +1073,7 @@ wss.on('connection', (ws) => {
           }
 
           const userRes = await pool.query('SELECT gold FROM users WHERE id = $1', [ws.user.id]);
+          if (userRes.rows.length === 0) return;
           const dbUser = userRes.rows[0];
 
           if (dbUser.gold < itemInfo.cost) return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 金幣不足！' }));
@@ -1114,6 +1108,7 @@ wss.on('connection', (ws) => {
         if (!ws.user) return;
         try {
           const res = await pool.query('SELECT exp_scroll, exp, level, stat_points FROM users WHERE id = $1', [ws.user.id]);
+          if (res.rows.length === 0) return;
           let { exp_scroll: scrollCount, exp: currentExp, level: currentLevel, stat_points: statPoints } = res.rows[0];
 
           if (scrollCount <= 0) return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 卷軸數量不足！' }));
@@ -1173,7 +1168,6 @@ wss.on('connection', (ws) => {
         }
       }
 
-      // 👥 加入 5V5 團戰隨機匹配
       else if (data.type === 'join_queue_5v5') {
         matchQueue5v5 = matchQueue5v5.filter(p => p.ws.readyState === WebSocket.OPEN && p.ws !== ws);
         const role = data.role || (ws.user ? ws.user.role : 'berserker');
@@ -1607,7 +1601,11 @@ wss.on('connection', (ws) => {
 
         if (ws.user) {
           ws.user.inventory = p.inventory;
-          await pool.query('UPDATE users SET hp_potion = $1, mp_potion = $2 WHERE id = $3', [p.inventory.hpPotion, p.inventory.mpPotion, ws.user.id]);
+          try {
+            await pool.query('UPDATE users SET hp_potion = $1, mp_potion = $2 WHERE id = $3', [p.inventory.hpPotion, p.inventory.mpPotion, ws.user.id]);
+          } catch (e) {
+            console.error("更新藥水數量失敗:", e);
+          }
         }
 
         broadcastRoomState(room.id);
