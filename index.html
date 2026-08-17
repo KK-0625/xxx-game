@@ -83,6 +83,12 @@
     .btn-auto { background: linear-gradient(135deg, #ff9800, #e65100); font-weight: bold; padding: 6px 14px; border-radius: 20px; border: 1px solid #ffe082; }
     .btn-auto.active { background: linear-gradient(135deg, #00e676, #00812e); box-shadow: 0 0 10px #00e676; }
 
+    /* 新增按鈕樣式 */
+    .btn-approve { background-color: #2e7d32; color: white; padding: 4px 8px; font-size: 12px; }
+    .btn-approve:hover { background-color: #388e3c; }
+    .btn-reject { background-color: #c62828; color: white; padding: 4px 8px; font-size: 12px; }
+    .btn-reject:hover { background-color: #d32f2f; }
+
     #battleLog { height: 180px; overflow-y: auto; background-color: #000; color: #00ff66; padding: 10px; font-family: monospace; font-size: 13px; border-radius: 4px; }
     .queue-status { margin-top: 10px; padding: 8px; background: #332200; border: 1px dashed #ff9800; border-radius: 4px; color: #ffca28; }
     .target-indicator { font-size: 13px; color: #ffca28; font-weight: bold; margin-bottom: 5px; }
@@ -553,14 +559,21 @@
     closeTopupModal();
   }
 
-  // 2. 管理員點擊「核准」按鈕時觸發
-  function approveTopup(requestId) {
-    if (!confirm('確定要核准這筆儲值申請並自動派發金幣給玩家嗎？')) return;
-
-    ws.send(JSON.stringify({
-      type: 'admin_approve_topup_request',
-      requestId: requestId
-    }));
+  // 審核操作函式：核准與拒絕
+  function handleAudit(requestId, action) {
+    if (action === 'approve') {
+      if (!confirm('確定要核准這筆儲值申請並自動派發金幣給玩家嗎？')) return;
+      ws.send(JSON.stringify({
+        type: 'admin_approve_topup_request',
+        requestId: requestId
+      }));
+    } else if (action === 'reject') {
+      if (!confirm('確定要拒絕這筆儲值申請嗎？')) return;
+      ws.send(JSON.stringify({
+        type: 'admin_reject_topup_request',
+        requestId: requestId
+      }));
+    }
   }
 
   ws.onopen = () => { logMessage("🟢 成功連接伺服器！請先進行帳號登入或註冊。"); };
@@ -597,12 +610,11 @@
     else if (data.type === 'lobby_chat') {
       appendLobbyChat(data.sender, data.message, data.time);
     }
-    // 1. 接收後端廣播的「待審核清單」
+    // 接收後端廣播的「待審核清單」並動態生成按鈕
     else if (data.type === 'update_pending_topups') {
       const listContainer = document.getElementById('pendingTopupsList');
       const adminPanel = document.getElementById('adminTopupPanel');
       
-      // 確保管理員看得到這個面板
       adminPanel.style.display = 'block';
       
       if (!data.list || data.list.length === 0) {
@@ -621,8 +633,9 @@
             <td style="padding: 6px;">${item.username}</td>
             <td style="padding: 6px; color: gold;">${item.amount} TWD</td>
             <td style="padding: 6px;">${item.paymentInfo}</td>
-            <td style="padding: 6px;">
-              <button onclick="approveTopup('${item.requestId}')" style="background-color: green; color: white; padding: 4px 8px; font-size: 12px;">核准並派發</button>
+            <td style="padding: 6px; display: flex; gap: 4px; justify-content: center;">
+              <button class="btn-approve" onclick="handleAudit('${item.requestId}', 'approve')">核准派發</button>
+              <button class="btn-reject" onclick="handleAudit('${item.requestId}', 'reject')">拒絕</button>
             </td>
           </tr>
         `;
@@ -631,7 +644,6 @@
       
       listContainer.innerHTML = html;
     }
-    // 3. 處理管理員操作成功的回饋
     else if (data.type === 'admin_action_success') {
       alert(data.message);
     }
