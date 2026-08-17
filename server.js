@@ -729,6 +729,7 @@ wss.on('connection', (ws) => {
       else if (data.type === 'submit_topup') {
         const playerName = (ws.user && ws.user.name) ? ws.user.name : (ws.user && ws.user.username) || '未知玩家';
         const amount = parseInt(data.amount) || 0;
+        const goldToAdd = amount * 100; // <--- 在這裡進行 1:100 轉換
         const paymentInfo = data.paymentInfo || '無備註';
         
         const requestId = 'TOPUP_' + Math.random().toString(36).substr(2, 9);
@@ -739,6 +740,7 @@ wss.on('connection', (ws) => {
           username: ws.user ? ws.user.username : 'unknown',
           playerName,
           amount,
+          goldToAdd, // <--- 將轉換好的金幣加入請求中
           paymentInfo,
           time: new Date().toLocaleTimeString('zh-TW', { hour12: false })
         };
@@ -776,13 +778,15 @@ wss.on('connection', (ws) => {
             }
             
             const targetUser = targetRes.rows[0];
-            const newGold = (targetUser.gold || 0) + reqItem.amount;
+            // 強制抓取 goldToAdd 或重新計算 1:100 防呆
+            const goldToGive = reqItem.goldToAdd || (reqItem.amount * 100); 
+            const newGold = (targetUser.gold || 0) + goldToGive;
             
             await pool.query('UPDATE users SET gold = $1 WHERE id = $2', [newGold, reqItem.userId]);
             
             ws.send(JSON.stringify({
               type: 'NOTIFICATION',
-              message: `✅ 已成功核實玩家 [${reqItem.playerName}] 的 ${reqItem.amount} TWD 儲值！`
+              message: `✅ 已成功核實玩家 [${reqItem.playerName}] 的 ${reqItem.amount} TWD 儲值，並發放 ${goldToGive} 金幣！`
             }));
             
             broadcastPendingTopups();
@@ -792,7 +796,7 @@ wss.on('connection', (ws) => {
                 client.user.inventory.gold = newGold;
                 client.send(JSON.stringify({
                   type: 'gold_received',
-                  message: `🎉 您的儲值申請已通過！成功獲得 ${reqItem.amount} 金幣！`,
+                  message: `🎉 您的儲值申請已通過！成功獲得 ${goldToGive} 金幣！`,
                   inventory: client.user.inventory
                 }));
               }
@@ -847,13 +851,15 @@ wss.on('connection', (ws) => {
           }
           
           const targetUser = targetRes.rows[0];
-          const newGold = (targetUser.gold || 0) + reqItem.amount;
+          // 強制抓取 goldToAdd 或重新計算 1:100 防呆
+          const goldToGive = reqItem.goldToAdd || (reqItem.amount * 100);
+          const newGold = (targetUser.gold || 0) + goldToGive;
           
           await pool.query('UPDATE users SET gold = $1 WHERE id = $2', [newGold, reqItem.userId]);
           
           ws.send(JSON.stringify({
             type: 'admin_action_success',
-            message: `✅ 已成功核實玩家 [${reqItem.playerName}] 的 ${reqItem.amount} TWD 儲值！`
+            message: `✅ 已成功核實玩家 [${reqItem.playerName}] 的 ${reqItem.amount} TWD 儲值，並發放 ${goldToGive} 金幣！`
           }));
           
           broadcastPendingTopups();
@@ -863,7 +869,7 @@ wss.on('connection', (ws) => {
               client.user.inventory.gold = newGold;
               client.send(JSON.stringify({
                 type: 'gold_received',
-                message: `🎉 您的儲值申請已通過！成功獲得 ${reqItem.amount} 金幣！`,
+                message: `🎉 您的儲值申請已通過！成功獲得 ${goldToGive} 金幣！`,
                 inventory: client.user.inventory
               }));
             }
