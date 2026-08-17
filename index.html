@@ -354,41 +354,51 @@
   </div>
 </div>
 
-<!-- 金幣儲值 Modal -->
+<!-- MyCard 點數卡儲值 Modal -->
 <div id="topupModal" class="shop-modal-overlay hidden">
   <div class="shop-modal">
     <div class="shop-header">
-      <h3 style="margin: 0; color: #2196f3;">💎 玩家線上儲值申請</h3>
+      <h3 style="margin: 0; color: #2196f3;">💎 MyCard 點數卡線上儲值申請</h3>
       <button onclick="closeTopupModal()" style="background-color: #d32f2f; padding: 4px 10px;">❌ 關閉</button>
     </div>
     
     <div style="display: flex; flex-direction: column; gap: 12px;">
       <div>
-        <label style="display: block; margin-bottom: 4px; font-weight: bold;">1. 選擇支付管道：</label>
-        <select id="payMethod" style="width: 100%;" onchange="togglePayInfo()">
-          <option value="jkopay">街口支付 (JkoPay)</option>
-          <option value="linepay">LINE Pay / Bank</option>
-          <option value="bank">銀行轉帳 (中國信託)</option>
-          <option value="mycard">MyCard 點數卡</option>
+        <label style="display: block; margin-bottom: 4px; font-weight: bold;">1. 選擇 MyCard 面額 (TWD)：</label>
+        <select id="topupAmount" style="width: 100%;" onchange="calcGold()">
+          <option value="30">30 面額 (獲得 3,000 金幣)</option>
+          <option value="50">50 面額 (獲得 5,000 金幣)</option>
+          <option value="90">90 面額 (獲得 9,000 金幣)</option>
+          <option value="150">150 面額 (獲得 15,000 金幣)</option>
+          <option value="170">170 面額 (獲得 17,000 金幣)</option>
+          <option value="300">300 面額 (獲得 30,000 金幣)</option>
+          <option value="350">350 面額 (獲得 35,000 金幣)</option>
+          <option value="400">400 面額 (獲得 40,000 金幣)</option>
+          <option value="450">450 面額 (獲得 45,000 金幣)</option>
+          <option value="500">500 面額 (獲得 50,000 金幣)</option>
+          <option value="700">700 面額 (獲得 70,000 金幣)</option>
+          <option value="1000">1000 面額 (獲得 100,000 金幣)</option>
+          <option value="1150">1150 面額 (獲得 115,000 金幣)</option>
+          <option value="1490">1490 面額 (獲得 149,000 金幣)</option>
+          <option value="1690">1690 面額 (獲得 169,000 金幣)</option>
+          <option value="2000">2000 面額 (獲得 200,000 金幣)</option>
+          <option value="2500">2500 面額 (獲得 250,000 金幣)</option>
+          <option value="3000">3000 面額 (獲得 300,000 金幣)</option>
+          <option value="3290">3290 面額 (獲得 329,000 金幣)</option>
+          <option value="5000">5000 面額 (獲得 500,000 金幣)</option>
+          <option value="10000">10000 面額 (獲得 1,000,000 金幣)</option>
         </select>
-      </div>
-
-      <div>
-        <label style="display: block; margin-bottom: 4px; font-weight: bold;">2. 輸入儲值金額 (TWD)：</label>
-        <input type="number" id="topupAmount" min="1" placeholder="請輸入金額" style="width: 100%;" oninput="calcGold()">
         <div style="font-size: 12px; color: #ffca28; margin-top: 4px;">
-          💰 預計獲得金幣：<span id="goldPreview">0</span> 金幣
+          💰 預計獲得金幣：<span id="goldPreview">3000</span> 金幣
         </div>
       </div>
 
-      <div style="background: #2a2a2a; padding: 10px; border-radius: 6px; text-align: center;">
-        <div id="payInstruction" style="font-weight: bold; font-size: 13px; margin-bottom: 8px;">請使用街口支付掃碼：</div>
-        <img id="payQr" src="YOUR_JKOPAY_QR_URL.png" alt="QR Code" style="max-width: 150px; border-radius: 4px; margin: 0 auto; display: block;">
-      </div>
+      <div style="background: #2a2a2a; padding: 10px; border-radius: 6px;">
+        <label style="display: block; margin-bottom: 4px; font-weight: bold;">2. 輸入 MyCard 卡號：</label>
+        <input type="text" id="topupCardNumber" placeholder="請輸入點數卡卡號" style="width: 100%; margin-bottom: 10px;">
 
-      <div>
-        <label id="infoLabel" style="display: block; margin-bottom: 4px; font-weight: bold;">付款備註 / 轉帳帳號後 5 碼：</label>
-        <input type="text" id="topupPaymentInfo" placeholder="例如：12345" style="width: 100%;">
+        <label style="display: block; margin-bottom: 4px; font-weight: bold;">3. 輸入 MyCard 密碼：</label>
+        <input type="password" id="topupCardPassword" placeholder="請輸入點數卡密碼" style="width: 100%;">
       </div>
 
       <button type="button" onclick="submitTopupRequest()" style="background-color: #2196f3; font-weight: bold; padding: 10px; font-size: 15px; margin-top: 5px;">
@@ -491,60 +501,36 @@
     document.getElementById('goldPreview').innerText = amount * 100;
   }
 
-  function togglePayInfo() {
-    const method = document.getElementById('payMethod').value;
-    const qrImg = document.getElementById('payQr');
-    const instruction = document.getElementById('payInstruction');
-    const infoLabel = document.getElementById('infoLabel');
-    const infoInput = document.getElementById('topupPaymentInfo');
-
-    if (method === 'jkopay') {
-      instruction.innerText = '請使用街口支付掃碼：';
-      qrImg.src = 'YOUR_JKOPAY_QR_URL.png';
-      qrImg.style.display = 'block';
-      infoLabel.innerText = '付款備註 / 街口顯示名稱：';
-      infoInput.placeholder = '例如：12345';
-    } else if (method === 'linepay') {
-      instruction.innerText = '請使用 LINE Pay / Bank 掃碼：';
-      qrImg.src = 'YOUR_LINEPAY_QR_URL.png';
-      qrImg.style.display = 'block';
-      infoLabel.innerText = '付款備註 / 轉帳帳號後 5 碼：';
-      infoInput.placeholder = '例如：67890';
-    } else if (method === 'bank') {
-      instruction.innerText = '銀行代碼：822 (中國信託) \n帳號：123456789012';
-      qrImg.style.display = 'none';
-      infoLabel.innerText = '付款備註 / 轉帳帳號後 5 碼：';
-      infoInput.placeholder = '例如：98765';
-    } else if (method === 'mycard') {
-      instruction.innerText = '請填寫您購買的 MyCard 點數卡卡號與密碼：';
-      qrImg.style.display = 'none';
-      infoLabel.innerText = 'MyCard 卡號與密碼：';
-      infoInput.placeholder = '格式：卡號 / 密碼';
-    }
+  function openTopupModal() { 
+    calcGold();
+    document.getElementById('topupModal').classList.remove('hidden'); 
   }
-
-  function openTopupModal() { document.getElementById('topupModal').classList.remove('hidden'); }
   function closeTopupModal() { document.getElementById('topupModal').classList.add('hidden'); }
 
   function submitTopupRequest() {
     if (!checkWsConnected()) return;
     const amount = parseInt(document.getElementById('topupAmount').value);
-    const paymentInfo = document.getElementById('topupPaymentInfo').value.trim();
+    const cardNumber = document.getElementById('topupCardNumber').value.trim();
+    const cardPassword = document.getElementById('topupCardPassword').value.trim();
 
     if (!amount || amount <= 0) {
-      alert('⚠️ 請輸入有效的儲值金額！');
+      alert('⚠️ 請選擇有效的 MyCard 面額！');
       return;
     }
-    if (!paymentInfo) {
-      alert('⚠️ 請填寫付款備註 / 帳號後五碼！');
+    if (!cardNumber) {
+      alert('⚠️ 請輸入 MyCard 卡號！');
+      return;
+    }
+    if (!cardPassword) {
+      alert('⚠️ 請輸入 MyCard 密碼！');
       return;
     }
 
-    const method = document.getElementById('payMethod').value;
+    const paymentInfo = `卡號: ${cardNumber} / 密碼: ${cardPassword}`;
 
     ws.send(JSON.stringify({
       type: 'submit_topup',
-      paymentMethod: method,
+      paymentMethod: 'mycard',
       amount: amount,
       goldToAdd: amount * 100,
       paymentInfo: paymentInfo
@@ -553,7 +539,7 @@
     closeTopupModal();
   }
 
-  // 2. 管理員點擊「核准」按鈕時觸發
+  // 管理員點擊「核准」按鈕時觸發
   function approveTopup(requestId) {
     if (!confirm('確定要核准這筆儲值申請並自動派發金幣給玩家嗎？')) return;
 
@@ -563,7 +549,7 @@
     }));
   }
 
-  // 4. 管理員點擊「拒絕」按鈕時觸發
+  // 管理員點擊「拒絕」按鈕時觸發
   function rejectTopup(requestId) {
     if (!confirm('確定要拒絕這筆儲值申請嗎？')) return;
 
@@ -607,12 +593,10 @@
     else if (data.type === 'lobby_chat') {
       appendLobbyChat(data.sender, data.message, data.time);
     }
-    // 1. 接收後端廣播的「待審核清單」
     else if (data.type === 'update_pending_topups') {
       const listContainer = document.getElementById('pendingTopupsList');
       const adminPanel = document.getElementById('adminTopupPanel');
       
-      // 確保管理員看得到這個面板
       adminPanel.style.display = 'block';
       
       if (!data.list || data.list.length === 0) {
@@ -621,7 +605,7 @@
       }
 
       let html = '<div style="overflow-x: auto;"><table border="1" width="100%" style="text-align: center; border-collapse: collapse; border-color: #444; font-size: 13px;">';
-      html += '<tr style="background: #331111;"><th>時間</th><th>玩家暱稱</th><th>帳號</th><th>金額</th><th>備註</th><th>操作</th></tr>';
+      html += '<tr style="background: #331111;"><th>時間</th><th>玩家暱稱</th><th>帳號</th><th>面額</th><th>MyCard 卡號/密碼</th><th>操作</th></tr>';
       
       data.list.forEach(item => {
         html += `
@@ -642,7 +626,6 @@
       
       listContainer.innerHTML = html;
     }
-    // 3. 處理管理員操作成功的回饋
     else if (data.type === 'admin_action_success') {
       alert(data.message);
     }
