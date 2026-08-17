@@ -132,7 +132,9 @@
         <h3 style="margin:0;">🧘‍♂️ 大廳 (修練中...)</h3>
         <span id="idleStatusText" style="color: #aaa; font-size: 13px;">正在自動修練尋找藥水與道具...</span>
       </div>
-      <div style="display: flex; gap: 10px; align-items: center;">
+      <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+        <!-- 管理員按鈕 (預設隱藏) -->
+        <button id="adminTopupBtn" style="display: none; background-color: #e91e63; font-weight: bold;" onclick="openAdminModal()">📋 審核儲值申請</button>
         <button onclick="openTopupModal()" style="background-color: #2196f3; font-weight: bold;">💎 金幣儲值</button>
         <button onclick="openShopModal()" style="background-color: #ff9800; font-weight: bold;">🛒 道具商店</button>
         <div class="online-badge">🟢 在線玩家：<span id="displayOnlineCount">---</span> 人</div>
@@ -390,6 +392,33 @@
   </div>
 </div>
 
+<!-- 管理員儲值申請審核 Modal -->
+<div id="adminModal" class="shop-modal-overlay hidden">
+  <div class="shop-modal" style="border-color: #e91e63;">
+    <div class="shop-header">
+      <h3 style="margin: 0; color: #e91e63;">📋 審核儲值申請與派送金幣</h3>
+      <button onclick="closeAdminModal()" style="background-color: #d32f2f; padding: 4px 10px;">❌ 關閉</button>
+    </div>
+    
+    <div style="display: flex; flex-direction: column; gap: 12px;">
+      <div>
+        <label style="display: block; margin-bottom: 4px; font-weight: bold;">玩家 ID：</label>
+        <input type="text" id="targetUserId" placeholder="請輸入玩家 ID" style="width: 100%;">
+      </div>
+
+      <div>
+        <label style="display: block; margin-bottom: 4px; font-weight: bold;">派送金幣數量：</label>
+        <input type="number" id="topupGoldAmount" placeholder="請輸入數量" style="width: 100%;">
+      </div>
+
+      <div style="display: flex; gap: 10px; margin-top: 10px;">
+        <button onclick="submitAdminTopup()" style="flex: 1; background-color: #e91e63; font-weight: bold; padding: 10px;">確認派送</button>
+        <button onclick="closeAdminModal()" style="background-color: #555; padding: 10px;">取消</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
   let ws = new WebSocket('wss://rpg-game-backend-vhag.onrender.com');
   let myPlayerId = null;
@@ -482,6 +511,35 @@
     ]
   };
 
+  // 👑 管理員彈窗控制與審核函式
+  function openAdminModal() {
+    document.getElementById('adminModal').classList.remove('hidden');
+  }
+
+  function closeAdminModal() {
+    document.getElementById('adminModal').classList.add('hidden');
+  }
+
+  function submitAdminTopup() {
+    if (!checkWsConnected()) return;
+    const targetUserId = document.getElementById('targetUserId').value.trim();
+    const goldAmount = parseInt(document.getElementById('topupGoldAmount').value);
+
+    if (!targetUserId || isNaN(goldAmount)) {
+      alert("請填寫正確的玩家 ID 與金幣數量！");
+      return;
+    }
+
+    // 發送派送請求給後端
+    ws.send(JSON.stringify({
+      type: 'admin_approve_topup',
+      targetUserId: targetUserId,
+      goldAmount: goldAmount
+    }));
+
+    closeAdminModal();
+  }
+
   // 💰 儲值功能與試算
   function calcGold() {
     const amount = parseInt(document.getElementById('topupAmount').value) || 0;
@@ -563,6 +621,12 @@
     else if (data.type === 'login_success') {
       currentUser = data.user;
       logMessage(`🎉 登入成功！歡迎回來，${data.user.name}`);
+
+      // 判斷是否為管理員，顯示管理員審核按鈕
+      if (data.isAdmin) {
+        document.getElementById('adminTopupBtn').style.display = 'inline-block';
+      }
+
       document.getElementById('authSection').classList.add('hidden');
       document.getElementById('lobbySection').classList.remove('hidden');
       document.getElementById('playerName').value = data.user.name || "勇者";
