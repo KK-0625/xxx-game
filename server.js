@@ -803,12 +803,7 @@ wss.on('connection', (ws) => {
             ws.send(JSON.stringify({ type: 'error', message: '🔴 伺服器資料庫錯誤，審核失敗。' }));
           }
         } else if (action === 'reject') {
-          // 拒絕邏輯：更新狀態、發送拒絕通知或刪除申請記錄
           try {
-            // 若有需要在資料庫記錄審核狀態，可以執行對應的 SQL
-            // await pool.query('UPDATE requests SET status = $1 WHERE id = $2', ['rejected', reqItem.requestId]);
-
-            // 重新廣播更新後的待審核清單給所有管理員
             broadcastPendingTopups();
 
             ws.send(JSON.stringify({
@@ -816,7 +811,6 @@ wss.on('connection', (ws) => {
               message: '已成功拒絕該筆申請'
             }));
 
-            // 若該玩家在線上，發送拒絕通知
             wss.clients.forEach(client => {
               if (client.readyState === WebSocket.OPEN && client.user && client.user.id === reqItem.userId) {
                 client.send(JSON.stringify({
