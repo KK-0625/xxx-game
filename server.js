@@ -640,8 +640,55 @@ wss.on('connection', (ws) => {
     try {
       const data = JSON.parse(message);
 
+      // 👑 管理員核對並派送金幣邏輯
+      if (data.type === 'admin_approve_topup') {
+        if (!ws.user || !ws.user.isGM) {
+          return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 權限不足！只有管理員可以執行此操作。' }));
+        }
+
+        const { targetUsername, goldAmount } = data;
+        const amount = parseInt(goldAmount);
+
+        if (!targetUsername || isNaN(amount) || amount <= 0) {
+          return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 請填寫正確的目標玩家帳號與正整數金幣數量！' }));
+        }
+
+        try {
+          // 1. 更新目標玩家資料庫金幣數
+          const res = await pool.query('UPDATE users SET gold = gold + $1 WHERE username = $2 RETURNING gold', [amount, targetUsername]);
+
+          if (res.rows.length === 0) {
+            return ws.send(JSON.stringify({ type: 'error', message: `⚠️ 找不到玩家帳號：[${targetUsername}]` }));
+          }
+
+          const newGold = res.rows[0].gold;
+
+          // 2. 尋找線上目標玩家並即時更新狀態與通知
+          wss.clients.forEach(client => {
+            if (client.readyState === WebSocket.OPEN && client.user && client.user.name === targetUsername) {
+              client.user.inventory.gold = newGold;
+              client.send(JSON.stringify({
+                type: 'topup_success',
+                message: `🎉 系統已為您儲值成功！獲得 ${amount} 金幣。`,
+                inventory: client.user.inventory
+              }));
+            }
+          });
+
+          // 3. 回覆管理員派送成功訊息
+          ws.send(JSON.stringify({
+            type: 'admin_action_success',
+            message: `✅ 成功派給玩家 [${targetUsername}] ${amount} 金幣！該玩家當前總金幣: ${newGold}`
+          }));
+
+        } catch (err) {
+          console.error("派送金幣失敗：", err);
+          ws.send(JSON.stringify({ type: 'error', message: '🔴 派送金幣失敗，伺服器資料庫錯誤。' }));
+        }
+      }
+
       // 💳 儲值申請處理邏輯
-      if (data.type === 'submit_topup') {
+      else if (data.type === 'submit_topup') {
         const playerName = (ws.user && ws.user.name) ? ws.user.name : (ws.playerName || '未知玩家');
         console.log(`收到儲值申請：玩家 [${playerName}]，金額: ${data.amount} TWD，資訊: ${data.paymentInfo}`);
         
