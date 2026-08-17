@@ -88,6 +88,9 @@ let matchQueue = [];
 let matchQueue5v5 = []; // 👥 5V5 專用匹配佇列
 let simulatedOnlineCount = 5501;
 
+// 暫存待審核的儲值申請佇列
+let pendingTopups = [];
+
 const ROLE_STATS = {
   berserker: { hp: 16000, mp: 2000 },
   mage:      { hp: 9000,  mp: 5000 },
@@ -186,6 +189,20 @@ function broadcastOnlineCount() {
 
   wss.clients.forEach(client => {
     if (client.readyState === WebSocket.OPEN) {
+      client.send(payload);
+    }
+  });
+}
+
+// 輔助函式：廣播待審核清單給管理員
+function broadcastPendingTopups() {
+  const payload = JSON.stringify({
+    type: 'update_pending_topups',
+    list: pendingTopups
+  });
+  
+  wss.clients.forEach(client => {
+    if (client.readyState === WebSocket.OPEN && client.user && client.user.is_admin) {
       client.send(payload);
     }
   });
@@ -697,16 +714,92 @@ wss.on('connection', (ws) => {
         }
       }
 
-      // 💳 儲值申請處理邏輯
+      // 💳 儲值申請處理邏輯 (佇列化管理員審核系統)
       else if (data.type === 'submit_topup') {
-        const playerName = (ws.user && ws.user.name) ? ws.user.name : (ws.playerName || '未知玩家');
-        console.log(`收到儲值申請：玩家 [${playerName}]，金額: ${data.amount} TWD，資訊: ${data.paymentInfo}`);
+        const playerName = (ws.user && ws.user.name) ? ws.user.name : (ws.user && ws.user.username) || '未知玩家';
+        const amount = parseInt(data.amount) || 0;
+        const paymentInfo = data.paymentInfo || '無備註';
         
+        // 建立唯一的申請單 ID
+        const requestId = 'TOPUP_' + Math.random().toString(36).substr(2, 9);
+        
+        const topupRequest = {
+          requestId,
+          userId: ws.user ? ws.user.id : null,
+          username: ws.user ? ws.user.username : 'unknown',
+          playerName,
+          amount,
+          paymentInfo,
+          time: new Date().toLocaleTimeString('zh-TW', { hour12: false })
+        };
+        
+        // 加入待審核清單
+        pendingTopups.push(topupRequest);
+        
+        // 回覆玩家申請已送出
         ws.send(JSON.stringify({
           type: 'topup_response',
           success: true,
-          message: '✅ 儲值申請已順利送出，我們將盡快為您核對！'
+          message: '✅ 儲值申請已順利送出，管理員正在審核中！'
         }));
+        
+        // 🔴 自動廣播最新待審核清單給所有在線的管理員
+        broadcastPendingTopups();
+      }
+
+      // 👑 管理員透過佇列審核並核准特定儲值申請
+      else if (data.type === 'admin_approve_topup_request') {
+        if (!ws.user || !ws.user.is_admin) {
+          return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 您沒有管理員權限！' }));
+        }
+        
+        const { requestId } = data;
+        const index = pendingTopups.findIndex(item => item.requestId === requestId);
+        
+        if (index === -1) {
+          return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 找不到該筆儲值申請，可能已被審核或失效。' }));
+        }
+        
+        const reqItem = pendingTopups.splice(index, 1)[0]; // 從佇列中移除
+        
+        try {
+          // 1. 從資料庫抓取玩家當前金幣
+          const targetRes = await pool.query('SELECT * FROM users WHERE id = $1', [reqItem.userId]);
+          if (targetRes.rows.length === 0) {
+            return ws.send(JSON.stringify({ type: 'error', message: `⚠️ 找不到目標玩家 ID: ${reqItem.userId}` }));
+          }
+          
+          const targetUser = targetRes.rows[0];
+          const newGold = (targetUser.gold || 0) + reqItem.amount;
+          
+          // 2. 更新資料庫金幣
+          await pool.query('UPDATE users SET gold = $1 WHERE id = $2', [newGold, reqItem.userId]);
+          
+          // 3. 通知管理員端更新介面
+          ws.send(JSON.stringify({
+            type: 'admin_action_success',
+            message: `✅ 已成功核實玩家 [${reqItem.playerName}] 的 ${reqItem.amount} TWD 儲值！`
+          }));
+          
+          // 4. 重新廣播更新後的待審核清單給所有管理員
+          broadcastPendingTopups();
+          
+          // 5. 若該玩家在線上，直接派發金幣並跳出提示
+          wss.clients.forEach(client => {
+            if (client.readyState === WebSocket.OPEN && client.user && client.user.id === reqItem.userId) {
+              client.user.inventory.gold = newGold;
+              client.send(JSON.stringify({
+                type: 'gold_received',
+                message: `🎉 您的儲值申請已通過！成功獲得 ${reqItem.amount} 金幣！`,
+                inventory: client.user.inventory
+              }));
+            }
+          });
+          
+        } catch (err) {
+          console.error("審核儲值失敗：", err);
+          ws.send(JSON.stringify({ type: 'error', message: '🔴 伺服器資料庫錯誤，審核失敗。' }));
+        }
       }
 
       // 2. 註冊邏輯 (PostgreSQL 版)
@@ -752,6 +845,7 @@ wss.on('connection', (ws) => {
 
         ws.user = {
           id: row.id,
+          username: row.username,
           name: row.name || username,
           role: row.role || 'berserker',
           level: row.level || 1,
@@ -793,6 +887,14 @@ wss.on('connection', (ws) => {
           },
           isAdmin: Boolean(ws.user.is_admin)
         }));
+
+        // 若登入者為管理員，立刻發送當前未審核的儲值清單
+        if (ws.user.is_admin) {
+          ws.send(JSON.stringify({
+            type: 'update_pending_topups',
+            list: pendingTopups
+          }));
+        }
       }
 
       else if (data.type === 'update_stats') {
