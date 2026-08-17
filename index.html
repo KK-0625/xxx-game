@@ -28,7 +28,7 @@
     button { background-color: #388e3c; color: white; border: none; padding: 8px 16px; font-size: 14px; border-radius: 4px; cursor: pointer; transition: 0.2s; position: relative; overflow: hidden; }
     button:hover { background-color: #4caf50; }
     button:disabled { background-color: #444; color: #888; cursor: not-allowed; }
-    input, select { background: #2a2a2a; color: #fff; border: 1px solid #444; padding: 8px; border-radius: 4px; font-size: 14px; }
+    input, select, textarea { background: #2a2a2a; color: #fff; border: 1px solid #444; padding: 8px; border-radius: 4px; font-size: 14px; }
     .hidden { display: none !important; }
     .lobby-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; padding-bottom: 10px; margin-bottom: 10px; }
     .online-badge { background: #2a3a2a; color: #66bb6a; border: 1px solid #4caf50; padding: 4px 12px; border-radius: 20px; font-weight: bold; font-size: 13px; }
@@ -110,7 +110,7 @@
 <div id="skillFxContainer"></div>
 
 <div id="mainContainer" class="container">
-  <h2>⚔️ 線上 RPG 戰鬥與匹配系統 (優化版)</h2>
+  <h2>⚔️ 線上 RPG 戰鬥與匹配系統 </h2>
 
   <!-- 帳號登入/註冊區塊 -->
   <div id="authSection" class="card">
@@ -133,17 +133,26 @@
         <span id="idleStatusText" style="color: #aaa; font-size: 13px;">正在自動修練尋找藥水與道具...</span>
       </div>
       <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+        <button onclick="openAnnouncementModal()" style="background-color: #9c27b0; font-weight: bold;">📢 查看公告</button>
         <button onclick="openTopupModal()" style="background-color: #2196f3; font-weight: bold;">💎 金幣儲值</button>
         <button onclick="openShopModal()" style="background-color: #ff9800; font-weight: bold;">🛒 道具商店</button>
         <div class="online-badge">🟢 在線玩家：<span id="displayOnlineCount">---</span> 人</div>
       </div>
     </div>
     
-    <!-- 👑 管理員審核後台面板 -->
+    <!-- 👑 管理員審核後台與公告管理面板 -->
     <div id="adminTopupPanel" style="display:none; border: 2px solid red; padding: 10px; margin-bottom: 15px; border-radius: 6px; background: #221111;">
       <h3 style="color: #ff5252; margin-top: 0;">👑 管理員專區：待審核儲值佇列</h3>
-      <div id="pendingTopupsList">
+      <div id="pendingTopupsList" style="margin-bottom: 15px;">
         <p>目前沒有待審核的儲值申請。</p>
+      </div>
+
+      <hr style="border-color: #444; margin-bottom: 15px;">
+      <h3 style="color: #ff5252; margin-top: 0;">📢 管理員專區：修改遊戲公告</h3>
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <input type="text" id="adminNoticeTitle" placeholder="公告標題">
+        <textarea id="adminNoticeContent" rows="3" placeholder="請輸入最新的公告內容..."></textarea>
+        <button onclick="publishAnnouncement()" style="background-color: #e91e63; font-weight: bold;">🚀 發布更新公告</button>
       </div>
     </div>
 
@@ -308,6 +317,22 @@
   </div>
 </div>
 
+<!-- 公告彈出視窗 Modal -->
+<div id="announcementModal" class="shop-modal-overlay hidden">
+  <div class="shop-modal">
+    <div class="shop-header">
+      <h3 id="modalNoticeTitle" style="margin: 0; color: #9c27b0;">📢 遊戲最新公告</h3>
+      <button onclick="closeAnnouncementModal()" style="background-color: #d32f2f; padding: 4px 10px;">❌ 關閉</button>
+    </div>
+    <div id="modalNoticeContent" style="background: #2a2a2a; padding: 12px; border-radius: 6px; font-size: 14px; line-height: 1.6; white-space: pre-wrap; margin-bottom: 15px; color: #fff;">
+      載入公告中...
+    </div>
+    <button onclick="closeAnnouncementModal()" style="width: 100%; background-color: #9c27b0; font-weight: bold; padding: 8px;">
+      我知道了
+    </button>
+  </div>
+</div>
+
 <!-- 道具商店 Modal -->
 <div id="shopModal" class="shop-modal-overlay hidden">
   <div class="shop-modal">
@@ -418,6 +443,7 @@
   let localSkillCDMap = {};
   let isAutoBattle = true;
   let autoBattleTimer = null;
+  let currentAnnouncement = { title: "📢 歡迎來到 RPG 戰鬥世界", content: "近期系統已全面升級 5V5 團戰與自動修練系統，祝各位冒險愉快！" };
 
   function connectWebSocket() {
     ws = new WebSocket('wss://rpg-game-backend-vhag.onrender.com');
@@ -453,6 +479,16 @@
           localUserData.agi = data.user.stats.agi || 0;
         }
         updateInventoryDisplay(data.user.inventory);
+
+        // 登入成功後自動彈出公告視窗
+        if (data.announcement) {
+          currentAnnouncement = data.announcement;
+        }
+        openAnnouncementModal();
+      }
+      else if (data.announcement_updated) {
+        currentAnnouncement = data.announcement;
+        alert(data.message);
       }
       else if (data.type === 'online_count') {
         document.getElementById('displayOnlineCount').innerText = data.onlineCount;
@@ -671,6 +707,33 @@
     document.getElementById('topupModal').classList.remove('hidden'); 
   }
   function closeTopupModal() { document.getElementById('topupModal').classList.add('hidden'); }
+
+  function openAnnouncementModal() {
+    document.getElementById('modalNoticeTitle').innerText = currentAnnouncement.title || "📢 遊戲最新公告";
+    document.getElementById('modalNoticeContent').innerText = currentAnnouncement.content || "暫無公告內容。";
+    document.getElementById('announcementModal').classList.remove('hidden');
+  }
+
+  function closeAnnouncementModal() {
+    document.getElementById('announcementModal').classList.add('hidden');
+  }
+
+  function publishAnnouncement() {
+    if (!checkWsConnected()) return;
+    const title = document.getElementById('adminNoticeTitle').value.trim();
+    const content = document.getElementById('adminNoticeContent').value.trim();
+
+    if (!title || !content) {
+      alert("⚠️ 公告標題與內容不可空白！");
+      return;
+    }
+
+    ws.send(JSON.stringify({
+      type: 'admin_update_announcement',
+      title: title,
+      content: content
+    }));
+  }
 
   function submitTopupRequest() {
     if (!checkWsConnected()) return;
