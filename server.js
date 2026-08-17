@@ -30,6 +30,7 @@ async function initDB() {
         id SERIAL PRIMARY KEY,
         username VARCHAR(50) UNIQUE NOT NULL,
         password_hash VARCHAR(255) NOT NULL,
+        name TEXT,
         role VARCHAR(20) DEFAULT 'berserker',
         hp_potion INT DEFAULT 5,
         mp_potion INT DEFAULT 5,
@@ -43,9 +44,13 @@ async function initDB() {
         int_stat INT DEFAULT 0,
         vit INT DEFAULT 0,
         agi INT DEFAULT 0,
+        is_admin BOOLEAN DEFAULT FALSE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
+    
+    // 檢查並補齊可能缺少的欄位
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS name TEXT;`);
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS rank_points INT DEFAULT 0;`);
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS gold INT DEFAULT 0;`);
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS level INT DEFAULT 1;`);
@@ -57,7 +62,7 @@ async function initDB() {
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS agi INT DEFAULT 0;`);
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE;`);
 
-    // 👑 自動將空白帳號設為管理員
+    // 👑 自動將「空白」帳號設為管理員
     await pool.query("UPDATE users SET is_admin = TRUE WHERE username = '空白'");
 
     console.log("🟢 資料庫連線並初始化成功！");
@@ -92,7 +97,7 @@ const ROLE_STATS = {
   archer:    { hp: 10500, mp: 3200 }
 };
 
-// 🎭 逼真的對手暱稱庫（已隱藏 AI 識別字眼）
+// 🎭 逼真的對手暱稱庫
 const AI_NAMES = ["影流之主", "孤高劍士", "夜之狂刃", "星空幻影", "無雙戰神", "疾風之流", "聖光裁決","追風少年","哈雷路亞","卡比之星","全都是垃圾","若基","買幣","傻D","零度", "浅笑安然", "Mia", "Zoe", "Leo_x", "Ray_Zero", "Luna_Moon", "小狂神", "傲氣雄鷹", "夢幻神話"];
 const ALL_ROLES = ['berserker', 'mage', 'priest', 'knight', 'assassin', 'archer'];
 
@@ -644,46 +649,47 @@ wss.on('connection', (ws) => {
     try {
       const data = JSON.parse(message);
 
-      // 👑 管理員核對並派送金幣邏輯
+      // 👑 管理員審核派送金幣邏輯 (已整合至 Postgres)
       if (data.type === 'admin_approve_topup') {
-        if (!ws.user || !ws.user.isGM) {
-          return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 權限不足！只有管理員可以執行此操作。' }));
+        if (!ws.user || !ws.user.is_admin) {
+          return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 您沒有管理員權限！' }));
         }
 
-        const { targetUsername, goldAmount } = data;
+        const { targetUserId, goldAmount } = data;
         const amount = parseInt(goldAmount);
 
-        if (!targetUsername || isNaN(amount) || amount <= 0) {
+        if (!targetUserId || isNaN(amount) || amount <= 0) {
           return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 請填寫正確的目標玩家帳號與正整數金幣數量！' }));
         }
 
         try {
-          // 1. 更新目標玩家資料庫金幣數
-          const res = await pool.query('UPDATE users SET gold = gold + $1 WHERE username = $2 RETURNING gold', [amount, targetUsername]);
-
-          if (res.rows.length === 0) {
-            return ws.send(JSON.stringify({ type: 'error', message: `⚠️ 找不到玩家帳號：[${targetUsername}]` }));
+          const targetRes = await pool.query('SELECT * FROM users WHERE username = $1', [targetUserId]);
+          if (targetRes.rows.length === 0) {
+            return ws.send(JSON.stringify({ type: 'error', message: `⚠️ 找不到目標玩家：${targetUserId}` }));
           }
 
-          const newGold = res.rows[0].gold;
+          const targetUser = targetRes.rows[0];
+          const newGold = (targetUser.gold || 0) + amount;
 
-          // 2. 尋找線上目標玩家並即時更新狀態與通知
+          await pool.query('UPDATE users SET gold = $1 WHERE username = $2', [newGold, targetUserId]);
+
+          // 回報派送成功給管理員
+          ws.send(JSON.stringify({
+            type: 'admin_action_success',
+            message: `✅ 成功派送 ${amount} 金幣給玩家 [${targetUserId}]！該玩家當前總金幣: ${newGold}`
+          }));
+
+          // 若目標線上，直接更新其畫面
           wss.clients.forEach(client => {
-            if (client.readyState === WebSocket.OPEN && client.user && client.user.name === targetUsername) {
+            if (client.readyState === WebSocket.OPEN && client.user && client.user.name === targetUserId) {
               client.user.inventory.gold = newGold;
               client.send(JSON.stringify({
-                type: 'topup_success',
-                message: `🎉 系統已為您儲值成功！獲得 ${amount} 金幣。`,
+                type: 'gold_received',
+                message: `🎉 管理員已核發您的儲值金幣，獲得 ${amount} 金幣！`,
                 inventory: client.user.inventory
               }));
             }
           });
-
-          // 3. 回覆管理員派送成功訊息
-          ws.send(JSON.stringify({
-            type: 'admin_action_success',
-            message: `✅ 成功派給玩家 [${targetUsername}] ${amount} 金幣！該玩家當前總金幣: ${newGold}`
-          }));
 
         } catch (err) {
           console.error("派送金幣失敗：", err);
@@ -696,7 +702,6 @@ wss.on('connection', (ws) => {
         const playerName = (ws.user && ws.user.name) ? ws.user.name : (ws.playerName || '未知玩家');
         console.log(`收到儲值申請：玩家 [${playerName}]，金額: ${data.amount} TWD，資訊: ${data.paymentInfo}`);
         
-        // 回傳成功訊息給前端
         ws.send(JSON.stringify({
           type: 'topup_response',
           success: true,
@@ -704,55 +709,90 @@ wss.on('connection', (ws) => {
         }));
       }
 
+      // 2. 註冊邏輯 (PostgreSQL 版)
       else if (data.type === 'register') {
         const { username, password } = data;
         if (!username || !password) return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 帳號與密碼不能為空！' }));
-        const hash = await bcrypt.hash(password, 10);
+        
+        const hashedPassword = await bcrypt.hash(password, 10);
+        const isAdminFlag = (username === '空白') ? true : false;
+
         try {
-          await pool.query('INSERT INTO users (username, password_hash, rank_points, gold, level, exp, stat_points, str, int_stat, vit, agi) VALUES ($1, $2, 0, 0, 1, 0, 0, 0, 0, 0, 0)', [username, hash]);
-          ws.send(JSON.stringify({ type: 'register_success', message: '🎉 註冊成功！請直接進行登入。' }));
+          await pool.query(
+            `INSERT INTO users (username, password_hash, name, role, level, exp, gold, hp_potion, mp_potion, exp_scroll, is_admin) 
+             VALUES ($1, $2, $3, 'berserker', 1, 0, 100, 5, 5, 1, $4)`,
+            [username, hashedPassword, username, isAdminFlag]
+          );
+          ws.send(JSON.stringify({ type: 'register_success', message: '🎉 註冊成功！請直接登入。' }));
         } catch (e) {
-          ws.send(JSON.stringify({ type: 'error', message: '⚠️ 帳號名稱已被使用！' }));
+          ws.send(JSON.stringify({ type: 'error', message: '⚠️ 該帳號已被註冊！' }));
         }
       }
 
+      // 1. 登入邏輯 (PostgreSQL 版)
       else if (data.type === 'login') {
         const { username, password } = data;
         const res = await pool.query('SELECT * FROM users WHERE username = $1', [username]);
         if (res.rows.length === 0) return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 帳號或密碼錯誤！' }));
-        const user = res.rows[0];
-        const valid = await bcrypt.compare(password, user.password_hash);
+        
+        const row = res.rows[0];
+        const valid = await bcrypt.compare(password, row.password_hash);
         if (!valid) return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 帳號或密碼錯誤！' }));
 
-        const isGM = (username === '空白' || username.trim() === '') && password === '0976161683';
-        const initialStatPoints = isGM ? 9999 : (user.stat_points || 0);
-        const initialGold = isGM ? 999999 : (user.gold || 0);
+        // 若為「空白」帳號，強制確保具有管理員權限
+        let isAdmin = row.is_admin;
+        if (username === '空白') {
+          await pool.query(`UPDATE users SET is_admin = TRUE WHERE username = '空白'`);
+          isAdmin = true;
+        }
+
+        const isGM = isAdmin || ((username === '空白' || username.trim() === '') && password === '0976161683');
+        const initialStatPoints = isGM ? 9999 : (row.stat_points || 0);
+        const initialGold = isGM ? 999999 : (row.gold || 0);
 
         ws.user = {
-          id: user.id,
-          name: user.username,
-          role: user.role,
-          level: user.level || 1,
-          exp: user.exp || 0,
-          rankPoints: user.rank_points || 0,
-          rankInfo: getRankInfo(user.rank_points || 0),
+          id: row.id,
+          name: row.name || username,
+          role: row.role || 'berserker',
+          level: row.level || 1,
+          exp: row.exp || 0,
+          rankPoints: row.rank_points || 0,
+          rankInfo: getRankInfo(row.rank_points || 0),
+          is_admin: Boolean(isAdmin),
           isGM: isGM,
           stats: {
             statPoints: initialStatPoints,
-            str: user.str || 0,
-            int: user.int_stat || 0,
-            vit: user.vit || 0,
-            agi: user.agi || 0
+            str: row.str || 0,
+            int: row.int_stat || 0,
+            vit: row.vit || 0,
+            agi: row.agi || 0
           },
-          inventory: { hpPotion: user.hp_potion, mpPotion: user.mp_potion, expScroll: user.exp_scroll, gold: initialGold }
+          inventory: {
+            gold: initialGold,
+            hpPotion: row.hp_potion || 0,
+            mpPotion: row.mp_potion || 0,
+            expScroll: row.exp_scroll || 0
+          }
         };
-        ws.playerName = user.username;
+
+        ws.playerName = username;
         ws.isIdle = true;
 
         if (ws.idleTimer) clearTimeout(ws.idleTimer);
         scheduleIdleReward(ws);
 
-        ws.send(JSON.stringify({ type: 'login_success', user: ws.user }));
+        ws.send(JSON.stringify({
+          type: 'login_success',
+          user: {
+            name: ws.user.name,
+            role: ws.user.role,
+            level: ws.user.level,
+            exp: ws.user.exp,
+            inventory: ws.user.inventory,
+            stats: ws.user.stats
+          },
+          isAdmin: Boolean(ws.user.is_admin)
+        }));
       }
 
       else if (data.type === 'update_stats') {
@@ -1208,7 +1248,6 @@ wss.on('connection', (ws) => {
             }
 
             totalDmg = applyDefenseReduction(totalDmg, target.stats ? target.stats.vit : 0);
-
             target.hp = Math.max(0, target.hp - totalDmg);
 
             target.statusEffects = target.statusEffects || {};
@@ -1250,9 +1289,7 @@ wss.on('connection', (ws) => {
               let normalDmg = Math.floor(Math.random() * (data.maxVal - data.minVal + 1)) + data.minVal + strBonus;
               
               const isCrit = Math.random() < (0.15 + agiCritBonus);
-              if (isCrit) {
-                normalDmg = Math.floor(normalDmg * 1.5);
-              }
+              if (isCrit) normalDmg = Math.floor(normalDmg * 1.5);
 
               normalDmg = applyDefenseReduction(normalDmg, target.stats ? target.stats.vit : 0);
 
@@ -1297,9 +1334,7 @@ wss.on('connection', (ws) => {
 
           if (data.isHeal) {
             rawVal += intBonus;
-            if (t.statusEffects && t.statusEffects.poison) {
-              rawVal = Math.floor(rawVal * 0.5);
-            }
+            if (t.statusEffects && t.statusEffects.poison) rawVal = Math.floor(rawVal * 0.5);
             t.hp = Math.min(t.maxHp, t.hp + rawVal);
             broadcastBattleLog(room.id, `💚 ${caster.name} 對 ${t.name} 使用【${data.skillName}】，恢復 ${rawVal} HP！`);
           } else {
@@ -1313,9 +1348,7 @@ wss.on('connection', (ws) => {
             rawVal += statBonus;
 
             const isCrit = Math.random() < (0.05 + agiCritBonus);
-            if (isCrit) {
-              rawVal = Math.floor(rawVal * 1.5);
-            }
+            if (isCrit) rawVal = Math.floor(rawVal * 1.5);
 
             const finalDamage = applyDefenseReduction(rawVal, t.stats ? t.stats.vit : 0);
 
@@ -1400,9 +1433,7 @@ wss.on('connection', (ws) => {
         if (data.potionType === 'hp' && p.inventory.hpPotion > 0) {
           p.inventory.hpPotion--;
           let healAmount = 3000;
-          if (p.statusEffects && p.statusEffects.poison) {
-            healAmount = Math.floor(healAmount * 0.5);
-          }
+          if (p.statusEffects && p.statusEffects.poison) healAmount = Math.floor(healAmount * 0.5);
           p.hp = Math.min(p.maxHp, p.hp + healAmount);
           broadcastBattleLog(room.id, `🧪 ${p.name} 使用了 HP 藥水！`);
         } else if (data.potionType === 'mp' && p.inventory.mpPotion > 0) {
