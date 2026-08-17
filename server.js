@@ -55,6 +55,10 @@ async function initDB() {
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS int_stat INT DEFAULT 0;`);
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS vit INT DEFAULT 0;`);
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS agi INT DEFAULT 0;`);
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE;`);
+
+    // 👑 自動將空白帳號設為管理員
+    await pool.query("UPDATE users SET is_admin = TRUE WHERE username = ''");
 
     console.log("🟢 資料庫連線並初始化成功！");
   } catch (err) {
