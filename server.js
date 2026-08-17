@@ -241,7 +241,7 @@ function scheduleIdleReward(client) {
         client.user.exp = inv.exp;
         client.user.stats.statPoints = inv.stat_points;
 
-        let msg = `🧘 修練中... 獲得了 🧪 ${potionName}、✨ ${expEarned} 經驗值！`;
+        let msg = `🧘 修練中... 獲得了 🧪 ${potionName}、💰 金幣 x${goldEarned}、✨ ${expEarned} 經驗值！`;
         if (leveledUp) {
           msg += ` 🎉 恭喜升級！當前等級提升至 LV.${currentLevel}，獲得了 5 點屬性點！`;
         }
