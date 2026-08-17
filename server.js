@@ -48,6 +48,16 @@ async function initDB() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
+
+    // 📢 新增公告資料表
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS announcements (
+        id SERIAL PRIMARY KEY,
+        title TEXT NOT NULL,
+        content TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
     
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS name TEXT;`);
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS rank_points INT DEFAULT 0;`);
@@ -221,6 +231,31 @@ function broadcastPendingTopups() {
       client.send(payload);
     }
   });
+}
+
+// 📢 廣播公告列表給所有在線用戶
+async function broadcastAnnouncements(targetWs = null) {
+  try {
+    const res = await pool.query('SELECT * FROM announcements ORDER BY created_at DESC');
+    const payload = JSON.stringify({
+      type: 'update_announcements',
+      list: res.rows
+    });
+
+    if (targetWs) {
+      if (targetWs.readyState === WebSocket.OPEN) {
+        targetWs.send(payload);
+      }
+    } else {
+      wss.clients.forEach(client => {
+        if (client.readyState === WebSocket.OPEN) {
+          client.send(payload);
+        }
+      });
+    }
+  } catch (err) {
+    console.error("獲取公告失敗:", err);
+  }
 }
 
 setInterval(broadcastOnlineCount, 7000);
@@ -676,12 +711,62 @@ wss.on('connection', (ws) => {
   ws.on('pong', () => { ws.isAlive = true; });
 
   ws.send(JSON.stringify({ type: 'online_count', onlineCount: simulatedOnlineCount + wss.clients.size }));
+  
+  // 連線時自動發送現有公告
+  broadcastAnnouncements(ws);
 
   ws.on('message', async (message) => {
     try {
       const data = JSON.parse(message);
 
-      if (data.type === 'admin_approve_topup') {
+      // 📢 取得公告列表
+      if (data.type === 'get_announcements') {
+        broadcastAnnouncements(ws);
+      }
+
+      // 📢 管理員：新增公告
+      else if (data.type === 'admin_create_announcement') {
+        if (!ws.user || !ws.user.is_admin) {
+          return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 您沒有管理員權限！' }));
+        }
+
+        const { title, content } = data;
+        if (!title || !content) {
+          return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 公告標題與內容不能為空！' }));
+        }
+
+        try {
+          await pool.query('INSERT INTO announcements (title, content) VALUES ($1, $2)', [title, content]);
+          ws.send(JSON.stringify({ type: 'admin_action_success', message: '✅ 公告發布成功！' }));
+          broadcastAnnouncements(); // 廣播給所有人更新
+        } catch (err) {
+          console.error("新增公告失敗:", err);
+          ws.send(JSON.stringify({ type: 'error', message: '🔴 伺服器錯誤，新增公告失敗。' }));
+        }
+      }
+
+      // 📢 管理員：刪除公告
+      else if (data.type === 'admin_delete_announcement') {
+        if (!ws.user || !ws.user.is_admin) {
+          return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 您沒有管理員權限！' }));
+        }
+
+        const { id } = data;
+        if (!id) {
+          return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 找不到公告 ID！' }));
+        }
+
+        try {
+          await pool.query('DELETE FROM announcements WHERE id = $1', [id]);
+          ws.send(JSON.stringify({ type: 'admin_action_success', message: '✅ 公告刪除成功！' }));
+          broadcastAnnouncements(); // 廣播給所有人更新
+        } catch (err) {
+          console.error("刪除公告失敗:", err);
+          ws.send(JSON.stringify({ type: 'error', message: '🔴 伺服器錯誤，刪除公告失敗。' }));
+        }
+      }
+
+      else if (data.type === 'admin_approve_topup') {
         if (!ws.user || !ws.user.is_admin) {
           return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 您沒有管理員權限！' }));
         }
@@ -729,7 +814,7 @@ wss.on('connection', (ws) => {
       else if (data.type === 'submit_topup') {
         const playerName = (ws.user && ws.user.name) ? ws.user.name : (ws.user && ws.user.username) || '未知玩家';
         const amount = parseInt(data.amount) || 0;
-        const goldToAdd = amount * 100; // <--- 在這裡進行 1:100 轉換
+        const goldToAdd = amount * 100;
         const paymentInfo = data.paymentInfo || '無備註';
         
         const requestId = 'TOPUP_' + Math.random().toString(36).substr(2, 9);
@@ -740,7 +825,7 @@ wss.on('connection', (ws) => {
           username: ws.user ? ws.user.username : 'unknown',
           playerName,
           amount,
-          goldToAdd, // <--- 將轉換好的金幣加入請求中
+          goldToAdd,
           paymentInfo,
           time: new Date().toLocaleTimeString('zh-TW', { hour12: false })
         };
@@ -778,7 +863,6 @@ wss.on('connection', (ws) => {
             }
             
             const targetUser = targetRes.rows[0];
-            // 強制抓取 goldToAdd 或重新計算 1:100 防呆
             const goldToGive = reqItem.goldToAdd || (reqItem.amount * 100); 
             const newGold = (targetUser.gold || 0) + goldToGive;
             
@@ -851,7 +935,6 @@ wss.on('connection', (ws) => {
           }
           
           const targetUser = targetRes.rows[0];
-          // 強制抓取 goldToAdd 或重新計算 1:100 防呆
           const goldToGive = reqItem.goldToAdd || (reqItem.amount * 100);
           const newGold = (targetUser.gold || 0) + goldToGive;
           
