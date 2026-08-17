@@ -48,6 +48,18 @@ async function initDB() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
+
+    // 💳 建立儲值申請紀錄表（支援直接在審核按鈕查看金額）
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS topup_requests (
+        id SERIAL PRIMARY KEY,
+        username VARCHAR(50) NOT NULL,
+        amount INT NOT NULL,
+        payment_info TEXT,
+        status VARCHAR(20) DEFAULT 'pending',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
     
     // 檢查並補齊可能缺少的欄位
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS name TEXT;`);
@@ -72,8 +84,32 @@ async function initDB() {
 }
 initDB();
 
-const server = http.createServer((req, res) => {
-  if (req.url === '/ping' || req.url === '/') {
+const server = http.createServer(async (req, res) => {
+  // 設定 CORS 允許跨域請求
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
+
+  // 🌐 提供管理員查看待審核儲值清單的 HTTP API
+  if (req.url === '/api/admin/topups' && req.method === 'GET') {
+    try {
+      const result = await pool.query(
+        "SELECT * FROM topup_requests WHERE status = 'pending' ORDER BY created_at ASC"
+      );
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify(result.rows));
+    } catch (err) {
+      console.error("獲取儲值清單失敗:", err);
+      res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: '無法取得儲值清單' }));
+    }
+  } else if (req.url === '/ping' || req.url === '/') {
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
     res.end('Pong! RPG 遊戲伺服器運行中 🚀');
   } else {
@@ -649,64 +685,90 @@ wss.on('connection', (ws) => {
     try {
       const data = JSON.parse(message);
 
-      // 👑 管理員審核派送金幣邏輯 (已整合至 Postgres)
+      // 👑 管理員審核派送金幣邏輯 (支援從審核按鈕直接處理指定申請 ID 或目標帳號)
       if (data.type === 'admin_approve_topup') {
         if (!ws.user || !ws.user.is_admin) {
           return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 您沒有管理員權限！' }));
         }
 
-        const { targetUserId, goldAmount } = data;
-        const amount = parseInt(goldAmount);
-
-        if (!targetUserId || isNaN(amount) || amount <= 0) {
-          return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 請填寫正確的目標玩家帳號與正整數金幣數量！' }));
-        }
+        const { requestId, targetUserId, goldAmount } = data;
+        let amount = parseInt(goldAmount);
+        let usernameToGrant = targetUserId;
 
         try {
-          const targetRes = await pool.query('SELECT * FROM users WHERE username = $1', [targetUserId]);
+          // 如果前端傳入的是儲值申請單 ID，則從資料庫自動讀取該筆申請的金額與玩家帳號
+          if (requestId) {
+            const reqRes = await pool.query('SELECT * FROM topup_requests WHERE id = $1', [requestId]);
+            if (reqRes.rows.length === 0) {
+              return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 找不到該筆儲值申請紀錄！' }));
+            }
+            usernameToGrant = reqRes.rows[0].username;
+            amount = reqRes.rows[0].amount;
+
+            // 更新該筆儲值申請狀態為已核准
+            await pool.query("UPDATE topup_requests SET status = 'approved' WHERE id = $1", [requestId]);
+          }
+
+          if (!usernameToGrant || isNaN(amount) || amount <= 0) {
+            return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 儲值審核參數錯誤！' }));
+          }
+
+          const targetRes = await pool.query('SELECT * FROM users WHERE username = $1', [usernameToGrant]);
           if (targetRes.rows.length === 0) {
-            return ws.send(JSON.stringify({ type: 'error', message: `⚠️ 找不到目標玩家：${targetUserId}` }));
+            return ws.send(JSON.stringify({ type: 'error', message: `⚠️ 找不到目標玩家：${usernameToGrant}` }));
           }
 
           const targetUser = targetRes.rows[0];
           const newGold = (targetUser.gold || 0) + amount;
 
-          await pool.query('UPDATE users SET gold = $1 WHERE username = $2', [newGold, targetUserId]);
+          await pool.query('UPDATE users SET gold = $1 WHERE username = $2', [newGold, usernameToGrant]);
 
           // 回報派送成功給管理員
           ws.send(JSON.stringify({
             type: 'admin_action_success',
-            message: `✅ 成功派送 ${amount} 金幣給玩家 [${targetUserId}]！該玩家當前總金幣: ${newGold}`
+            message: `✅ 成功審核並派送 ${amount} 金幣給玩家 [${usernameToGrant}]！`
           }));
 
           // 若目標線上，直接更新其畫面
           wss.clients.forEach(client => {
-            if (client.readyState === WebSocket.OPEN && client.user && client.user.name === targetUserId) {
+            if (client.readyState === WebSocket.OPEN && client.user && client.user.name === usernameToGrant) {
               client.user.inventory.gold = newGold;
               client.send(JSON.stringify({
                 type: 'gold_received',
-                message: `🎉 管理員已核發您的儲值金幣，獲得 ${amount} 金幣！`,
+                message: `🎉 您的儲值申請已通過審核，獲得 ${amount} 金幣！`,
                 inventory: client.user.inventory
               }));
             }
           });
 
         } catch (err) {
-          console.error("派送金幣失敗：", err);
-          ws.send(JSON.stringify({ type: 'error', message: '🔴 派送金幣失敗，伺服器資料庫錯誤。' }));
+          console.error("審核派送金幣失敗：", err);
+          ws.send(JSON.stringify({ type: 'error', message: '🔴 審核派送失敗，伺服器資料庫錯誤。' }));
         }
       }
 
-      // 💳 儲值申請處理邏輯
+      // 💳 玩家送出儲值申請邏輯 (寫入資料庫，讓審核按鈕讀取)
       else if (data.type === 'submit_topup') {
         const playerName = (ws.user && ws.user.name) ? ws.user.name : (ws.playerName || '未知玩家');
-        console.log(`收到儲值申請：玩家 [${playerName}]，金額: ${data.amount} TWD，資訊: ${data.paymentInfo}`);
-        
-        ws.send(JSON.stringify({
-          type: 'topup_response',
-          success: true,
-          message: '✅ 儲值申請已順利送出，我們將盡快為您核對！'
-        }));
+        const amount = parseInt(data.amount) || 0;
+        const paymentInfo = data.paymentInfo || '';
+
+        try {
+          await pool.query(
+            'INSERT INTO topup_requests (username, amount, payment_info, status) VALUES ($1, $2, $3, $4)',
+            [playerName, amount, paymentInfo, 'pending']
+          );
+
+          console.log(`收到儲值申請：玩家 [${playerName}]，金額: ${amount}`);
+          ws.send(JSON.stringify({
+            type: 'topup_response',
+            success: true,
+            message: '✅ 儲值申請已順利送出，請等待管理員審核！'
+          }));
+        } catch (err) {
+          console.error("儲值申請儲存失敗:", err);
+          ws.send(JSON.stringify({ type: 'error', message: '⚠️ 儲值申請送出失敗，請稍後再試。' }));
+        }
       }
 
       // 2. 註冊邏輯 (PostgreSQL 版)
