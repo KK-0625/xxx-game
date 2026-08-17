@@ -136,23 +136,17 @@
         <button onclick="openAnnouncementModal()" style="background-color: #9c27b0; font-weight: bold;">📢 查看公告</button>
         <button onclick="openTopupModal()" style="background-color: #2196f3; font-weight: bold;">💎 金幣儲值</button>
         <button onclick="openShopModal()" style="background-color: #ff9800; font-weight: bold;">🛒 道具商店</button>
+        <!-- 新增：開啟管理員公告修改的按鈕 -->
+        <button id="btnOpenAdminNoticeModal" onclick="openAdminNoticeModal()" style="background-color: #e91e63; font-weight: bold; display:none;">📢 公告管理</button>
         <div class="online-badge">🟢 在線玩家：<span id="displayOnlineCount">---</span> 人</div>
       </div>
     </div>
     
-    <!-- 👑 管理員審核後台與公告管理面板 -->
+    <!-- 👑 管理員審核後台面板 (預設隱藏公告修改，僅保留審核佇列) -->
     <div id="adminTopupPanel" style="display:none; border: 2px solid red; padding: 10px; margin-bottom: 15px; border-radius: 6px; background: #221111;">
       <h3 style="color: #ff5252; margin-top: 0;">👑 管理員專區：待審核儲值佇列</h3>
       <div id="pendingTopupsList" style="margin-bottom: 15px;">
         <p>目前沒有待審核的儲值申請。</p>
-      </div>
-
-      <hr style="border-color: #444; margin-bottom: 15px;">
-      <h3 style="color: #ff5252; margin-top: 0;">📢 管理員專區：修改遊戲公告</h3>
-      <div style="display: flex; flex-direction: column; gap: 8px;">
-        <input type="text" id="adminNoticeTitle" placeholder="公告標題">
-        <textarea id="adminNoticeContent" rows="3" placeholder="請輸入最新的公告內容..."></textarea>
-        <button onclick="publishAnnouncement()" style="background-color: #e91e63; font-weight: bold;">🚀 發布更新公告</button>
       </div>
     </div>
 
@@ -333,6 +327,21 @@
   </div>
 </div>
 
+<!-- 管理員修改公告彈出視窗 Modal -->
+<div id="adminNoticeModal" class="shop-modal-overlay hidden">
+  <div class="shop-modal" style="border-color: #e91e63;">
+    <div class="shop-header">
+      <h3 style="margin: 0; color: #ff5252;">📢 管理員專區：修改遊戲公告</h3>
+      <button onclick="closeAdminNoticeModal()" style="background-color: #d32f2f; padding: 4px 10px;">❌ 關閉</button>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+      <input type="text" id="adminNoticeTitle" placeholder="公告標題">
+      <textarea id="adminNoticeContent" rows="4" placeholder="請輸入最新的公告內容..."></textarea>
+      <button onclick="publishAnnouncement()" style="background-color: #e91e63; font-weight: bold; padding: 10px;">🚀 發布更新公告</button>
+    </div>
+  </div>
+</div>
+
 <!-- 道具商店 Modal -->
 <div id="shopModal" class="shop-modal-overlay hidden">
   <div class="shop-modal">
@@ -489,6 +498,7 @@
       else if (data.announcement_updated) {
         currentAnnouncement = data.announcement;
         alert(data.message);
+        closeAdminNoticeModal();
       }
       else if (data.type === 'online_count') {
         document.getElementById('displayOnlineCount').innerText = data.onlineCount;
@@ -501,6 +511,8 @@
         const adminPanel = document.getElementById('adminTopupPanel');
         
         adminPanel.style.display = 'block';
+        // 當有管理員權限時，顯示公告管理的快捷按鈕
+        document.getElementById('btnOpenAdminNoticeModal').style.display = 'inline-block';
         
         if (!data.list || data.list.length === 0) {
           listContainer.innerHTML = '<p>目前沒有待審核的儲值申請。</p>';
@@ -716,6 +728,14 @@
 
   function closeAnnouncementModal() {
     document.getElementById('announcementModal').classList.add('hidden');
+  }
+
+  function openAdminNoticeModal() {
+    document.getElementById('adminNoticeModal').classList.remove('hidden');
+  }
+
+  function closeAdminNoticeModal() {
+    document.getElementById('adminNoticeModal').classList.add('hidden');
   }
 
   function publishAnnouncement() {
