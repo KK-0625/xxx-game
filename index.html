@@ -103,6 +103,9 @@
     @keyframes floatUp { 0% { opacity: 1; transform: translateY(0) scale(1.2); } 50% { transform: translateY(-25px) scale(1.4); } 100% { opacity: 0; transform: translateY(-50px) scale(1); } }
     .damage-num { color: #ff3333; }
     .heal-num { color: #33ff33; }
+    
+    /* 審核介面樣式 */
+    .topup-item { background: #252525; border: 1px solid #444; border-radius: 6px; padding: 12px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
   </style>
 </head>
 <body>
@@ -401,6 +404,13 @@
     </div>
     
     <div style="display: flex; flex-direction: column; gap: 12px;">
+      <!-- 這裡加入了您提供的動態審核介面片段 -->
+      <div class="topup-item">
+        <span>玩家：Alex</span>
+        <span>儲值金額：<strong>1000</strong> 元</span>
+        <button onclick="approveTopup(1)">審核通過 (加值 1000)</button>
+      </div>
+
       <div>
         <label style="display: block; margin-bottom: 4px; font-weight: bold;">玩家帳號：</label>
         <input type="text" id="targetUserId" placeholder="請輸入目標玩家帳號" style="width: 100%;">
@@ -509,6 +519,17 @@
 
   function openAdminModal() { document.getElementById('adminModal').classList.remove('hidden'); }
   function closeAdminModal() { document.getElementById('adminModal').classList.add('hidden'); }
+
+  // 審核通過按鈕對應的邏輯函數
+  function approveTopup(id) {
+    if (!checkWsConnected()) return;
+    ws.send(JSON.stringify({
+      type: 'admin_approve_topup_by_id',
+      topupId: id
+    }));
+    alert("✅ 已審核通過該筆儲值申請！");
+    closeAdminModal();
+  }
 
   function submitAdminTopup() {
     if (!checkWsConnected()) return;
