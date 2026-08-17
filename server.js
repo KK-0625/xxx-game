@@ -194,7 +194,7 @@ function broadcastOnlineCount() {
   });
 }
 
-// 輔助函式：廣播待審核清單給管理員
+// 輔助函式：廣播待審核清單給所有線上管理員
 function broadcastPendingTopups() {
   const payload = JSON.stringify({
     type: 'update_pending_topups',
@@ -690,13 +690,11 @@ wss.on('connection', (ws) => {
 
           await pool.query('UPDATE users SET gold = $1 WHERE username = $2', [newGold, targetUserId]);
 
-          // 回報派送成功給管理員
           ws.send(JSON.stringify({
             type: 'admin_action_success',
             message: `✅ 成功派送 ${amount} 金幣給玩家 [${targetUserId}]！該玩家當前總金幣: ${newGold}`
           }));
 
-          // 若目標線上，直接更新其畫面
           wss.clients.forEach(client => {
             if (client.readyState === WebSocket.OPEN && client.user && client.user.name === targetUserId) {
               client.user.inventory.gold = newGold;
@@ -720,7 +718,6 @@ wss.on('connection', (ws) => {
         const amount = parseInt(data.amount) || 0;
         const paymentInfo = data.paymentInfo || '無備註';
         
-        // 建立唯一的申請單 ID
         const requestId = 'TOPUP_' + Math.random().toString(36).substr(2, 9);
         
         const topupRequest = {
@@ -733,17 +730,14 @@ wss.on('connection', (ws) => {
           time: new Date().toLocaleTimeString('zh-TW', { hour12: false })
         };
         
-        // 加入待審核清單
         pendingTopups.push(topupRequest);
         
-        // 回覆玩家申請已送出
         ws.send(JSON.stringify({
           type: 'topup_response',
           success: true,
           message: '✅ 儲值申請已順利送出，管理員正在審核中！'
         }));
         
-        // 🔴 自動廣播最新待審核清單給所有在線的管理員
         broadcastPendingTopups();
       }
 
@@ -754,7 +748,6 @@ wss.on('connection', (ws) => {
         }
         
         const { targetUserId, action, requestId } = data; // action 可以是 'approve' 或 'reject'
-        // 同時支援用 requestId 或 targetUserId 來尋找佇列項目
         const index = pendingTopups.findIndex(item => item.requestId === requestId || item.userId === targetUserId || item.username === targetUserId);
         
         if (index === -1) {
@@ -765,7 +758,6 @@ wss.on('connection', (ws) => {
 
         if (action === 'approve') {
           try {
-            // 1. 從資料庫抓取玩家當前金幣
             const targetRes = await pool.query('SELECT * FROM users WHERE id = $1', [reqItem.userId]);
             if (targetRes.rows.length === 0) {
               return ws.send(JSON.stringify({ type: 'error', message: `⚠️ 找不到目標玩家 ID: ${reqItem.userId}` }));
@@ -774,19 +766,16 @@ wss.on('connection', (ws) => {
             const targetUser = targetRes.rows[0];
             const newGold = (targetUser.gold || 0) + reqItem.amount;
             
-            // 2. 更新資料庫金幣
             await pool.query('UPDATE users SET gold = $1 WHERE id = $2', [newGold, reqItem.userId]);
             
-            // 3. 通知管理員端更新介面
             ws.send(JSON.stringify({
               type: 'NOTIFICATION',
               message: `✅ 已成功核實玩家 [${reqItem.playerName}] 的 ${reqItem.amount} TWD 儲值！`
             }));
             
-            // 4. 重新廣播更新後的待審核清單給所有管理員
+            // 🔄 廣播更新後的佇列清單給所有線上管理員
             broadcastPendingTopups();
             
-            // 5. 若該玩家在線上，直接派發金幣並跳出提示
             wss.clients.forEach(client => {
               if (client.readyState === WebSocket.OPEN && client.user && client.user.id === reqItem.userId) {
                 client.user.inventory.gold = newGold;
@@ -804,6 +793,7 @@ wss.on('connection', (ws) => {
           }
         } else if (action === 'reject') {
           try {
+            // 🔄 執行拒絕時，確保確實從佇列移除並廣播更新清單
             broadcastPendingTopups();
 
             ws.send(JSON.stringify({
