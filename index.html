@@ -383,46 +383,12 @@
         <input type="text" id="paymentInfo" placeholder="例如：12345" style="width: 100%;">
       </div>
 
-      <button onclick="submitTopup()" style="background-color: #2196f3; font-weight: bold; padding: 10px; font-size: 15px; margin-top: 5px;">
+      <button type="button" onclick="submitTopup()" style="background-color: #2196f3; font-weight: bold; padding: 10px; font-size: 15px; margin-top: 5px;">
         🚀 提交儲值對帳申請
       </button>
     </div>
   </div>
 </div>
-
-<!-- 無提示版防護機制腳本 -->
-<script>
-  (function() {
-    document.addEventListener('contextmenu', function(e) {
-      e.preventDefault();
-      return false;
-    }, false);
-
-    document.addEventListener('keydown', function(e) {
-      if (e.key === 'F12' || e.keyCode === 123) {
-        e.preventDefault();
-        return false;
-      }
-      if (e.ctrlKey && e.shiftKey && ['I', 'i', 'J', 'j', 'C', 'c'].includes(e.key)) {
-        e.preventDefault();
-        return false;
-      }
-      if (e.ctrlKey && ['U', 'u', 'S', 's'].includes(e.key)) {
-        e.preventDefault();
-        return false;
-      }
-    });
-
-    document.addEventListener('dragstart', function(e) {
-      e.preventDefault();
-      return false;
-    });
-
-    setInterval(function() {
-      (function() {}.constructor('debugger')());
-    }, 1000);
-  })();
-</script>
 
 <script>
   let ws = new WebSocket('wss://rpg-game-backend-vhag.onrender.com');
@@ -516,7 +482,7 @@
     ]
   };
 
-  // 💰 儲值功能與試算 logic
+  // 💰 儲值功能與試算
   function calcGold() {
     const amount = parseInt(document.getElementById('topupAmount').value) || 0;
     document.getElementById('goldPreview').innerText = amount * 100;
@@ -563,8 +529,14 @@
     const amount = parseInt(document.getElementById('topupAmount').value);
     const paymentInfo = document.getElementById('paymentInfo').value.trim();
 
-    if (!amount || amount <= 0) return alert('請輸入正確金額！');
-    if (!paymentInfo) return alert('請填寫付款比對資訊（帳號後 5 碼或 MyCard 序號）！');
+    if (!amount || amount <= 0) {
+      alert('⚠️ 請輸入正確的儲值金額！');
+      return;
+    }
+    if (!paymentInfo) {
+      alert('⚠️ 請填寫付款對帳資訊（如轉帳帳號後 5 碼或 MyCard 序號）！');
+      return;
+    }
 
     ws.send(JSON.stringify({
       type: 'submit_topup',
@@ -573,6 +545,9 @@
       goldToAdd: amount * 100,
       paymentInfo: paymentInfo
     }));
+
+    alert("🚀 儲值申請已順利提交，請等待審核！");
+    closeTopupModal();
   }
 
   // WebSocket 狀態事件監聽
@@ -698,7 +673,7 @@
 
   function checkWsConnected() {
     if (!ws || ws.readyState !== WebSocket.OPEN) {
-      alert("⚠️ 伺服器連線尚未建立或中斷！");
+      alert("⚠️ 伺服器連線尚未建立或已中斷！請重新整理頁面。");
       return false;
     }
     return true;
