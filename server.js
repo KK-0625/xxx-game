@@ -874,7 +874,6 @@ wss.on('connection', (ws) => {
         }
       }
 
-      // 新增：處理前端發送的拒絕請求事件
       else if (data.type === 'admin_reject_topup_request') {
         if (!ws.user || !ws.user.is_admin) {
           return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 您沒有管理員權限！' }));
