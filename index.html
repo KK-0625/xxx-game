@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>多人線上 RPG 戰鬥房間 - 屬性加點與進階擴充版</title>
+  <title>多人線上 RPG 戰鬥房間 - 屬性加點完整版</title>
   <style>
     * { box-sizing: border-box; font-family: "Segoe UI", Microsoft JhengHei, sans-serif; }
     
@@ -30,7 +30,7 @@
     button:disabled { background-color: #444; color: #888; cursor: not-allowed; }
     input, select { background: #2a2a2a; color: #fff; border: 1px solid #444; padding: 8px; border-radius: 4px; font-size: 14px; }
     .hidden { display: none !important; }
-    .lobby-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; padding-bottom: 10px; margin-bottom: 10px; flex-wrap: wrap; gap: 10px; }
+    .lobby-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; padding-bottom: 10px; margin-bottom: 10px; }
     .online-badge { background: #2a3a2a; color: #66bb6a; border: 1px solid #4caf50; padding: 4px 12px; border-radius: 20px; font-weight: bold; font-size: 13px; }
     .lobby-panel { display: flex; flex-direction: column; gap: 15px; }
     .lobby-content { display: flex; gap: 15px; flex-wrap: wrap; }
@@ -50,15 +50,15 @@
     .exp-container { background: #333; height: 16px; border-radius: 8px; overflow: hidden; position: relative; margin-top: 4px; border: 1px solid #555; }
     .exp-bar { background: linear-gradient(90deg, #9c27b0, #ba68c8); height: 100%; width: 0%; transition: width 0.3s; }
     .exp-text { position: absolute; top: 0; left: 0; width: 100%; height: 100%; font-size: 10px; text-align: center; line-height: 16px; color: #fff; text-shadow: 1px 1px 2px #000; font-weight: bold; }
-    .teams-container { display: flex; gap: 15px; margin-top: 10px; flex-wrap: wrap; }
-    .team-box { flex: 1; min-width: 280px; background: #252525; padding: 10px; border-radius: 6px; max-height: 450px; overflow-y: auto; }
+    .teams-container { display: flex; gap: 15px; margin-top: 10px; }
+    .team-box { flex: 1; background: #252525; padding: 10px; border-radius: 6px; max-height: 450px; overflow-y: auto; }
     .team-box.team-a { border-top: 4px solid #2196f3; }
     .team-box.team-b { border-top: 4px solid #f44336; }
     .team-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
     .player-card { background: #333; border-radius: 6px; padding: 10px; margin-bottom: 10px; position: relative; border: 2px solid transparent; transition: 0.2s; }
     .player-card.selected { border-color: #ffca28; background: #3d3b2a; }
     .player-card.dead { opacity: 0.5; filter: grayscale(1); }
-    .player-header { display: flex; justify-content: space-between; font-weight: bold; margin-bottom: 6px; font-size: 13px; }
+    .player-header { display: flex; justify-content: space-between; font-weight: bold; margin-bottom: 6px; }
     .status-tags { font-size: 11px; margin-top: 4px; display: flex; gap: 4px; flex-wrap: wrap; }
     .status-badge { padding: 2px 5px; border-radius: 3px; font-weight: bold; color: #fff; }
     .badge-burn { background-color: #ff5722; }
@@ -87,7 +87,7 @@
     .queue-status { margin-top: 10px; padding: 8px; background: #332200; border: 1px dashed #ff9800; border-radius: 4px; color: #ffca28; }
     .target-indicator { font-size: 13px; color: #ffca28; font-weight: bold; margin-bottom: 5px; }
     .shop-modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.7); display: flex; justify-content: center; align-items: center; z-index: 1000; }
-    .shop-modal { background: #1e1e1e; border: 2px solid #ffca28; border-radius: 8px; width: 90%; max-width: 480px; padding: 20px; box-shadow: 0 5px 15px rgba(0,0,0,0.8); max-height: 90vh; overflow-y: auto; }
+    .shop-modal { background: #1e1e1e; border: 2px solid #ffca28; border-radius: 8px; width: 90%; max-width: 450px; padding: 20px; box-shadow: 0 5px 15px rgba(0,0,0,0.8); max-height: 90vh; overflow-y: auto; }
     .shop-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #444; padding-bottom: 10px; margin-bottom: 15px; }
     .shop-item { display: flex; justify-content: space-between; align-items: center; background: #2a2a2a; padding: 10px; margin-bottom: 10px; border-radius: 6px; }
     #skillFxContainer { position: fixed; top: 25px; right: 25px; pointer-events: none; z-index: 9999; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
@@ -103,7 +103,6 @@
     @keyframes floatUp { 0% { opacity: 1; transform: translateY(0) scale(1.2); } 50% { transform: translateY(-25px) scale(1.4); } 100% { opacity: 0; transform: translateY(-50px) scale(1); } }
     .damage-num { color: #ff3333; }
     .heal-num { color: #33ff33; }
-    .crit-num { color: #ffea00; font-size: 26px; }
   </style>
 </head>
 <body>
@@ -117,12 +116,12 @@
   <div id="authSection" class="card">
     <h3>🔐 帳號登入 / 註冊</h3>
     <div style="display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap;">
-      <input type="text" id="authUsername" placeholder="帳號名稱" style="flex: 1; min-width: 150px;">
-      <input type="password" id="authPassword" placeholder="密碼" style="flex: 1; min-width: 150px;">
+      <input type="text" id="authUsername" placeholder="帳號名稱">
+      <input type="password" id="authPassword" placeholder="密碼">
     </div>
-    <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-      <button onclick="login()" style="flex: 1;">🔑 帳號登入</button>
-      <button onclick="register()" style="flex: 1; background-color: #008cba;">📝 註冊新帳號</button>
+    <div style="display: flex; gap: 10px;">
+      <button onclick="login()">🔑 帳號登入</button>
+      <button onclick="register()" style="background-color: #008cba;">📝 註冊新帳號</button>
     </div>
   </div>
 
@@ -133,13 +132,12 @@
         <h3 style="margin:0;">🧘‍♂️ 大廳 (修練中...)</h3>
         <span id="idleStatusText" style="color: #aaa; font-size: 13px;">正在自動修練尋找藥水與道具...</span>
       </div>
-      <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
-        <button id="adminTopupBtn" style="display: none; background-color: #e91e63; font-weight: bold;" onclick="openAdminModal()">📋 審核</button>
-        <button onclick="openCheckinModal()" style="background-color: #ab47bc; font-weight: bold;">🎁 每日簽到</button>
-        <button onclick="openTopupModal()" style="background-color: #2196f3; font-weight: bold;">💎 儲值</button>
-        <button onclick="openShopModal()" style="background-color: #ff9800; font-weight: bold;">🛒 商店</button>
-        <button onclick="openAchievementModal()" style="background-color: #008cba; font-weight: bold;">🏆 成就</button>
-        <div class="online-badge">🟢 線上：<span id="displayOnlineCount">---</span></div>
+      <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+        <!-- 管理員按鈕 (預設隱藏，透過 is_admin 控制) -->
+        <button id="adminTopupBtn" style="display: none; background-color: #e91e63; font-weight: bold;" onclick="openAdminModal()">📋 審核儲值申請</button>
+        <button onclick="openTopupModal()" style="background-color: #2196f3; font-weight: bold;">💎 金幣儲值</button>
+        <button onclick="openShopModal()" style="background-color: #ff9800; font-weight: bold;">🛒 道具商店</button>
+        <div class="online-badge">🟢 在線玩家：<span id="displayOnlineCount">---</span> 人</div>
       </div>
     </div>
     
@@ -148,9 +146,9 @@
       <div class="lobby-box card">
         <h4>🎮 戰鬥選擇</h4>
         <div style="display: flex; flex-direction: column; gap: 8px;">
-          <label>玩家暱稱：<input type="text" id="playerName" value="勇者" style="width: 100%;"></label>
+          <label>玩家暱稱：<input type="text" id="playerName" value="勇者"></label>
           <label>選擇職業：
-            <select id="playerRole" style="width: 100%;">
+            <select id="playerRole">
               <option value="berserker" selected>🩸 狂戰士 (16000 HP - 攻擊吸血)</option>
               <option value="mage">🔮 法師 (9000 HP - 灼燒/麻痺)</option>
               <option value="priest">💚 牧師 (10000 HP - 專屬復活)</option>
@@ -162,13 +160,13 @@
           
           <div style="margin-top: 10px; display: flex; flex-direction: column; gap: 8px;">
             <button id="btnJoinQueue" onclick="joinQueue()" style="background-color: #ff9800; font-weight: bold; font-size: 15px;">🎲 單人隨機匹配 (1v1)</button>
-            <button id="btnJoinQueue5v5" onclick="joinQueue5v5()" style="background-color: #e91e63; font-weight: bold; font-size: 15px;">⚔️ 5V5 團戰快速匹配</button>
+            <button id="btnJoinQueue5v5" onclick="joinQueue5v5()" style="background-color: #e91e63; font-weight: bold; font-size: 15px;">⚔️ 5V5 團戰快速匹配 </button>
             <button id="btnLeaveQueue" onclick="leaveQueue()" class="hidden" style="background-color: #d32f2f;">❌ 取消匹配</button>
             <div id="queueStatus" class="queue-status hidden">⏳ 正在尋找對手與匹配中...</div>
             <hr style="border-color: #333; width: 100%;">
-            <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
-              <input type="text" id="joinRoomId" placeholder="房號 (留空則建立新房)" style="flex: 1; min-width: 140px;">
-              <button onclick="handleCustomRoom()" style="background-color: #2196f3; font-weight: bold;">🏠 自訂房間</button>
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <input type="text" id="joinRoomId" placeholder="房號 (留空則建立新房)" style="flex: 1;">
+              <button onclick="handleCustomRoom()" style="background-color: #2196f3; font-weight: bold;">🏠 自訂房間 (建立/加入)</button>
             </div>
           </div>
         </div>
@@ -252,7 +250,7 @@
   <div id="roomSection" class="card hidden">
     <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
       <h3>🏰 戰鬥房間 - 房號: <span id="displayRoomId" style="color: #ff9800;">-</span></h3>
-      <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+      <div style="display: flex; gap: 8px; align-items: center;">
         <button id="btnAutoBattle" class="btn-auto active" onclick="toggleAutoBattle()">🤖 自動戰鬥: ON</button>
         <button onclick="openTopupModal()" style="background-color: #2196f3; font-weight: bold;">💎 儲值</button>
         <button onclick="openShopModal()" style="background-color: #ff9800;">🛒 商店</button>
@@ -345,57 +343,6 @@
       <div>
         <span style="color: #ffd700; font-weight: bold; margin-right: 8px;">💰 50</span>
         <button onclick="buyItem('exp_scroll', 50)">購買</button>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- 每日簽到 Modal -->
-<div id="checkinModal" class="shop-modal-overlay hidden">
-  <div class="shop-modal" style="border-color: #ab47bc;">
-    <div class="shop-header">
-      <h3 style="margin: 0; color: #ab47bc;">🎁 每日簽到福利中心</h3>
-      <button onclick="closeCheckinModal()" style="background-color: #d32f2f; padding: 4px 10px;">❌ 關閉</button>
-    </div>
-    <div style="text-align: center; margin-bottom: 15px; font-size: 14px; color: #ccc;">
-      每天登入即可領取豐厚金幣與藥水獎勵！
-    </div>
-    <div style="display: flex; flex-direction: column; gap: 10px;">
-      <button onclick="claimDailyCheckin()" style="background-color: #ab47bc; font-weight: bold; padding: 12px; font-size: 16px;">
-        ✨ 立即領取今日簽到獎勵 (+200 金幣, +2 瓶藥水)
-      </button>
-    </div>
-  </div>
-</div>
-
-<!-- 成就解鎖 Modal -->
-<div id="achievementModal" class="shop-modal-overlay hidden">
-  <div class="shop-modal" style="border-color: #008cba;">
-    <div class="shop-header">
-      <h3 style="margin: 0; color: #008cba;">🏆 玩家成就殿堂</h3>
-      <button onclick="closeAchievementModal()" style="background-color: #d32f2f; padding: 4px 10px;">❌ 關閉</button>
-    </div>
-    <div style="display: flex; flex-direction: column; gap: 8px;" id="achievementListContainer">
-      <div class="shop-item">
-        <div>
-          <strong>🥉 初出茅廬</strong>
-          <div style="font-size: 12px; color: #aaa;">完成第一場戰鬥匹配</div>
-        </div>
-        <span style="color: #00e676; font-weight: bold;">已達成</span>
-      </div>
-      <div class="shop-item">
-        <div>
-          <strong>🥈 戰場支配者</strong>
-          <div style="font-size: 12px; color: #aaa;">在對戰中累計造成 10,000 點傷害</div>
-        </div>
-        <span style="color: #ffca28; font-weight: bold;">進行中 (45%)</span>
-      </div>
-      <div class="shop-item">
-        <div>
-          <strong>🥇 財富巨賈</strong>
-          <div style="font-size: 12px; color: #aaa;">身上同時擁有 1,000 枚金幣</div>
-        </div>
-        <span style="color: #888; font-weight: bold;">未解鎖</span>
       </div>
     </div>
   </div>
@@ -560,21 +507,6 @@
     ]
   };
 
-  // 新增功能：每日簽到與成就視窗控制
-  function openCheckinModal() { document.getElementById('checkinModal').classList.remove('hidden'); }
-  function closeCheckinModal() { document.getElementById('checkinModal').classList.add('hidden'); }
-  function claimDailyCheckin() {
-    alert("🎉 簽到成功！獲得 200 金幣與 2 瓶生命/魔力藥水！");
-    localUserData.gold = (localUserData.gold || 0) + 200;
-    localUserData.hpPotion = (localUserData.hpPotion || 0) + 2;
-    localUserData.mpPotion = (localUserData.mpPotion || 0) + 2;
-    updateInventoryDisplay();
-    closeCheckinModal();
-  }
-
-  function openAchievementModal() { document.getElementById('achievementModal').classList.remove('hidden'); }
-  function closeAchievementModal() { document.getElementById('achievementModal').classList.add('hidden'); }
-
   function openAdminModal() { document.getElementById('adminModal').classList.remove('hidden'); }
   function closeAdminModal() { document.getElementById('adminModal').classList.add('hidden'); }
 
@@ -676,6 +608,7 @@
       currentUser = data.user;
       logMessage(`🎉 登入成功！歡迎回來，${data.user.name}`);
 
+      // 檢查是否為管理員，顯示審核儲值按鈕
       if (data.isAdmin) {
         document.getElementById('adminTopupBtn').style.display = 'inline-block';
       }
@@ -969,7 +902,8 @@
   }
 
   function updateInventoryDisplay(inv) {
-    if (inv) localUserData = Object.assign(localUserData, inv);
+    if (!inv) return;
+    localUserData = Object.assign(localUserData, inv);
 
     document.getElementById('lobbyGold').innerText = localUserData.gold ?? 0;
     document.getElementById('shopGoldDisplay').innerText = localUserData.gold ?? 0;
@@ -1177,7 +1111,7 @@
       if (p.statusEffects) {
         if (p.statusEffects.burn) statusHtml += `<span class="status-badge badge-burn">🔥 灼燒</span>`;
         if (p.statusEffects.paralyze) statusHtml += `<span class="status-badge badge-paralyze">⚡ 麻痺</span>`;
-        if (p.statusEffects.poison) statusHtml += `<span class="status-badge badge-poison">☠️ 中毒</span>`;
+        if (p.statusEffects.poison) statusHtml += `<span class="status-badge badge-poison">☠️ 中毒(-50%治療)</span>`;
         if (p.statusEffects.blind) statusHtml += `<span class="status-badge badge-blind">👁️ 致盲</span>`;
       }
 
