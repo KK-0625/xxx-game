@@ -110,7 +110,7 @@
 <div id="skillFxContainer"></div>
 
 <div id="mainContainer" class="container">
-  <h2>⚔️ 線上 RPG 戰鬥與匹配系統</h2>
+  <h2>⚔️ 線上 RPG 戰鬥與匹配系統 (優化版)</h2>
 
   <!-- 帳號登入/註冊區塊 -->
   <div id="authSection" class="card">
@@ -409,7 +409,7 @@
 </div>
 
 <script>
-  let ws = new WebSocket('wss://rpg-game-backend-vhag.onrender.com');
+  let ws = null;
   let myPlayerId = null;
   let currentUser = null;
   let currentRoomState = null;
@@ -418,6 +418,171 @@
   let localSkillCDMap = {};
   let isAutoBattle = true;
   let autoBattleTimer = null;
+
+  function connectWebSocket() {
+    ws = new WebSocket('wss://rpg-game-backend-vhag.onrender.com');
+
+    ws.onopen = () => { logMessage("🟢 成功連接伺服器！請先進行帳號登入或註冊。"); };
+    ws.onerror = () => { logMessage("🔴 伺服器連線失敗，請檢查網路或稍候重新整理。"); };
+    ws.onclose = () => { 
+      logMessage("🟡 與伺服器中斷連線，嘗試重新連線中..."); 
+      stopAutoBattle();
+      setTimeout(connectWebSocket, 3000);
+    };
+
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+
+      if (data.type === 'register_success') alert(data.message);
+      else if (data.type === 'login_success') {
+        currentUser = data.user;
+        logMessage(`🎉 登入成功！歡迎回來，${data.user.name}`);
+
+        document.getElementById('authSection').classList.add('hidden');
+        document.getElementById('lobbySection').classList.remove('hidden');
+        document.getElementById('playerName').value = data.user.name || "勇者";
+        document.getElementById('playerRole').value = data.user.role || 'berserker';
+        localUserData.level = data.user.level || 1;
+        localUserData.exp = data.user.exp || 0;
+        
+        if (data.user.stats) {
+          localUserData.statPoints = data.user.stats.statPoints || 0;
+          localUserData.str = data.user.stats.str || 0;
+          localUserData.int = data.user.stats.int || 0;
+          localUserData.vit = data.user.stats.vit || 0;
+          localUserData.agi = data.user.stats.agi || 0;
+        }
+        updateInventoryDisplay(data.user.inventory);
+      }
+      else if (data.type === 'online_count') {
+        document.getElementById('displayOnlineCount').innerText = data.onlineCount;
+      }
+      else if (data.type === 'lobby_chat') {
+        appendLobbyChat(data.sender, data.message, data.time);
+      }
+      else if (data.type === 'update_pending_topups') {
+        const listContainer = document.getElementById('pendingTopupsList');
+        const adminPanel = document.getElementById('adminTopupPanel');
+        
+        adminPanel.style.display = 'block';
+        
+        if (!data.list || data.list.length === 0) {
+          listContainer.innerHTML = '<p>目前沒有待審核的儲值申請。</p>';
+          return;
+        }
+
+        let html = '<div style="overflow-x: auto;"><table border="1" width="100%" style="text-align: center; border-collapse: collapse; border-color: #444; font-size: 13px;">';
+        html += '<tr style="background: #331111;"><th>時間</th><th>玩家暱稱</th><th>帳號</th><th>面額</th><th>MyCard 卡號/密碼</th><th>操作</th></tr>';
+        
+        data.list.forEach(item => {
+          html += `
+            <tr>
+              <td style="padding: 6px;">${item.time}</td>
+              <td style="padding: 6px;"><b>${item.playerName}</b></td>
+              <td style="padding: 6px;">${item.username}</td>
+              <td style="padding: 6px; color: gold;">${item.amount} TWD</td>
+              <td style="padding: 6px;">${item.paymentInfo}</td>
+              <td style="padding: 6px; display: flex; gap: 4px; justify-content: center;">
+                <button onclick="approveTopup('${item.requestId}')" style="background-color: green; color: white; padding: 4px 8px; font-size: 12px;">核准</button>
+                <button onclick="rejectTopup('${item.requestId}')" style="background-color: #d32f2f; color: white; padding: 4px 8px; font-size: 12px;">拒絕</button>
+              </td>
+            </tr>
+          `;
+        });
+        html += '</table></div>';
+        
+        listContainer.innerHTML = html;
+      }
+      else if (data.type === 'admin_action_success') {
+        alert(data.message);
+      }
+      else if (data.type === 'idle_reward') {
+        logMessage(data.message);
+        if (data.level > localUserData.level) {
+          localUserData.statPoints += (data.level - localUserData.level) * 5;
+          logMessage(`🎉 恭喜升級到 LV.${data.level}！獲得 5 點自由屬性點！`);
+        }
+        localUserData.level = data.level;
+        localUserData.exp = data.exp;
+        updateInventoryDisplay(data.inventory);
+      }
+      else if (data.type === 'shop_success') {
+        logMessage(data.message);
+        updateInventoryDisplay(data.inventory);
+      }
+      else if (data.type === 'topup_response') {
+        alert(data.message);
+      }
+      else if (data.type === 'gold_received') {
+        alert(data.message);
+        if (data.inventory) {
+          updateInventoryDisplay(data.inventory);
+        }
+      }
+      else if (data.type === 'queue_joined') {
+        logMessage("🎲 成功進入匹配隊列...");
+        showQueueUI(true);
+      }
+      else if (data.type === 'queue_left') {
+        logMessage("❌ 已取消匹配。");
+        showQueueUI(false);
+      }
+      else if (data.type === 'match_found' || data.type === 'room_created' || data.type === 'room_joined') {
+        if (data.type === 'match_found') logMessage("🎉 匹配成功！即將進入戰鬥...");
+        myPlayerId = data.player.id;
+        selectedTargetId = null;
+        localSkillCDMap = {};
+
+        isAutoBattle = true;
+        const btnAuto = document.getElementById('btnAutoBattle');
+        if (btnAuto) {
+          btnAuto.innerText = "🤖 自動戰鬥: ON";
+          btnAuto.classList.add('active');
+        }
+
+        document.getElementById('displayRoomId').innerText = data.roomId;
+        document.getElementById('lobbySection').classList.add('hidden');
+        document.getElementById('roomSection').classList.remove('hidden');
+        showQueueUI(false);
+        updateInventoryDisplay(data.player.inventory);
+      }
+      else if (data.type === 'room_state') {
+        currentRoomState = data;
+        
+        if (data.skillCooldowns && data.skillCooldowns[myPlayerId]) {
+          const cdState = data.skillCooldowns[myPlayerId];
+          Object.keys(cdState).forEach(sName => {
+            localSkillCDMap[sName] = cdState[sName];
+          });
+        }
+
+        renderRoom(data);
+
+        if (data.status === 'playing' && isAutoBattle) {
+          startAutoBattleLoop();
+        }
+      }
+      else if (data.type === 'battle_log') {
+        logMessage(data.message);
+        checkBattleLogForEffects(data.message);
+      }
+      else if (data.type === 'returned_to_idle') {
+        logMessage(data.message);
+        selectedTargetId = null;
+        stopAutoBattle();
+        document.getElementById('lobbySection').classList.remove('hidden');
+        document.getElementById('roomSection').classList.add('hidden');
+        document.getElementById('actionPanel').classList.add('hidden');
+      }
+      else if (data.type === 'error') {
+        logMessage("⚠️ " + data.message);
+        alert("⚠️ " + data.message);
+      }
+    };
+  }
+
+  // 初始化連線
+  connectWebSocket();
 
   // 音效合成模組
   const AudioFX = {
@@ -539,183 +704,19 @@
     closeTopupModal();
   }
 
-  // 管理員點擊「核准」按鈕時觸發
   function approveTopup(requestId) {
     if (!confirm('確定要核准這筆儲值申請並自動派發金幣給玩家嗎？')) return;
-
-    ws.send(JSON.stringify({
-      type: 'admin_approve_topup_request',
-      requestId: requestId
-    }));
+    ws.send(JSON.stringify({ type: 'admin_approve_topup_request', requestId: requestId }));
   }
 
-  // 管理員點擊「拒絕」按鈕時觸發
   function rejectTopup(requestId) {
     if (!confirm('確定要拒絕這筆儲值申請嗎？')) return;
-
-    ws.send(JSON.stringify({
-      type: 'admin_reject_topup_request',
-      requestId: requestId
-    }));
+    ws.send(JSON.stringify({ type: 'admin_reject_topup_request', requestId: requestId }));
   }
-
-  ws.onopen = () => { logMessage("🟢 成功連接伺服器！請先進行帳號登入或註冊。"); };
-  ws.onerror = () => { logMessage("🔴 伺服器連線失敗，請檢查網路。"); };
-  ws.onclose = () => { logMessage("🟡 與伺服器中斷連線。"); stopAutoBattle(); };
-
-  ws.onmessage = (event) => {
-    const data = JSON.parse(event.data);
-
-    if (data.type === 'register_success') alert(data.message);
-    else if (data.type === 'login_success') {
-      currentUser = data.user;
-      logMessage(`🎉 登入成功！歡迎回來，${data.user.name}`);
-
-      document.getElementById('authSection').classList.add('hidden');
-      document.getElementById('lobbySection').classList.remove('hidden');
-      document.getElementById('playerName').value = data.user.name || "勇者";
-      document.getElementById('playerRole').value = data.user.role || 'berserker';
-      localUserData.level = data.user.level || 1;
-      localUserData.exp = data.user.exp || 0;
-      
-      if (data.user.stats) {
-        localUserData.statPoints = data.user.stats.statPoints || 0;
-        localUserData.str = data.user.stats.str || 0;
-        localUserData.int = data.user.stats.int || 0;
-        localUserData.vit = data.user.stats.vit || 0;
-        localUserData.agi = data.user.stats.agi || 0;
-      }
-      updateInventoryDisplay(data.user.inventory);
-    }
-    else if (data.type === 'online_count') {
-      document.getElementById('displayOnlineCount').innerText = data.onlineCount;
-    }
-    else if (data.type === 'lobby_chat') {
-      appendLobbyChat(data.sender, data.message, data.time);
-    }
-    else if (data.type === 'update_pending_topups') {
-      const listContainer = document.getElementById('pendingTopupsList');
-      const adminPanel = document.getElementById('adminTopupPanel');
-      
-      adminPanel.style.display = 'block';
-      
-      if (!data.list || data.list.length === 0) {
-        listContainer.innerHTML = '<p>目前沒有待審核的儲值申請。</p>';
-        return;
-      }
-
-      let html = '<div style="overflow-x: auto;"><table border="1" width="100%" style="text-align: center; border-collapse: collapse; border-color: #444; font-size: 13px;">';
-      html += '<tr style="background: #331111;"><th>時間</th><th>玩家暱稱</th><th>帳號</th><th>面額</th><th>MyCard 卡號/密碼</th><th>操作</th></tr>';
-      
-      data.list.forEach(item => {
-        html += `
-          <tr>
-            <td style="padding: 6px;">${item.time}</td>
-            <td style="padding: 6px;"><b>${item.playerName}</b></td>
-            <td style="padding: 6px;">${item.username}</td>
-            <td style="padding: 6px; color: gold;">${item.amount} TWD</td>
-            <td style="padding: 6px;">${item.paymentInfo}</td>
-            <td style="padding: 6px; display: flex; gap: 4px; justify-content: center;">
-              <button onclick="approveTopup('${item.requestId}')" style="background-color: green; color: white; padding: 4px 8px; font-size: 12px;">核准</button>
-              <button onclick="rejectTopup('${item.requestId}')" style="background-color: #d32f2f; color: white; padding: 4px 8px; font-size: 12px;">拒絕</button>
-            </td>
-          </tr>
-        `;
-      });
-      html += '</table></div>';
-      
-      listContainer.innerHTML = html;
-    }
-    else if (data.type === 'admin_action_success') {
-      alert(data.message);
-    }
-    else if (data.type === 'idle_reward') {
-      logMessage(data.message);
-      if (data.level > localUserData.level) {
-        localUserData.statPoints += (data.level - localUserData.level) * 5;
-        logMessage(`🎉 恭喜升級到 LV.${data.level}！獲得 5 點自由屬性點！`);
-      }
-      localUserData.level = data.level;
-      localUserData.exp = data.exp;
-      updateInventoryDisplay(data.inventory);
-    }
-    else if (data.type === 'shop_success') {
-      logMessage(data.message);
-      updateInventoryDisplay(data.inventory);
-    }
-    else if (data.type === 'topup_response') {
-      alert(data.message);
-    }
-    else if (data.type === 'gold_received') {
-      alert(data.message);
-      if (data.inventory) {
-        updateInventoryDisplay(data.inventory);
-      }
-    }
-    else if (data.type === 'queue_joined') {
-      logMessage("🎲 成功進入匹配隊列...");
-      showQueueUI(true);
-    }
-    else if (data.type === 'queue_left') {
-      logMessage("❌ 已取消匹配。");
-      showQueueUI(false);
-    }
-    else if (data.type === 'match_found' || data.type === 'room_created' || data.type === 'room_joined') {
-      if (data.type === 'match_found') logMessage("🎉 匹配成功！即將進入戰鬥...");
-      myPlayerId = data.player.id;
-      selectedTargetId = null;
-      localSkillCDMap = {};
-
-      isAutoBattle = true;
-      const btnAuto = document.getElementById('btnAutoBattle');
-      if (btnAuto) {
-        btnAuto.innerText = "🤖 自動戰鬥: ON";
-        btnAuto.classList.add('active');
-      }
-
-      document.getElementById('displayRoomId').innerText = data.roomId;
-      document.getElementById('lobbySection').classList.add('hidden');
-      document.getElementById('roomSection').classList.remove('hidden');
-      showQueueUI(false);
-      updateInventoryDisplay(data.player.inventory);
-    }
-    else if (data.type === 'room_state') {
-      currentRoomState = data;
-      
-      if (data.skillCooldowns && data.skillCooldowns[myPlayerId]) {
-        const cdState = data.skillCooldowns[myPlayerId];
-        Object.keys(cdState).forEach(sName => {
-          localSkillCDMap[sName] = cdState[sName];
-        });
-      }
-
-      renderRoom(data);
-
-      if (data.status === 'playing' && isAutoBattle) {
-        startAutoBattleLoop();
-      }
-    }
-    else if (data.type === 'battle_log') {
-      logMessage(data.message);
-      checkBattleLogForEffects(data.message);
-    }
-    else if (data.type === 'returned_to_idle') {
-      logMessage(data.message);
-      selectedTargetId = null;
-      stopAutoBattle();
-      document.getElementById('lobbySection').classList.remove('hidden');
-      document.getElementById('roomSection').classList.add('hidden');
-      document.getElementById('actionPanel').classList.add('hidden');
-    }
-    else if (data.type === 'error') {
-      logMessage("⚠️ " + data.message);
-      alert("⚠️ " + data.message);
-    }
-  };
 
   function checkWsConnected() {
     if (!ws || ws.readyState !== WebSocket.OPEN) {
-      alert("⚠️ 伺服器連線尚未建立或已中斷！請重新整理頁面。");
+      alert("⚠️ 伺服器連線尚未建立或正在重連中，請稍候再試！");
       return false;
     }
     return true;
