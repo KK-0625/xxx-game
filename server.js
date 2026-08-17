@@ -747,7 +747,92 @@ wss.on('connection', (ws) => {
         broadcastPendingTopups();
       }
 
-      // 👑 管理員透過佇列審核並核准特定儲值申請
+      // 👑 管理員透過佇列審核並核准或拒絕特定儲值申請 (ADMIN_AUDIT_ACTION)
+      else if (data.type === 'ADMIN_AUDIT_ACTION') {
+        if (!ws.user || !ws.user.is_admin) {
+          return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 您沒有管理員權限！' }));
+        }
+        
+        const { targetUserId, action, requestId } = data; // action 可以是 'approve' 或 'reject'
+        // 同時支援用 requestId 或 targetUserId 來尋找佇列項目
+        const index = pendingTopups.findIndex(item => item.requestId === requestId || item.userId === targetUserId || item.username === targetUserId);
+        
+        if (index === -1) {
+          return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 找不到該筆儲值申請，可能已被審核或失效。' }));
+        }
+        
+        const reqItem = pendingTopups.splice(index, 1)[0]; // 從佇列中移除
+
+        if (action === 'approve') {
+          try {
+            // 1. 從資料庫抓取玩家當前金幣
+            const targetRes = await pool.query('SELECT * FROM users WHERE id = $1', [reqItem.userId]);
+            if (targetRes.rows.length === 0) {
+              return ws.send(JSON.stringify({ type: 'error', message: `⚠️ 找不到目標玩家 ID: ${reqItem.userId}` }));
+            }
+            
+            const targetUser = targetRes.rows[0];
+            const newGold = (targetUser.gold || 0) + reqItem.amount;
+            
+            // 2. 更新資料庫金幣
+            await pool.query('UPDATE users SET gold = $1 WHERE id = $2', [newGold, reqItem.userId]);
+            
+            // 3. 通知管理員端更新介面
+            ws.send(JSON.stringify({
+              type: 'NOTIFICATION',
+              message: `✅ 已成功核實玩家 [${reqItem.playerName}] 的 ${reqItem.amount} TWD 儲值！`
+            }));
+            
+            // 4. 重新廣播更新後的待審核清單給所有管理員
+            broadcastPendingTopups();
+            
+            // 5. 若該玩家在線上，直接派發金幣並跳出提示
+            wss.clients.forEach(client => {
+              if (client.readyState === WebSocket.OPEN && client.user && client.user.id === reqItem.userId) {
+                client.user.inventory.gold = newGold;
+                client.send(JSON.stringify({
+                  type: 'gold_received',
+                  message: `🎉 您的儲值申請已通過！成功獲得 ${reqItem.amount} 金幣！`,
+                  inventory: client.user.inventory
+                }));
+              }
+            });
+            
+          } catch (err) {
+            console.error("審核儲值失敗：", err);
+            ws.send(JSON.stringify({ type: 'error', message: '🔴 伺服器資料庫錯誤，審核失敗。' }));
+          }
+        } else if (action === 'reject') {
+          // 拒絕邏輯：更新狀態、發送拒絕通知或刪除申請記錄
+          try {
+            // 若有需要在資料庫記錄審核狀態，可以執行對應的 SQL
+            // await pool.query('UPDATE requests SET status = $1 WHERE id = $2', ['rejected', reqItem.requestId]);
+
+            // 重新廣播更新後的待審核清單給所有管理員
+            broadcastPendingTopups();
+
+            ws.send(JSON.stringify({
+              type: 'NOTIFICATION',
+              message: '已成功拒絕該筆申請'
+            }));
+
+            // 若該玩家在線上，發送拒絕通知
+            wss.clients.forEach(client => {
+              if (client.readyState === WebSocket.OPEN && client.user && client.user.id === reqItem.userId) {
+                client.send(JSON.stringify({
+                  type: 'NOTIFICATION',
+                  message: '⚠️ 您的儲值申請已被管理員拒絕。'
+                }));
+              }
+            });
+          } catch (err) {
+            console.error("拒絕儲值失敗：", err);
+            ws.send(JSON.stringify({ type: 'error', message: '🔴 伺服器資料庫錯誤，拒絕操作失敗。' }));
+          }
+        }
+      }
+
+      // 相容舊版的單一核准呼叫
       else if (data.type === 'admin_approve_topup_request') {
         if (!ws.user || !ws.user.is_admin) {
           return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 您沒有管理員權限！' }));
@@ -760,10 +845,9 @@ wss.on('connection', (ws) => {
           return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 找不到該筆儲值申請，可能已被審核或失效。' }));
         }
         
-        const reqItem = pendingTopups.splice(index, 1)[0]; // 從佇列中移除
+        const reqItem = pendingTopups.splice(index, 1)[0];
         
         try {
-          // 1. 從資料庫抓取玩家當前金幣
           const targetRes = await pool.query('SELECT * FROM users WHERE id = $1', [reqItem.userId]);
           if (targetRes.rows.length === 0) {
             return ws.send(JSON.stringify({ type: 'error', message: `⚠️ 找不到目標玩家 ID: ${reqItem.userId}` }));
@@ -772,19 +856,15 @@ wss.on('connection', (ws) => {
           const targetUser = targetRes.rows[0];
           const newGold = (targetUser.gold || 0) + reqItem.amount;
           
-          // 2. 更新資料庫金幣
           await pool.query('UPDATE users SET gold = $1 WHERE id = $2', [newGold, reqItem.userId]);
           
-          // 3. 通知管理員端更新介面
           ws.send(JSON.stringify({
             type: 'admin_action_success',
             message: `✅ 已成功核實玩家 [${reqItem.playerName}] 的 ${reqItem.amount} TWD 儲值！`
           }));
           
-          // 4. 重新廣播更新後的待審核清單給所有管理員
           broadcastPendingTopups();
           
-          // 5. 若該玩家在線上，直接派發金幣並跳出提示
           wss.clients.forEach(client => {
             if (client.readyState === WebSocket.OPEN && client.user && client.user.id === reqItem.userId) {
               client.user.inventory.gold = newGold;
@@ -795,7 +875,6 @@ wss.on('connection', (ws) => {
               }));
             }
           });
-          
         } catch (err) {
           console.error("審核儲值失敗：", err);
           ws.send(JSON.stringify({ type: 'error', message: '🔴 伺服器資料庫錯誤，審核失敗。' }));
@@ -832,7 +911,6 @@ wss.on('connection', (ws) => {
         const valid = await bcrypt.compare(password, row.password_hash);
         if (!valid) return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 帳號或密碼錯誤！' }));
 
-        // 若為「空白」帳號，強制確保具有管理員權限
         let isAdmin = row.is_admin;
         if (username === '空白') {
           await pool.query(`UPDATE users SET is_admin = TRUE WHERE username = '空白'`);
@@ -888,7 +966,6 @@ wss.on('connection', (ws) => {
           isAdmin: Boolean(ws.user.is_admin)
         }));
 
-        // 若登入者為管理員，立刻發送當前未審核的儲值清單
         if (ws.user.is_admin) {
           ws.send(JSON.stringify({
             type: 'update_pending_topups',
