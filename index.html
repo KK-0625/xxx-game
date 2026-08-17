@@ -139,7 +139,7 @@
       </div>
     </div>
     
-    <!-- 👑 管理員審核後台面板 (僅管理員登入後透過後端廣播開啟) -->
+    <!-- 👑 管理員審核後台面板 -->
     <div id="adminTopupPanel" style="display:none; border: 2px solid red; padding: 10px; margin-bottom: 15px; border-radius: 6px; background: #221111;">
       <h3 style="color: #ff5252; margin-top: 0;">👑 管理員專區：待審核儲值佇列</h3>
       <div id="pendingTopupsList">
@@ -563,6 +563,16 @@
     }));
   }
 
+  // 4. 管理員點擊「拒絕」按鈕時觸發
+  function rejectTopup(requestId) {
+    if (!confirm('確定要拒絕這筆儲值申請嗎？')) return;
+
+    ws.send(JSON.stringify({
+      type: 'admin_reject_topup_request',
+      requestId: requestId
+    }));
+  }
+
   ws.onopen = () => { logMessage("🟢 成功連接伺服器！請先進行帳號登入或註冊。"); };
   ws.onerror = () => { logMessage("🔴 伺服器連線失敗，請檢查網路。"); };
   ws.onclose = () => { logMessage("🟡 與伺服器中斷連線。"); stopAutoBattle(); };
@@ -621,8 +631,9 @@
             <td style="padding: 6px;">${item.username}</td>
             <td style="padding: 6px; color: gold;">${item.amount} TWD</td>
             <td style="padding: 6px;">${item.paymentInfo}</td>
-            <td style="padding: 6px;">
-              <button onclick="approveTopup('${item.requestId}')" style="background-color: green; color: white; padding: 4px 8px; font-size: 12px;">核准並派發</button>
+            <td style="padding: 6px; display: flex; gap: 4px; justify-content: center;">
+              <button onclick="approveTopup('${item.requestId}')" style="background-color: green; color: white; padding: 4px 8px; font-size: 12px;">核准</button>
+              <button onclick="rejectTopup('${item.requestId}')" style="background-color: #d32f2f; color: white; padding: 4px 8px; font-size: 12px;">拒絕</button>
             </td>
           </tr>
         `;
@@ -715,6 +726,7 @@
     }
     else if (data.type === 'error') {
       logMessage("⚠️ " + data.message);
+      alert("⚠️ " + data.message);
     }
   };
 
