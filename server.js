@@ -640,7 +640,20 @@ wss.on('connection', (ws) => {
     try {
       const data = JSON.parse(message);
 
-      if (data.type === 'register') {
+      // 💳 儲值申請處理邏輯
+      if (data.type === 'submit_topup') {
+        const playerName = (ws.user && ws.user.name) ? ws.user.name : (ws.playerName || '未知玩家');
+        console.log(`收到儲值申請：玩家 [${playerName}]，金額: ${data.amount} TWD，資訊: ${data.paymentInfo}`);
+        
+        // 回傳成功訊息給前端
+        ws.send(JSON.stringify({
+          type: 'topup_response',
+          success: true,
+          message: '✅ 儲值申請已順利送出，我們將盡快為您核對！'
+        }));
+      }
+
+      else if (data.type === 'register') {
         const { username, password } = data;
         if (!username || !password) return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 帳號與密碼不能為空！' }));
         const hash = await bcrypt.hash(password, 10);
@@ -682,6 +695,7 @@ wss.on('connection', (ws) => {
           },
           inventory: { hpPotion: user.hp_potion, mpPotion: user.mp_potion, expScroll: user.exp_scroll, gold: initialGold }
         };
+        ws.playerName = user.username;
         ws.isIdle = true;
 
         if (ws.idleTimer) clearTimeout(ws.idleTimer);
