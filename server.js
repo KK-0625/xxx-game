@@ -729,7 +729,7 @@ wss.on('connection', (ws) => {
       else if (data.type === 'submit_topup') {
         const playerName = (ws.user && ws.user.name) ? ws.user.name : (ws.user && ws.user.username) || '未知玩家';
         const amount = parseInt(data.amount) || 0;
-        const goldToAdd = amount * 500; // <--- 在這裡進行 1:500 轉換
+        const goldToAdd = amount * 100; // <--- 在這裡進行 1:100 轉換
         const paymentInfo = data.paymentInfo || '無備註';
         
         const requestId = 'TOPUP_' + Math.random().toString(36).substr(2, 9);
@@ -778,8 +778,8 @@ wss.on('connection', (ws) => {
             }
             
             const targetUser = targetRes.rows[0];
-            // 強制抓取 goldToAdd 或重新計算 1:500 防呆
-            const goldToGive = reqItem.goldToAdd || (reqItem.amount * 500); 
+            // 強制抓取 goldToAdd 或重新計算 1:100 防呆
+            const goldToGive = reqItem.goldToAdd || (reqItem.amount * 100); 
             const newGold = (targetUser.gold || 0) + goldToGive;
             
             await pool.query('UPDATE users SET gold = $1 WHERE id = $2', [newGold, reqItem.userId]);
@@ -851,8 +851,8 @@ wss.on('connection', (ws) => {
           }
           
           const targetUser = targetRes.rows[0];
-          // 強制抓取 goldToAdd 或重新計算 1:500 防呆
-          const goldToGive = reqItem.goldToAdd || (reqItem.amount * 500);
+          // 強制抓取 goldToAdd 或重新計算 1:100 防呆
+          const goldToGive = reqItem.goldToAdd || (reqItem.amount * 100);
           const newGold = (targetUser.gold || 0) + goldToGive;
           
           await pool.query('UPDATE users SET gold = $1 WHERE id = $2', [newGold, reqItem.userId]);
