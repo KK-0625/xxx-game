@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>多人線上 RPG 戰鬥房間 - 屬性加點完整版</title>
+  <title>多人線上 RPG 戰鬥房間 - 完整儲值與審核後台版</title>
   <style>
     * { box-sizing: border-box; font-family: "Segoe UI", Microsoft JhengHei, sans-serif; }
     
@@ -133,14 +133,20 @@
         <span id="idleStatusText" style="color: #aaa; font-size: 13px;">正在自動修練尋找藥水與道具...</span>
       </div>
       <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
-        <!-- 管理員按鈕 (預設隱藏，透過 is_admin 控制) -->
-        <button id="adminTopupBtn" style="display: none; background-color: #e91e63; font-weight: bold;" onclick="openAdminModal()">📋 審核儲值申請</button>
         <button onclick="openTopupModal()" style="background-color: #2196f3; font-weight: bold;">💎 金幣儲值</button>
         <button onclick="openShopModal()" style="background-color: #ff9800; font-weight: bold;">🛒 道具商店</button>
         <div class="online-badge">🟢 在線玩家：<span id="displayOnlineCount">---</span> 人</div>
       </div>
     </div>
     
+    <!-- 👑 管理員審核後台面板 (僅管理員登入後透過後端廣播開啟) -->
+    <div id="adminTopupPanel" style="display:none; border: 2px solid red; padding: 10px; margin-bottom: 15px; border-radius: 6px; background: #221111;">
+      <h3 style="color: #ff5252; margin-top: 0;">👑 管理員專區：待審核儲值佇列</h3>
+      <div id="pendingTopupsList">
+        <p>目前沒有待審核的儲值申請。</p>
+      </div>
+    </div>
+
     <div class="lobby-content">
       <!-- 戰鬥選擇面板 -->
       <div class="lobby-box card">
@@ -352,7 +358,7 @@
 <div id="topupModal" class="shop-modal-overlay hidden">
   <div class="shop-modal">
     <div class="shop-header">
-      <h3 style="margin: 0; color: #2196f3;">💎 金幣儲值中心</h3>
+      <h3 style="margin: 0; color: #2196f3;">💎 玩家線上儲值申請</h3>
       <button onclick="closeTopupModal()" style="background-color: #d32f2f; padding: 4px 10px;">❌ 關閉</button>
     </div>
     
@@ -381,40 +387,13 @@
       </div>
 
       <div>
-        <label id="infoLabel" style="display: block; margin-bottom: 4px; font-weight: bold;">轉帳帳號後 5 碼 / 街口顯示名稱：</label>
-        <input type="text" id="paymentInfo" placeholder="例如：12345" style="width: 100%;">
+        <label id="infoLabel" style="display: block; margin-bottom: 4px; font-weight: bold;">付款備註 / 轉帳帳號後 5 碼：</label>
+        <input type="text" id="topupPaymentInfo" placeholder="例如：12345" style="width: 100%;">
       </div>
 
-      <button type="button" onclick="submitTopup()" style="background-color: #2196f3; font-weight: bold; padding: 10px; font-size: 15px; margin-top: 5px;">
-        🚀 提交儲值對帳申請
+      <button type="button" onclick="submitTopupRequest()" style="background-color: #2196f3; font-weight: bold; padding: 10px; font-size: 15px; margin-top: 5px;">
+        🚀 送出審核申請
       </button>
-    </div>
-  </div>
-</div>
-
-<!-- 管理員儲值申請審核 Modal -->
-<div id="adminModal" class="shop-modal-overlay hidden">
-  <div class="shop-modal" style="border-color: #e91e63;">
-    <div class="shop-header">
-      <h3 style="margin: 0; color: #e91e63;">📋 審核儲值申請與派送金幣</h3>
-      <button onclick="closeAdminModal()" style="background-color: #d32f2f; padding: 4px 10px;">❌ 關閉</button>
-    </div>
-    
-    <div style="display: flex; flex-direction: column; gap: 12px;">
-      <div>
-        <label style="display: block; margin-bottom: 4px; font-weight: bold;">玩家帳號：</label>
-        <input type="text" id="targetUserId" placeholder="請輸入目標玩家帳號" style="width: 100%;">
-      </div>
-
-      <div>
-        <label style="display: block; margin-bottom: 4px; font-weight: bold;">派送金幣數量：</label>
-        <input type="number" id="topupGoldAmount" placeholder="請輸入數量" style="width: 100%;">
-      </div>
-
-      <div style="display: flex; gap: 10px; margin-top: 10px;">
-        <button onclick="submitAdminTopup()" style="flex: 1; background-color: #e91e63; font-weight: bold; padding: 10px;">確認派送</button>
-        <button onclick="closeAdminModal()" style="background-color: #555; padding: 10px;">取消</button>
-      </div>
     </div>
   </div>
 </div>
@@ -507,28 +486,6 @@
     ]
   };
 
-  function openAdminModal() { document.getElementById('adminModal').classList.remove('hidden'); }
-  function closeAdminModal() { document.getElementById('adminModal').classList.add('hidden'); }
-
-  function submitAdminTopup() {
-    if (!checkWsConnected()) return;
-    const targetUserId = document.getElementById('targetUserId').value.trim();
-    const goldAmount = parseInt(document.getElementById('topupGoldAmount').value);
-
-    if (!targetUserId || isNaN(goldAmount)) {
-      alert("請填寫正確的玩家帳號與金幣數量！");
-      return;
-    }
-
-    ws.send(JSON.stringify({
-      type: 'admin_approve_topup',
-      targetUserId: targetUserId,
-      goldAmount: goldAmount
-    }));
-
-    closeAdminModal();
-  }
-
   function calcGold() {
     const amount = parseInt(document.getElementById('topupAmount').value) || 0;
     document.getElementById('goldPreview').innerText = amount * 100;
@@ -539,24 +496,24 @@
     const qrImg = document.getElementById('payQr');
     const instruction = document.getElementById('payInstruction');
     const infoLabel = document.getElementById('infoLabel');
-    const infoInput = document.getElementById('paymentInfo');
+    const infoInput = document.getElementById('topupPaymentInfo');
 
     if (method === 'jkopay') {
       instruction.innerText = '請使用街口支付掃碼：';
       qrImg.src = 'YOUR_JKOPAY_QR_URL.png';
       qrImg.style.display = 'block';
-      infoLabel.innerText = '轉帳帳號後 5 碼 / 街口顯示名稱：';
+      infoLabel.innerText = '付款備註 / 街口顯示名稱：';
       infoInput.placeholder = '例如：12345';
     } else if (method === 'linepay') {
       instruction.innerText = '請使用 LINE Pay / Bank 掃碼：';
       qrImg.src = 'YOUR_LINEPAY_QR_URL.png';
       qrImg.style.display = 'block';
-      infoLabel.innerText = '轉帳帳號後 5 碼：';
+      infoLabel.innerText = '付款備註 / 轉帳帳號後 5 碼：';
       infoInput.placeholder = '例如：67890';
     } else if (method === 'bank') {
       instruction.innerText = '銀行代碼：822 (中國信託) \n帳號：123456789012';
       qrImg.style.display = 'none';
-      infoLabel.innerText = '轉帳帳號後 5 碼：';
+      infoLabel.innerText = '付款備註 / 轉帳帳號後 5 碼：';
       infoInput.placeholder = '例如：98765';
     } else if (method === 'mycard') {
       instruction.innerText = '請填寫您購買的 MyCard 點數卡卡號與密碼：';
@@ -569,20 +526,21 @@
   function openTopupModal() { document.getElementById('topupModal').classList.remove('hidden'); }
   function closeTopupModal() { document.getElementById('topupModal').classList.add('hidden'); }
 
-  function submitTopup() {
+  function submitTopupRequest() {
     if (!checkWsConnected()) return;
-    const method = document.getElementById('payMethod').value;
     const amount = parseInt(document.getElementById('topupAmount').value);
-    const paymentInfo = document.getElementById('paymentInfo').value.trim();
+    const paymentInfo = document.getElementById('topupPaymentInfo').value.trim();
 
     if (!amount || amount <= 0) {
-      alert('⚠️ 請輸入正確的儲值金額！');
+      alert('⚠️ 請輸入有效的儲值金額！');
       return;
     }
     if (!paymentInfo) {
-      alert('⚠️ 請填寫付款對帳資訊！');
+      alert('⚠️ 請填寫付款備註 / 帳號後五碼！');
       return;
     }
+
+    const method = document.getElementById('payMethod').value;
 
     ws.send(JSON.stringify({
       type: 'submit_topup',
@@ -592,8 +550,17 @@
       paymentInfo: paymentInfo
     }));
 
-    alert("🚀 儲值申請已順利提交，請等待管理員審核！");
     closeTopupModal();
+  }
+
+  // 2. 管理員點擊「核准」按鈕時觸發
+  function approveTopup(requestId) {
+    if (!confirm('確定要核准這筆儲值申請並自動派發金幣給玩家嗎？')) return;
+
+    ws.send(JSON.stringify({
+      type: 'admin_approve_topup_request',
+      requestId: requestId
+    }));
   }
 
   ws.onopen = () => { logMessage("🟢 成功連接伺服器！請先進行帳號登入或註冊。"); };
@@ -607,11 +574,6 @@
     else if (data.type === 'login_success') {
       currentUser = data.user;
       logMessage(`🎉 登入成功！歡迎回來，${data.user.name}`);
-
-      // 檢查是否為管理員，顯示審核儲值按鈕
-      if (data.isAdmin) {
-        document.getElementById('adminTopupBtn').style.display = 'inline-block';
-      }
 
       document.getElementById('authSection').classList.add('hidden');
       document.getElementById('lobbySection').classList.remove('hidden');
@@ -635,6 +597,44 @@
     else if (data.type === 'lobby_chat') {
       appendLobbyChat(data.sender, data.message, data.time);
     }
+    // 1. 接收後端廣播的「待審核清單」
+    else if (data.type === 'update_pending_topups') {
+      const listContainer = document.getElementById('pendingTopupsList');
+      const adminPanel = document.getElementById('adminTopupPanel');
+      
+      // 確保管理員看得到這個面板
+      adminPanel.style.display = 'block';
+      
+      if (!data.list || data.list.length === 0) {
+        listContainer.innerHTML = '<p>目前沒有待審核的儲值申請。</p>';
+        return;
+      }
+
+      let html = '<div style="overflow-x: auto;"><table border="1" width="100%" style="text-align: center; border-collapse: collapse; border-color: #444; font-size: 13px;">';
+      html += '<tr style="background: #331111;"><th>時間</th><th>玩家暱稱</th><th>帳號</th><th>金額</th><th>備註</th><th>操作</th></tr>';
+      
+      data.list.forEach(item => {
+        html += `
+          <tr>
+            <td style="padding: 6px;">${item.time}</td>
+            <td style="padding: 6px;"><b>${item.playerName}</b></td>
+            <td style="padding: 6px;">${item.username}</td>
+            <td style="padding: 6px; color: gold;">${item.amount} TWD</td>
+            <td style="padding: 6px;">${item.paymentInfo}</td>
+            <td style="padding: 6px;">
+              <button onclick="approveTopup('${item.requestId}')" style="background-color: green; color: white; padding: 4px 8px; font-size: 12px;">核准並派發</button>
+            </td>
+          </tr>
+        `;
+      });
+      html += '</table></div>';
+      
+      listContainer.innerHTML = html;
+    }
+    // 3. 處理管理員操作成功的回饋
+    else if (data.type === 'admin_action_success') {
+      alert(data.message);
+    }
     else if (data.type === 'idle_reward') {
       logMessage(data.message);
       if (data.level > localUserData.level) {
@@ -651,7 +651,6 @@
     }
     else if (data.type === 'topup_response') {
       alert(data.message);
-      if (data.success) closeTopupModal();
     }
     else if (data.type === 'gold_received') {
       alert(data.message);
