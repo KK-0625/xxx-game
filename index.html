@@ -559,7 +559,7 @@
     closeTopupModal();
   }
 
-  // 審核操作函式：核准與拒絕 (已加入前端即時畫面移除優化)
+  // 審核操作函式：核准與拒絕
   function handleAudit(requestId, action, btnElement) {
     if (action === 'approve') {
       if (!confirm('確定要核准這筆儲值申請並自動派發金幣給玩家嗎？')) return;
@@ -575,16 +575,17 @@
       }));
     }
 
-    // 立即在前端將該筆資料從表格中移除
+    // 立即在前端將該筆資料從表格中移除，並確保狀態同步更新
     if (btnElement) {
       const tr = btnElement.closest('tr');
       if (tr) tr.remove();
     }
     
-    // 如果表格剩下標題列，則顯示目前無待審核
+    // 如果表格剩下標題列或無資料列，隱藏整個管理員專區並顯示提示
     const tbody = document.querySelector('#pendingTopupsList table');
-    if (tbody && tbody.rows.length <= 1) {
+    if (!tbody || tbody.rows.length <= 1) {
       document.getElementById('pendingTopupsList').innerHTML = '<p>目前沒有待審核的儲值申請。</p>';
+      document.getElementById('adminTopupPanel').style.display = 'none';
     }
   }
 
@@ -627,12 +628,13 @@
       const listContainer = document.getElementById('pendingTopupsList');
       const adminPanel = document.getElementById('adminTopupPanel');
       
-      adminPanel.style.display = 'block';
-      
       if (!data.list || data.list.length === 0) {
         listContainer.innerHTML = '<p>目前沒有待審核的儲值申請。</p>';
+        adminPanel.style.display = 'none';
         return;
       }
+
+      adminPanel.style.display = 'block';
 
       let html = '<div style="overflow-x: auto;"><table border="1" width="100%" style="text-align: center; border-collapse: collapse; border-color: #444; font-size: 13px;">';
       html += '<tr style="background: #331111;"><th>時間</th><th>玩家暱稱</th><th>帳號</th><th>金額</th><th>備註</th><th>操作</th></tr>';
