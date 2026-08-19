@@ -9,6 +9,43 @@ const pool = new Pool({
   ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false
 });
 
+// ⚔️ 裝備數值設定庫 (可依需求擴充)
+const EQUIPMENT_STATS = {
+  weapons: {
+    '新手木製武器': { atk: 5, def: 0, hp: 0 },
+    '鐵劍': { atk: 15, def: 0, hp: 0 },
+    '勇者之劍': { atk: 50, def: 5, hp: 100 }
+  },
+  armors: {
+    '破舊的布衣': { atk: 0, def: 2, hp: 10 },
+    '皮甲': { atk: 0, def: 10, hp: 50 },
+    '神聖鎧甲': { atk: 0, def: 40, hp: 300 }
+  }
+};
+
+// 🧮 計算玩家總屬性 (基礎屬性 + 裝備加成)
+function getPlayerTotalStats(baseStats, equipment) {
+  // 建立一個新的物件避免覆蓋原始基礎屬性
+  let totalStats = { 
+    hp: baseStats.hp || 100, 
+    atk: baseStats.atk || 10, 
+    def: baseStats.def || 5,
+    spd: baseStats.spd || 5 
+  };
+  
+  // 取得裝備數值，若無匹配裝備則預設加成為 0
+  const weaponInfo = EQUIPMENT_STATS.weapons[equipment?.weapon] || { atk: 0, def: 0, hp: 0 };
+  const armorInfo = EQUIPMENT_STATS.armors[equipment?.armor] || { atk: 0, def: 0, hp: 0 };
+
+  // 疊加裝備數值
+  totalStats.atk += (weaponInfo.atk + armorInfo.atk);
+  totalStats.def += (weaponInfo.def + armorInfo.def);
+  totalStats.hp += (weaponInfo.hp + armorInfo.hp);
+  // 若未來有速度(spd)或其他屬性，也可以在此疊加
+
+  return totalStats;
+}
+
 // 🏆 段位計算邏輯
 function getRankInfo(points) {
   const pts = points || 0;
@@ -70,7 +107,17 @@ async function initDB() {
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS vit INT DEFAULT 0;`);
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS agi INT DEFAULT 0;`);
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE;`);
-
+// ⚔️ 新增裝備與擴充資料的欄位
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS vip_level INT DEFAULT 0;`);
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS title VARCHAR(50) DEFAULT '初級勇者';`);
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS weapon VARCHAR(50) DEFAULT '新手木製武器';`);
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS armor VARCHAR(50) DEFAULT '破舊的布衣';`);
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login TIMESTAMP;`);
+    
+    // 📢 新增公告擴充欄位
+    await pool.query(`ALTER TABLE announcements ADD COLUMN IF NOT EXISTS author VARCHAR(50) DEFAULT '系統管理員';`);
+    await pool.query(`ALTER TABLE announcements ADD COLUMN IF NOT EXISTS type VARCHAR(20) DEFAULT 'info';`);
+    await pool.query(`ALTER TABLE announcements ADD COLUMN IF NOT EXISTS is_pinned BOOLEAN DEFAULT FALSE;`);
     // 👑 自動將「空白」帳號設為管理員
     await pool.query("UPDATE users SET is_admin = TRUE WHERE username = '空白'");
 
@@ -1031,38 +1078,72 @@ wss.on('connection', (ws) => {
         const initialStatPoints = isGM ? 9999 : (row.stat_points || 0);
         const initialGold = isGM ? 999999 : (row.gold || 0);
 
-        ws.user = {
-          id: row.id,
-          username: row.username,
-          name: row.name || username,
-          role: row.role || 'berserker',
-          level: row.level || 1,
-          exp: row.exp || 0,
-          rankPoints: row.rank_points || 0,
-          rankInfo: getRankInfo(row.rank_points || 0),
-          is_admin: Boolean(isAdmin),
-          isGM: isGM,
-          stats: {
-            statPoints: initialStatPoints,
-            str: row.str || 0,
-            int: row.int_stat || 0,
-            vit: row.vit || 0,
-            agi: row.agi || 0
-          },
-          inventory: {
-            gold: initialGold,
-            hpPotion: row.hp_potion || 0,
-            mpPotion: row.mp_potion || 0,
-            expScroll: row.exp_scroll || 0
-          }
-        };
+        // --- 1. 更新最後登入時間 ---
+          await pool.query('UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = $1', [row.id]);
 
-        ws.playerName = username;
-        ws.isIdle = true;
+          // --- 2. 組合裝備資料 ---
+          const equipment = {
+            weapon: row.weapon || '新手木製武器',
+            armor: row.armor || '破舊的布衣'
+          };
 
-        if (ws.idleTimer) clearTimeout(ws.idleTimer);
-        scheduleIdleReward(ws);
+          // --- 3. 設定 ws.user (融合你原本的設計與新裝備) ---
+          ws.user = {
+            id: row.id,
+            username: row.username,
+            name: row.name || username,
+            role: row.role || 'berserker',
+            level: row.level || 1,
+            exp: row.exp || 0,
+            rankPoints: row.rank_points || 0,
+            rankInfo: getRankInfo(row.rank_points || 0),
+            is_admin: Boolean(isAdmin), 
+            isGM: isGM,                 
+            stats: {
+              statPoints: initialStatPoints,
+              str: row.str || 0,
+              int: row.int_stat || 0,
+              vit: row.vit || 0,
+              agi: row.agi || 0
+            },
+            inventory: {
+              gold: initialGold,
+              hpPotion: row.hp_potion || 0,
+              mpPotion: row.mp_potion || 0,
+              expScroll: row.exp_scroll || 0
+            },
+            // 🌟 新增的擴充欄位
+            vipLevel: row.vip_level || 0,
+            title: row.title || '初級勇者',
+            equipment: equipment
+          };
 
+          ws.playerName = username;
+          ws.isIdle = true;
+
+          if (ws.idleTimer) clearTimeout(ws.idleTimer);
+          scheduleIdleReward(ws);
+
+          // --- 4. 發送登入成功訊息給前端 ---
+          ws.send(JSON.stringify({
+            type: 'login_success',
+            user: {
+              name: ws.user.name,
+              role: ws.user.role,
+              level: ws.user.level,
+              exp: ws.user.exp,
+              rankPoints: ws.user.rankPoints,
+              rankInfo: ws.user.rankInfo,
+              stats: ws.user.stats,
+              inventory: ws.user.inventory,
+              // 🌟 新增的擴充欄位一起送給前端
+              vipLevel: ws.user.vipLevel,
+              title: ws.user.title,
+              equipment: ws.user.equipment
+            },
+            isAdmin: ws.user.is_admin,
+            isGM: ws.user.isGM
+          }));
         ws.send(JSON.stringify({
           type: 'login_success',
           user: {
