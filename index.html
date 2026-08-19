@@ -28,8 +28,7 @@
     button { background-color: #388e3c; color: white; border: none; padding: 8px 16px; font-size: 14px; border-radius: 4px; cursor: pointer; transition: 0.2s; position: relative; overflow: hidden; }
     button:hover { background-color: #4caf50; }
     button:disabled { background-color: #444; color: #888; cursor: not-allowed; }
-    input, select { background: #2a2a2a; color: #fff; border: 1px solid #444; padding: 8px; border-radius: 4px; font-size: 14px; }
-    textarea { background: #2a2a2a; color: #fff; border: 1px solid #444; padding: 8px; border-radius: 4px; font-size: 14px; width: 100%; }
+    input, select, textarea { background: #2a2a2a; color: #fff; border: 1px solid #444; padding: 8px; border-radius: 4px; font-size: 14px; }
     .hidden { display: none !important; }
     .lobby-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; padding-bottom: 10px; margin-bottom: 10px; }
     .online-badge { background: #2a3a2a; color: #66bb6a; border: 1px solid #4caf50; padding: 4px 12px; border-radius: 20px; font-weight: bold; font-size: 13px; }
@@ -111,7 +110,7 @@
 <div id="skillFxContainer"></div>
 
 <div id="mainContainer" class="container">
-  <h2>⚔️ 線上 RPG 戰鬥與匹配系統</h2>
+  <h2>⚔️ 線上 RPG 戰鬥與匹配系統 </h2>
 
   <!-- 帳號登入/註冊區塊 -->
   <div id="authSection" class="card">
@@ -134,27 +133,20 @@
         <span id="idleStatusText" style="color: #aaa; font-size: 13px;">正在自動修練尋找藥水與道具...</span>
       </div>
       <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+        <button onclick="openAnnouncementModal()" style="background-color: #9c27b0; font-weight: bold;">📢 查看公告</button>
         <button onclick="openTopupModal()" style="background-color: #2196f3; font-weight: bold;">💎 金幣儲值</button>
         <button onclick="openShopModal()" style="background-color: #ff9800; font-weight: bold;">🛒 道具商店</button>
+        <!-- 新增：開啟管理員公告修改的按鈕 -->
+        <button id="btnOpenAdminNoticeModal" onclick="openAdminNoticeModal()" style="background-color: #e91e63; font-weight: bold; display:none;">📢 公告管理</button>
         <div class="online-badge">🟢 在線玩家：<span id="displayOnlineCount">---</span> 人</div>
       </div>
     </div>
     
-    <!-- 👑 管理員審核後台面板 -->
+    <!-- 👑 管理員審核後台面板 (預設隱藏公告修改，僅保留審核佇列) -->
     <div id="adminTopupPanel" style="display:none; border: 2px solid red; padding: 10px; margin-bottom: 15px; border-radius: 6px; background: #221111;">
       <h3 style="color: #ff5252; margin-top: 0;">👑 管理員專區：待審核儲值佇列</h3>
-      <div id="pendingTopupsList">
+      <div id="pendingTopupsList" style="margin-bottom: 15px;">
         <p>目前沒有待審核的儲值申請。</p>
-      </div>
-
-      <!-- 新增：公告管理區塊 (已補上完整發布更新公告功能與點擊事件) -->
-      <div style="margin-top: 15px; border-top: 1px dashed #555; padding-top: 10px;">
-        <h4 style="color: #ffca28; margin-top: 0;">📢 公告管理：發布更新公告</h4>
-        <div style="display: flex; flex-direction: column; gap: 8px;">
-          <input type="text" id="announcementTitle" placeholder="請輸入更新公告標題...">
-          <textarea id="announcementContent" rows="3" placeholder="請輸入更新公告內容..."></textarea>
-          <button id="publishAnnouncementBtn" style="background-color: #d32f2f; font-weight: bold;">🚀 發布更新公告</button>
-        </div>
       </div>
     </div>
 
@@ -319,6 +311,37 @@
   </div>
 </div>
 
+<!-- 公告彈出視窗 Modal -->
+<div id="announcementModal" class="shop-modal-overlay hidden">
+  <div class="shop-modal">
+    <div class="shop-header">
+      <h3 id="modalNoticeTitle" style="margin: 0; color: #9c27b0;">📢 遊戲最新公告</h3>
+      <button onclick="closeAnnouncementModal()" style="background-color: #d32f2f; padding: 4px 10px;">❌ 關閉</button>
+    </div>
+    <div id="modalNoticeContent" style="background: #2a2a2a; padding: 12px; border-radius: 6px; font-size: 14px; line-height: 1.6; white-space: pre-wrap; margin-bottom: 15px; color: #fff;">
+      載入公告中...
+    </div>
+    <button onclick="closeAnnouncementModal()" style="width: 100%; background-color: #9c27b0; font-weight: bold; padding: 8px;">
+      我知道了
+    </button>
+  </div>
+</div>
+
+<!-- 管理員修改公告彈出視窗 Modal -->
+<div id="adminNoticeModal" class="shop-modal-overlay hidden">
+  <div class="shop-modal" style="border-color: #e91e63;">
+    <div class="shop-header">
+      <h3 style="margin: 0; color: #ff5252;">📢 管理員專區：修改遊戲公告</h3>
+      <button onclick="closeAdminNoticeModal()" style="background-color: #d32f2f; padding: 4px 10px;">❌ 關閉</button>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+      <input type="text" id="adminNoticeTitle" placeholder="公告標題">
+      <textarea id="adminNoticeContent" rows="4" placeholder="請輸入最新的公告內容..."></textarea>
+      <button onclick="publishAnnouncement()" style="background-color: #e91e63; font-weight: bold; padding: 10px;">🚀 發布更新公告</button>
+    </div>
+  </div>
+</div>
+
 <!-- 道具商店 Modal -->
 <div id="shopModal" class="shop-modal-overlay hidden">
   <div class="shop-modal">
@@ -420,7 +443,7 @@
 </div>
 
 <script>
-  let ws = new WebSocket('wss://rpg-game-backend-vhag.onrender.com');
+  let ws = null;
   let myPlayerId = null;
   let currentUser = null;
   let currentRoomState = null;
@@ -429,6 +452,185 @@
   let localSkillCDMap = {};
   let isAutoBattle = true;
   let autoBattleTimer = null;
+  let currentAnnouncement = { title: "📢 歡迎來到 RPG 戰鬥世界", content: "近期系統已全面升級 5V5 團戰與自動修練系統，祝各位冒險愉快！" };
+
+  function connectWebSocket() {
+    ws = new WebSocket('wss://rpg-game-backend-vhag.onrender.com');
+
+    ws.onopen = () => { logMessage("🟢 成功連接伺服器！請先進行帳號登入或註冊。"); };
+    ws.onerror = () => { logMessage("🔴 伺服器連線失敗，請檢查網路或稍候重新整理。"); };
+    ws.onclose = () => { 
+      logMessage("🟡 與伺服器中斷連線，嘗試重新連線中..."); 
+      stopAutoBattle();
+      setTimeout(connectWebSocket, 3000);
+    };
+
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+
+      if (data.type === 'register_success') alert(data.message);
+      else if (data.type === 'login_success') {
+        currentUser = data.user;
+        logMessage(`🎉 登入成功！歡迎回來，${data.user.name}`);
+
+        document.getElementById('authSection').classList.add('hidden');
+        document.getElementById('lobbySection').classList.remove('hidden');
+        document.getElementById('playerName').value = data.user.name || "勇者";
+        document.getElementById('playerRole').value = data.user.role || 'berserker';
+        localUserData.level = data.user.level || 1;
+        localUserData.exp = data.user.exp || 0;
+        
+        if (data.user.stats) {
+          localUserData.statPoints = data.user.stats.statPoints || 0;
+          localUserData.str = data.user.stats.str || 0;
+          localUserData.int = data.user.stats.int || 0;
+          localUserData.vit = data.user.stats.vit || 0;
+          localUserData.agi = data.user.stats.agi || 0;
+        }
+        updateInventoryDisplay(data.user.inventory);
+
+        // 登入成功後自動彈出公告視窗
+        if (data.announcement) {
+          currentAnnouncement = data.announcement;
+        }
+        openAnnouncementModal();
+      }
+      else if (data.announcement_updated) {
+        currentAnnouncement = data.announcement;
+        alert(data.message);
+        closeAdminNoticeModal();
+      }
+      else if (data.type === 'online_count') {
+        document.getElementById('displayOnlineCount').innerText = data.onlineCount;
+      }
+      else if (data.type === 'lobby_chat') {
+        appendLobbyChat(data.sender, data.message, data.time);
+      }
+      else if (data.type === 'update_pending_topups') {
+        const listContainer = document.getElementById('pendingTopupsList');
+        const adminPanel = document.getElementById('adminTopupPanel');
+        
+        adminPanel.style.display = 'block';
+        // 當有管理員權限時，顯示公告管理的快捷按鈕
+        document.getElementById('btnOpenAdminNoticeModal').style.display = 'inline-block';
+        
+        if (!data.list || data.list.length === 0) {
+          listContainer.innerHTML = '<p>目前沒有待審核的儲值申請。</p>';
+          return;
+        }
+
+        let html = '<div style="overflow-x: auto;"><table border="1" width="100%" style="text-align: center; border-collapse: collapse; border-color: #444; font-size: 13px;">';
+        html += '<tr style="background: #331111;"><th>時間</th><th>玩家暱稱</th><th>帳號</th><th>面額</th><th>MyCard 卡號/密碼</th><th>操作</th></tr>';
+        
+        data.list.forEach(item => {
+          html += `
+            <tr>
+              <td style="padding: 6px;">${item.time}</td>
+              <td style="padding: 6px;"><b>${item.playerName}</b></td>
+              <td style="padding: 6px;">${item.username}</td>
+              <td style="padding: 6px; color: gold;">${item.amount} TWD</td>
+              <td style="padding: 6px;">${item.paymentInfo}</td>
+              <td style="padding: 6px; display: flex; gap: 4px; justify-content: center;">
+                <button onclick="approveTopup('${item.requestId}')" style="background-color: green; color: white; padding: 4px 8px; font-size: 12px;">核准</button>
+                <button onclick="rejectTopup('${item.requestId}')" style="background-color: #d32f2f; color: white; padding: 4px 8px; font-size: 12px;">拒絕</button>
+              </td>
+            </tr>
+          `;
+        });
+        html += '</table></div>';
+        
+        listContainer.innerHTML = html;
+      }
+      else if (data.type === 'admin_action_success') {
+        alert(data.message);
+      }
+      else if (data.type === 'idle_reward') {
+        logMessage(data.message);
+        if (data.level > localUserData.level) {
+          localUserData.statPoints += (data.level - localUserData.level) * 5;
+          logMessage(`🎉 恭喜升級到 LV.${data.level}！獲得 5 點自由屬性點！`);
+        }
+        localUserData.level = data.level;
+        localUserData.exp = data.exp;
+        updateInventoryDisplay(data.inventory);
+      }
+      else if (data.type === 'shop_success') {
+        logMessage(data.message);
+        updateInventoryDisplay(data.inventory);
+      }
+      else if (data.type === 'topup_response') {
+        alert(data.message);
+      }
+      else if (data.type === 'gold_received') {
+        alert(data.message);
+        if (data.inventory) {
+          updateInventoryDisplay(data.inventory);
+        }
+      }
+      else if (data.type === 'queue_joined') {
+        logMessage("🎲 成功進入匹配隊列...");
+        showQueueUI(true);
+      }
+      else if (data.type === 'queue_left') {
+        logMessage("❌ 已取消匹配。");
+        showQueueUI(false);
+      }
+      else if (data.type === 'match_found' || data.type === 'room_created' || data.type === 'room_joined') {
+        if (data.type === 'match_found') logMessage("🎉 匹配成功！即將進入戰鬥...");
+        myPlayerId = data.player.id;
+        selectedTargetId = null;
+        localSkillCDMap = {};
+
+        isAutoBattle = true;
+        const btnAuto = document.getElementById('btnAutoBattle');
+        if (btnAuto) {
+          btnAuto.innerText = "🤖 自動戰鬥: ON";
+          btnAuto.classList.add('active');
+        }
+
+        document.getElementById('displayRoomId').innerText = data.roomId;
+        document.getElementById('lobbySection').classList.add('hidden');
+        document.getElementById('roomSection').classList.remove('hidden');
+        showQueueUI(false);
+        updateInventoryDisplay(data.player.inventory);
+      }
+      else if (data.type === 'room_state') {
+        currentRoomState = data;
+        
+        if (data.skillCooldowns && data.skillCooldowns[myPlayerId]) {
+          const cdState = data.skillCooldowns[myPlayerId];
+          Object.keys(cdState).forEach(sName => {
+            localSkillCDMap[sName] = cdState[sName];
+          });
+        }
+
+        renderRoom(data);
+
+        if (data.status === 'playing' && isAutoBattle) {
+          startAutoBattleLoop();
+        }
+      }
+      else if (data.type === 'battle_log') {
+        logMessage(data.message);
+        checkBattleLogForEffects(data.message);
+      }
+      else if (data.type === 'returned_to_idle') {
+        logMessage(data.message);
+        selectedTargetId = null;
+        stopAutoBattle();
+        document.getElementById('lobbySection').classList.remove('hidden');
+        document.getElementById('roomSection').classList.add('hidden');
+        document.getElementById('actionPanel').classList.add('hidden');
+      }
+      else if (data.type === 'error') {
+        logMessage("⚠️ " + data.message);
+        alert("⚠️ " + data.message);
+      }
+    };
+  }
+
+  // 初始化連線
+  connectWebSocket();
 
   // 音效合成模組
   const AudioFX = {
@@ -518,6 +720,41 @@
   }
   function closeTopupModal() { document.getElementById('topupModal').classList.add('hidden'); }
 
+  function openAnnouncementModal() {
+    document.getElementById('modalNoticeTitle').innerText = currentAnnouncement.title || "📢 遊戲最新公告";
+    document.getElementById('modalNoticeContent').innerText = currentAnnouncement.content || "暫無公告內容。";
+    document.getElementById('announcementModal').classList.remove('hidden');
+  }
+
+  function closeAnnouncementModal() {
+    document.getElementById('announcementModal').classList.add('hidden');
+  }
+
+  function openAdminNoticeModal() {
+    document.getElementById('adminNoticeModal').classList.remove('hidden');
+  }
+
+  function closeAdminNoticeModal() {
+    document.getElementById('adminNoticeModal').classList.add('hidden');
+  }
+
+  function publishAnnouncement() {
+    if (!checkWsConnected()) return;
+    const title = document.getElementById('adminNoticeTitle').value.trim();
+    const content = document.getElementById('adminNoticeContent').value.trim();
+
+    if (!title || !content) {
+      alert("⚠️ 公告標題與內容不可空白！");
+      return;
+    }
+
+    ws.send(JSON.stringify({
+      type: 'admin_update_announcement',
+      title: title,
+      content: content
+    }));
+  }
+
   function submitTopupRequest() {
     if (!checkWsConnected()) return;
     const amount = parseInt(document.getElementById('topupAmount').value);
@@ -550,219 +787,19 @@
     closeTopupModal();
   }
 
-  // 管理員點擊「核准」按鈕時觸發
   function approveTopup(requestId) {
     if (!confirm('確定要核准這筆儲值申請並自動派發金幣給玩家嗎？')) return;
-
-    ws.send(JSON.stringify({
-      type: 'admin_approve_topup_request',
-      requestId: requestId
-    }));
+    ws.send(JSON.stringify({ type: 'admin_approve_topup_request', requestId: requestId }));
   }
 
-  // 管理員點擊「拒絕」按鈕時觸發
   function rejectTopup(requestId) {
     if (!confirm('確定要拒絕這筆儲值申請嗎？')) return;
-
-    ws.send(JSON.stringify({
-      type: 'admin_reject_topup_request',
-      requestId: requestId
-    }));
+    ws.send(JSON.stringify({ type: 'admin_reject_topup_request', requestId: requestId }));
   }
-
-  // 綁定發布更新公告點擊事件
-  document.addEventListener('DOMContentLoaded', () => {
-    const publishAnnBtn = document.getElementById('publishAnnouncementBtn');
-    if (publishAnnBtn) {
-      publishAnnBtn.addEventListener('click', () => {
-        if (!checkWsConnected()) return;
-        const titleInput = document.getElementById('announcementTitle');
-        const contentInput = document.getElementById('announcementContent');
-        const title = titleInput.value.trim();
-        const content = contentInput.value.trim();
-
-        if (!title || !content) {
-          alert('⚠️ 公告標題與內容不得為空！');
-          return;
-        }
-
-        // 發送公告請求至後端廣播
-        ws.send(JSON.stringify({
-          type: 'publish_announcement',
-          title: title,
-          content: content
-        }));
-
-        titleInput.value = '';
-        contentInput.value = '';
-        alert('🚀 正在送出公告發布請求...');
-      });
-    }
-  });
-
-  ws.onopen = () => { logMessage("🟢 成功連接伺服器！請先進行帳號登入或註冊。"); };
-  ws.onerror = () => { logMessage("🔴 伺服器連線失敗，請檢查網路。"); };
-  ws.onclose = () => { logMessage("🟡 與伺服器中斷連線。"); stopAutoBattle(); };
-
-  ws.onmessage = (event) => {
-    const data = JSON.parse(event.data);
-
-    if (data.type === 'register_success') alert(data.message);
-    else if (data.type === 'login_success') {
-      currentUser = data.user;
-      logMessage(`🎉 登入成功！歡迎回來，${data.user.name}`);
-
-      document.getElementById('authSection').classList.add('hidden');
-      document.getElementById('lobbySection').classList.remove('hidden');
-      document.getElementById('playerName').value = data.user.name || "勇者";
-      document.getElementById('playerRole').value = data.user.role || 'berserker';
-      localUserData.level = data.user.level || 1;
-      localUserData.exp = data.user.exp || 0;
-      
-      if (data.user.stats) {
-        localUserData.statPoints = data.user.stats.statPoints || 0;
-        localUserData.str = data.user.stats.str || 0;
-        localUserData.int = data.user.stats.int || 0;
-        localUserData.vit = data.user.stats.vit || 0;
-        localUserData.agi = data.user.stats.agi || 0;
-      }
-      updateInventoryDisplay(data.user.inventory);
-    }
-    else if (data.type === 'online_count') {
-      document.getElementById('displayOnlineCount').innerText = data.onlineCount;
-    }
-    else if (data.type === 'lobby_chat') {
-      appendLobbyChat(data.sender, data.message, data.time);
-    }
-    else if (data.type === 'announcement_broadcast') {
-      // 接收到後端廣播的更新公告，直接寫入聊天室與彈窗提示
-      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-      appendLobbyChat("📢 [系統更新公告]", `${data.title} - ${data.content}`, timeStr);
-      alert(`📢 收到新的更新公告：\n【${data.title}】\n${data.content}`);
-    }
-    else if (data.type === 'update_pending_topups') {
-      const listContainer = document.getElementById('pendingTopupsList');
-      const adminPanel = document.getElementById('adminTopupPanel');
-      
-      adminPanel.style.display = 'block';
-      
-      if (!data.list || data.list.length === 0) {
-        listContainer.innerHTML = '<p>目前沒有待審核的儲值申請。</p>';
-        return;
-      }
-
-      let html = '<div style="overflow-x: auto;"><table border="1" width="100%" style="text-align: center; border-collapse: collapse; border-color: #444; font-size: 13px;">';
-      html += '<tr style="background: #331111;"><th>時間</th><th>玩家暱稱</th><th>帳號</th><th>面額</th><th>MyCard 卡號/密碼</th><th>操作</th></tr>';
-      
-      data.list.forEach(item => {
-        html += `
-          <tr>
-            <td style="padding: 6px;">${item.time}</td>
-            <td style="padding: 6px;"><b>${item.playerName}</b></td>
-            <td style="padding: 6px;">${item.username}</td>
-            <td style="padding: 6px; color: gold;">${item.amount} TWD</td>
-            <td style="padding: 6px;">${item.paymentInfo}</td>
-            <td style="padding: 6px; display: flex; gap: 4px; justify-content: center;">
-              <button onclick="approveTopup('${item.requestId}')" style="background-color: green; color: white; padding: 4px 8px; font-size: 12px;">核准</button>
-              <button onclick="rejectTopup('${item.requestId}')" style="background-color: #d32f2f; color: white; padding: 4px 8px; font-size: 12px;">拒絕</button>
-            </td>
-          </tr>
-        `;
-      });
-      html += '</table></div>';
-      
-      listContainer.innerHTML = html;
-    }
-    else if (data.type === 'admin_action_success') {
-      alert(data.message);
-    }
-    else if (data.type === 'idle_reward') {
-      logMessage(data.message);
-      if (data.level > localUserData.level) {
-        localUserData.statPoints += (data.level - localUserData.level) * 5;
-        logMessage(`🎉 恭喜升級到 LV.${data.level}！獲得 5 點自由屬性點！`);
-      }
-      localUserData.level = data.level;
-      localUserData.exp = data.exp;
-      updateInventoryDisplay(data.inventory);
-    }
-    else if (data.type === 'shop_success') {
-      logMessage(data.message);
-      updateInventoryDisplay(data.inventory);
-    }
-    else if (data.type === 'topup_response') {
-      alert(data.message);
-    }
-    else if (data.type === 'gold_received') {
-      alert(data.message);
-      if (data.inventory) {
-        updateInventoryDisplay(data.inventory);
-      }
-    }
-    else if (data.type === 'queue_joined') {
-      logMessage("🎲 成功進入匹配隊列...");
-      showQueueUI(true);
-    }
-    else if (data.type === 'queue_left') {
-      logMessage("❌ 已取消匹配。");
-      showQueueUI(false);
-    }
-    else if (data.type === 'match_found' || data.type === 'room_created' || data.type === 'room_joined') {
-      if (data.type === 'match_found') logMessage("🎉 匹配成功！即將進入戰鬥...");
-      myPlayerId = data.player.id;
-      selectedTargetId = null;
-      localSkillCDMap = {};
-
-      isAutoBattle = true;
-      const btnAuto = document.getElementById('btnAutoBattle');
-      if (btnAuto) {
-        btnAuto.innerText = "🤖 自動戰鬥: ON";
-        btnAuto.classList.add('active');
-      }
-
-      document.getElementById('displayRoomId').innerText = data.roomId;
-      document.getElementById('lobbySection').classList.add('hidden');
-      document.getElementById('roomSection').classList.remove('hidden');
-      showQueueUI(false);
-      updateInventoryDisplay(data.player.inventory);
-    }
-    else if (data.type === 'room_state') {
-      currentRoomState = data;
-      
-      if (data.skillCooldowns && data.skillCooldowns[myPlayerId]) {
-        const cdState = data.skillCooldowns[myPlayerId];
-        Object.keys(cdState).forEach(sName => {
-          localSkillCDMap[sName] = cdState[sName];
-        });
-      }
-
-      renderRoom(data);
-
-      if (data.status === 'playing' && isAutoBattle) {
-        startAutoBattleLoop();
-      }
-    }
-    else if (data.type === 'battle_log') {
-      logMessage(data.message);
-      checkBattleLogForEffects(data.message);
-    }
-    else if (data.type === 'returned_to_idle') {
-      logMessage(data.message);
-      selectedTargetId = null;
-      stopAutoBattle();
-      document.getElementById('lobbySection').classList.remove('hidden');
-      document.getElementById('roomSection').classList.add('hidden');
-      document.getElementById('actionPanel').classList.add('hidden');
-    }
-    else if (data.type === 'error') {
-      logMessage("⚠️ " + data.message);
-      alert("⚠️ " + data.message);
-    }
-  };
 
   function checkWsConnected() {
     if (!ws || ws.readyState !== WebSocket.OPEN) {
-      alert("⚠️ 伺服器連線尚未建立或已中斷！請重新整理頁面。");
+      alert("⚠️ 伺服器連線尚未建立或正在重連中，請稍候再試！");
       return false;
     }
     return true;
