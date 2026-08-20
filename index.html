@@ -155,15 +155,8 @@
       <div class="lobby-box card">
         <h4>🎮 戰鬥選擇</h4>
         <div style="display: flex; flex-direction: column; gap: 8px;">
-          <label>玩家暱稱：
-            <div style="display: flex; gap: 6px; margin-top: 4px;">
-              <input type="text" id="playerName" value="勇者" style="flex: 1;">
-              <button id="btnUpdateNickname" onclick="updateNickname()" style="background-color: #ff9800; font-size: 13px; padding: 6px 12px;">修改暱稱</button>
-            </div>
-          </label>
-          <div id="nicknameStatusTip" style="font-size: 11px; color: #aaa; margin-top: -4px;">💡 提示：每個帳號僅能免費修改一次暱稱，修改後將永久鎖定！</div>
-
-          <label style="margin-top: 6px;">選擇職業：
+          <label>玩家暱稱：<input type="text" id="playerName" value="勇者"></label>
+          <label>選擇職業：
             <select id="playerRole">
               <option value="berserker" selected>🩸 狂戰士 (16000 HP - 攻擊吸血)</option>
               <option value="mage">🔮 法師 (9000 HP - 灼燒/麻痺)</option>
@@ -482,28 +475,7 @@
 
         document.getElementById('authSection').classList.add('hidden');
         document.getElementById('lobbySection').classList.remove('hidden');
-        
-        // 帶入玩家暱稱並根據後端回傳的 hasChangedNickname 狀態進行鎖定
-        const nameInput = document.getElementById('playerName');
-        const updateBtn = document.getElementById('btnUpdateNickname');
-        const tipEl = document.getElementById('nicknameStatusTip');
-
-        nameInput.value = data.user.name || "勇者";
-        
-        if (data.user.hasChangedNickname) {
-          nameInput.disabled = true;
-          updateBtn.disabled = true;
-          updateBtn.innerText = "已鎖定";
-          tipEl.innerText = "🔒 您已經使用過免費改名機會，暱稱已永久鎖定！";
-          tipEl.style.color = "#ff5252";
-        } else {
-          nameInput.disabled = false;
-          updateBtn.disabled = false;
-          updateBtn.innerText = "修改暱稱";
-          tipEl.innerText = "💡 提示：每個帳號僅能免費修改一次暱稱，修改後將永久鎖定！";
-          tipEl.style.color = "#aaa";
-        }
-
+        document.getElementById('playerName').value = data.user.name || "勇者";
         document.getElementById('playerRole').value = data.user.role || 'berserker';
         localUserData.level = data.user.level || 1;
         localUserData.exp = data.user.exp || 0;
@@ -517,25 +489,11 @@
         }
         updateInventoryDisplay(data.user.inventory);
 
+        // 登入成功後自動彈出公告視窗
         if (data.announcement) {
           currentAnnouncement = data.announcement;
         }
         openAnnouncementModal();
-      }
-      else if (data.type === 'nickname_update_success') {
-        alert(data.message);
-        currentUser.name = data.newName;
-        currentUser.hasChangedNickname = true;
-        
-        const nameInput = document.getElementById('playerName');
-        const updateBtn = document.getElementById('btnUpdateNickname');
-        const tipEl = document.getElementById('nicknameStatusTip');
-        
-        nameInput.disabled = true;
-        updateBtn.disabled = true;
-        updateBtn.innerText = "已鎖定";
-        tipEl.innerText = "🔒 暱稱修改成功，已永久鎖定！";
-        tipEl.style.color = "#ff5252";
       }
       else if (data.announcement_updated) {
         currentAnnouncement = data.announcement;
@@ -553,6 +511,7 @@
         const adminPanel = document.getElementById('adminTopupPanel');
         
         adminPanel.style.display = 'block';
+        // 當有管理員權限時，顯示公告管理的快捷按鈕
         document.getElementById('btnOpenAdminNoticeModal').style.display = 'inline-block';
         
         if (!data.list || data.list.length === 0) {
@@ -670,8 +629,10 @@
     };
   }
 
+  // 初始化連線
   connectWebSocket();
 
+  // 音效合成模組
   const AudioFX = {
     ctx: null,
     init() {
@@ -794,27 +755,6 @@
     }));
   }
 
-  // 玩家點擊修改暱稱按鈕時觸發（已確保能抓到正確的值並通過驗證）
-  function updateNickname() {
-    if (!checkWsConnected()) return;
-    const nameInput = document.getElementById('playerName');
-    const newName = nameInput ? nameInput.value.trim() : "";
-    
-    if (!newName) {
-      alert("⚠️ 暱稱不可空白！");
-      return;
-    }
-    if (newName.length < 2 || newName.length > 12) {
-      alert("⚠️ 暱稱長度必須介於 2 到 12 個字元之間！");
-      return;
-    }
-
-    ws.send(JSON.stringify({
-      type: 'update_nickname',
-      newName: newName
-    }));
-  }
-
   function submitTopupRequest() {
     if (!checkWsConnected()) return;
     const amount = parseInt(document.getElementById('topupAmount').value);
@@ -904,13 +844,12 @@
   }
 
   function getSafePlayerName() {
-    const nameInput = document.getElementById('playerName');
-    let nameVal = nameInput ? nameInput.value.trim() : "";
-    if (!nameVal) {
-      nameVal = (currentUser && currentUser.name) ? currentUser.name : "勇者" + Math.floor(Math.random() * 899 + 100);
-      if (nameInput) nameInput.value = nameVal;
+    let nameInput = document.getElementById('playerName').value.trim();
+    if (!nameInput) {
+      nameInput = (currentUser && currentUser.name) ? currentUser.name : "勇者" + Math.floor(Math.random() * 899 + 100);
+      document.getElementById('playerName').value = nameInput;
     }
-    return nameVal;
+    return nameInput;
   }
 
   function showQueueUI(inQueue) {
