@@ -794,10 +794,12 @@
     }));
   }
 
-  // 玩家點擊修改暱稱按鈕時觸發
+  // 玩家點擊修改暱稱按鈕時觸發（已確保能抓到正確的值並通過驗證）
   function updateNickname() {
     if (!checkWsConnected()) return;
-    const newName = document.getElementById('playerName').value.trim();
+    const nameInput = document.getElementById('playerName');
+    const newName = nameInput ? nameInput.value.trim() : "";
+    
     if (!newName) {
       alert("⚠️ 暱稱不可空白！");
       return;
@@ -902,12 +904,13 @@
   }
 
   function getSafePlayerName() {
-    let nameInput = document.getElementById('playerName').value.trim();
-    if (!nameInput) {
-      nameInput = (currentUser && currentUser.name) ? currentUser.name : "勇者" + Math.floor(Math.random() * 899 + 100);
-      document.getElementById('playerName').value = nameInput;
+    const nameInput = document.getElementById('playerName');
+    let nameVal = nameInput ? nameInput.value.trim() : "";
+    if (!nameVal) {
+      nameVal = (currentUser && currentUser.name) ? currentUser.name : "勇者" + Math.floor(Math.random() * 899 + 100);
+      if (nameInput) nameInput.value = nameVal;
     }
-    return nameInput;
+    return nameVal;
   }
 
   function showQueueUI(inQueue) {
