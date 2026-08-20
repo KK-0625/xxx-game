@@ -28,7 +28,7 @@
     button { background-color: #388e3c; color: white; border: none; padding: 8px 16px; font-size: 14px; border-radius: 4px; cursor: pointer; transition: 0.2s; position: relative; overflow: hidden; }
     button:hover { background-color: #4caf50; }
     button:disabled { background-color: #444; color: #888; cursor: not-allowed; }
-    input, select, textarea { background: #2a2a2a; color: #fff; border: 1px solid #444; padding: 8px; border-radius: 4px; font-size: 14px; }
+    input, select, textarea { background: #2a2a2a; color: #fff; border: 1px solid #444; padding: 8px; border-radius: 4px; font-size: 14px; width: 100%; }
     .hidden { display: none !important; }
     .lobby-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; padding-bottom: 10px; margin-bottom: 10px; }
     .online-badge { background: #2a3a2a; color: #66bb6a; border: 1px solid #4caf50; padding: 4px 12px; border-radius: 20px; font-weight: bold; font-size: 13px; }
@@ -114,14 +114,26 @@
 
   <!-- 帳號登入/註冊區塊 -->
   <div id="authSection" class="card">
-    <h3>🔐 帳號登入 / 註冊</h3>
-    <div style="display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap;">
+    <h3 style="color: #4caf50; margin-bottom: 5px;">⚔️ 歡迎來到 RPG 戰鬥世界</h3>
+    <p style="color: #aaa; font-size: 13px; margin-top: 0; margin-bottom: 15px;">請先登入或註冊您的冒險者帳號以開始遊戲：</p>
+    
+    <div style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 15px;">
       <input type="text" id="authUsername" placeholder="帳號名稱">
       <input type="password" id="authPassword" placeholder="密碼">
+      <input type="text" id="authNickname" placeholder="冒險者暱稱 (僅註冊時需要)">
+      <select id="authRole">
+        <option value="assassin" selected>刺客 (爆擊與閃避)</option>
+        <option value="berserker">狂戰士 (高攻擊、近戰)</option>
+        <option value="mage">法師 (高魔傷、範圍)</option>
+        <option value="priest">牧師 (治療與輔助)</option>
+        <option value="knight">騎士 (高防禦、坦)</option>
+        <option value="archer">弓箭手 (遠距物理)</option>
+      </select>
     </div>
+
     <div style="display: flex; gap: 10px;">
-      <button onclick="login()">🔑 帳號登入</button>
-      <button onclick="register()" style="background-color: #008cba;">📝 註冊新帳號</button>
+      <button onclick="login()" style="flex: 1; background-color: #388e3c; font-weight: bold;">登入</button>
+      <button onclick="register()" style="flex: 1; background-color: #008cba; font-weight: bold;">註冊</button>
     </div>
   </div>
 
@@ -136,13 +148,13 @@
         <button onclick="openAnnouncementModal()" style="background-color: #9c27b0; font-weight: bold;">📢 查看公告</button>
         <button onclick="openTopupModal()" style="background-color: #2196f3; font-weight: bold;">💎 金幣儲值</button>
         <button onclick="openShopModal()" style="background-color: #ff9800; font-weight: bold;">🛒 道具商店</button>
-        <!-- 新增：開啟管理員公告修改的按鈕 -->
+        <!-- 管理員公告修改按鈕 -->
         <button id="btnOpenAdminNoticeModal" onclick="openAdminNoticeModal()" style="background-color: #e91e63; font-weight: bold; display:none;">📢 公告管理</button>
         <div class="online-badge">🟢 在線玩家：<span id="displayOnlineCount">---</span> 人</div>
       </div>
     </div>
     
-    <!-- 👑 管理員審核後台面板 (預設隱藏公告修改，僅保留審核佇列) -->
+    <!-- 👑 管理員審核後台面板 -->
     <div id="adminTopupPanel" style="display:none; border: 2px solid red; padding: 10px; margin-bottom: 15px; border-radius: 6px; background: #221111;">
       <h3 style="color: #ff5252; margin-top: 0;">👑 管理員專區：待審核儲值佇列</h3>
       <div id="pendingTopupsList" style="margin-bottom: 15px;">
@@ -158,11 +170,11 @@
           <label>玩家暱稱：<input type="text" id="playerName" value="勇者"></label>
           <label>選擇職業：
             <select id="playerRole">
-              <option value="berserker" selected>🩸 狂戰士 (16000 HP - 攻擊吸血)</option>
+              <option value="berserker">🩸 狂戰士 (16000 HP - 攻擊吸血)</option>
               <option value="mage">🔮 法師 (9000 HP - 灼燒/麻痺)</option>
               <option value="priest">💚 牧師 (10000 HP - 專屬復活)</option>
               <option value="knight">🏰 騎士 (20000 HP - 5% 荊棘反傷)</option>
-              <option value="assassin">🗡️ 刺客 (11000 HP - 中毒降療 / 10% 秒殺)</option>
+              <option value="assassin" selected>🗡️ 刺客 (11000 HP - 中毒降療 / 10% 秒殺)</option>
               <option value="archer">🏹 弓箭手 (10500 HP - 致盲MISS / 暴風箭雨)</option>
             </select>
           </label>
@@ -476,7 +488,7 @@
         document.getElementById('authSection').classList.add('hidden');
         document.getElementById('lobbySection').classList.remove('hidden');
         document.getElementById('playerName').value = data.user.name || "勇者";
-        document.getElementById('playerRole').value = data.user.role || 'berserker';
+        document.getElementById('playerRole').value = data.user.role || 'assassin';
         localUserData.level = data.user.level || 1;
         localUserData.exp = data.user.exp || 0;
         
@@ -489,7 +501,6 @@
         }
         updateInventoryDisplay(data.user.inventory);
 
-        // 登入成功後自動彈出公告視窗
         if (data.announcement) {
           currentAnnouncement = data.announcement;
         }
@@ -511,7 +522,6 @@
         const adminPanel = document.getElementById('adminTopupPanel');
         
         adminPanel.style.display = 'block';
-        // 當有管理員權限時，顯示公告管理的快捷按鈕
         document.getElementById('btnOpenAdminNoticeModal').style.display = 'inline-block';
         
         if (!data.list || data.list.length === 0) {
@@ -629,10 +639,8 @@
     };
   }
 
-  // 初始化連線
   connectWebSocket();
 
-  // 音效合成模組
   const AudioFX = {
     ctx: null,
     init() {
@@ -809,8 +817,18 @@
     if (!checkWsConnected()) return;
     const u = document.getElementById('authUsername').value.trim();
     const p = document.getElementById('authPassword').value.trim();
+    const nickname = document.getElementById('authNickname').value.trim() || "冒險者";
+    const role = document.getElementById('authRole').value;
+
     if (!u || !p) return alert("請輸入帳號與密碼！");
-    ws.send(JSON.stringify({ type: 'register', username: u, password: p }));
+    
+    ws.send(JSON.stringify({ 
+      type: 'register', 
+      username: u, 
+      password: p,
+      name: nickname,
+      role: role
+    }));
   }
 
   function login() {
