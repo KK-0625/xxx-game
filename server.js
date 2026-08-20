@@ -31,6 +31,7 @@ async function initDB() {
         username VARCHAR(50) UNIQUE NOT NULL,
         password_hash VARCHAR(255) NOT NULL,
         name TEXT,
+        has_changed_nickname BOOLEAN DEFAULT FALSE,
         role VARCHAR(20) DEFAULT 'berserker',
         hp_potion INT DEFAULT 5,
         mp_potion INT DEFAULT 5,
@@ -60,6 +61,7 @@ async function initDB() {
     `);
     
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS name TEXT;`);
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS has_changed_nickname BOOLEAN DEFAULT FALSE;`);
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS rank_points INT DEFAULT 0;`);
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS gold INT DEFAULT 0;`);
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS level INT DEFAULT 1;`);
@@ -82,7 +84,6 @@ async function initDB() {
 initDB();
 
 const server = http.createServer((req, res) => {
-  // 支援透過 HTTP 接收拒絕儲值請求
   const matchReject = req.url.match(/^\/api\/topup\/(.+)\/reject$/);
   if (req.method === 'POST' && matchReject) {
     const applicationId = matchReject[1];
@@ -115,7 +116,6 @@ let matchQueue = [];
 let matchQueue5v5 = [];
 let simulatedOnlineCount = 5501;
 
-// 暫存待審核的儲值申請佇列
 let pendingTopups = [];
 
 const ROLE_STATS = {
@@ -233,7 +233,6 @@ function broadcastPendingTopups() {
   });
 }
 
-// 📢 廣播公告列表給所有在線用戶
 async function broadcastAnnouncements(targetWs = null) {
   try {
     const res = await pool.query('SELECT * FROM announcements ORDER BY created_at DESC');
@@ -711,20 +710,16 @@ wss.on('connection', (ws) => {
   ws.on('pong', () => { ws.isAlive = true; });
 
   ws.send(JSON.stringify({ type: 'online_count', onlineCount: simulatedOnlineCount + wss.clients.size }));
-  
-  // 連線時自動發送現有公告
   broadcastAnnouncements(ws);
 
   ws.on('message', async (message) => {
     try {
       const data = JSON.parse(message);
 
-      // 📢 取得公告列表
       if (data.type === 'get_announcements') {
         broadcastAnnouncements(ws);
       }
 
-      // 📢 管理員：新增公告
       else if (data.type === 'admin_create_announcement') {
         if (!ws.user || !ws.user.is_admin) {
           return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 您沒有管理員權限！' }));
@@ -738,14 +733,13 @@ wss.on('connection', (ws) => {
         try {
           await pool.query('INSERT INTO announcements (title, content) VALUES ($1, $2)', [title, content]);
           ws.send(JSON.stringify({ type: 'admin_action_success', message: '✅ 公告發布成功！' }));
-          broadcastAnnouncements(); // 廣播給所有人更新
+          broadcastAnnouncements();
         } catch (err) {
           console.error("新增公告失敗:", err);
           ws.send(JSON.stringify({ type: 'error', message: '🔴 伺服器錯誤，新增公告失敗。' }));
         }
       }
 
-      // 📢 管理員：刪除公告
       else if (data.type === 'admin_delete_announcement') {
         if (!ws.user || !ws.user.is_admin) {
           return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 您沒有管理員權限！' }));
@@ -759,10 +753,61 @@ wss.on('connection', (ws) => {
         try {
           await pool.query('DELETE FROM announcements WHERE id = $1', [id]);
           ws.send(JSON.stringify({ type: 'admin_action_success', message: '✅ 公告刪除成功！' }));
-          broadcastAnnouncements(); // 廣播給所有人更新
+          broadcastAnnouncements();
         } catch (err) {
           console.error("刪除公告失敗:", err);
           ws.send(JSON.stringify({ type: 'error', message: '🔴 伺服器錯誤，刪除公告失敗。' }));
+        }
+      }
+
+      // 📝 處理玩家更新暱稱 (update_nickname)
+      else if (data.type === 'update_nickname') {
+        if (!ws.user) {
+          return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 請先登入遊戲！' }));
+        }
+
+        const newName = data.name ? data.name.trim() : '';
+        if (!newName) {
+          return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 暱稱不能為空！' }));
+        }
+
+        if (newName.length > 20) {
+          return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 暱稱長度不能超過 20 個字元！' }));
+        }
+
+        try {
+          // 檢查該使用者是否已經修改過暱稱（GM可例外或依需求處理，此處依邏輯判斷）
+          const dbRes = await pool.query('SELECT has_changed_nickname FROM users WHERE id = $1', [ws.user.id]);
+          if (dbRes.rows.length === 0) return;
+          
+          const hasChanged = dbRes.rows[0].has_changed_nickname;
+
+          if (hasChanged && !ws.user.isGM) {
+            return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 您已經修改過暱稱，無法再次免費修改！' }));
+          }
+
+          // 更新資料庫
+          await pool.query(
+            'UPDATE users SET name = $1, has_changed_nickname = TRUE WHERE id = $2',
+            [newName, ws.user.id]
+          );
+
+          // 更新記憶體中的連線狀態
+          ws.user.name = newName;
+          ws.user.hasChangedNickname = true;
+
+          // 回傳更新成功封包
+          ws.send(JSON.stringify({
+            type: 'nickname_updated',
+            success: true,
+            message: '✅ 暱稱修改成功！',
+            name: newName,
+            hasChangedNickname: true
+          }));
+
+        } catch (err) {
+          console.error("更新暱稱失敗:", err);
+          ws.send(JSON.stringify({ type: 'error', message: '🔴 伺服器錯誤，更新暱稱失敗。' }));
         }
       }
 
@@ -1002,8 +1047,8 @@ wss.on('connection', (ws) => {
 
         try {
           await pool.query(
-            `INSERT INTO users (username, password_hash, name, role, level, exp, gold, hp_potion, mp_potion, exp_scroll, is_admin) 
-             VALUES ($1, $2, $3, 'berserker', 1, 0, 100, 5, 5, 1, $4)`,
+            `INSERT INTO users (username, password_hash, name, has_changed_nickname, role, level, exp, gold, hp_potion, mp_potion, exp_scroll, is_admin) 
+             VALUES ($1, $2, $3, FALSE, 'berserker', 1, 0, 100, 5, 5, 1, $4)`,
             [username, hashedPassword, username, isAdminFlag]
           );
           ws.send(JSON.stringify({ type: 'register_success', message: '🎉 註冊成功！請直接登入。' }));
@@ -1035,6 +1080,7 @@ wss.on('connection', (ws) => {
           id: row.id,
           username: row.username,
           name: row.name || username,
+          hasChangedNickname: Boolean(row.has_changed_nickname),
           role: row.role || 'berserker',
           level: row.level || 1,
           exp: row.exp || 0,
@@ -1063,10 +1109,12 @@ wss.on('connection', (ws) => {
         if (ws.idleTimer) clearTimeout(ws.idleTimer);
         scheduleIdleReward(ws);
 
+        // 🌟 登入成功封包內帶入 hasChangedNickname 狀態
         ws.send(JSON.stringify({
           type: 'login_success',
           user: {
             name: ws.user.name,
+            hasChangedNickname: ws.user.hasChangedNickname,
             role: ws.user.role,
             level: ws.user.level,
             exp: ws.user.exp,
