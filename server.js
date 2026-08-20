@@ -760,13 +760,16 @@ wss.on('connection', (ws) => {
         }
       }
 
-      // 📝 處理玩家更新暱稱 (update_nickname)
+      // 📝 處理玩家更新暱稱 (update_nickname) [已套用容錯處理]
       else if (data.type === 'update_nickname') {
         if (!ws.user) {
           return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 請先登入遊戲！' }));
         }
 
-        const newName = data.name ? data.name.trim() : '';
+        // 容錯處理：支援 data.name、data.nickname，或是直接傳字串
+        const rawInput = data.name || data.nickname || (typeof data === 'string' ? data : '');
+        const newName = typeof rawInput === 'string' ? rawInput.trim() : '';
+
         if (!newName) {
           return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 暱稱不能為空！' }));
         }
@@ -776,7 +779,6 @@ wss.on('connection', (ws) => {
         }
 
         try {
-          // 檢查該使用者是否已經修改過暱稱（GM可例外或依需求處理，此處依邏輯判斷）
           const dbRes = await pool.query('SELECT has_changed_nickname FROM users WHERE id = $1', [ws.user.id]);
           if (dbRes.rows.length === 0) return;
           
@@ -786,17 +788,14 @@ wss.on('connection', (ws) => {
             return ws.send(JSON.stringify({ type: 'error', message: '⚠️ 您已經修改過暱稱，無法再次免費修改！' }));
           }
 
-          // 更新資料庫
           await pool.query(
             'UPDATE users SET name = $1, has_changed_nickname = TRUE WHERE id = $2',
             [newName, ws.user.id]
           );
 
-          // 更新記憶體中的連線狀態
           ws.user.name = newName;
           ws.user.hasChangedNickname = true;
 
-          // 回傳更新成功封包
           ws.send(JSON.stringify({
             type: 'nickname_updated',
             success: true,
