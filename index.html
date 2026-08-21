@@ -443,6 +443,32 @@
 </div>
 
 <script>
+  // ----------------------------------------------------
+  // 新增：靜默禁用右鍵選單與開發者工具快捷鍵
+  // ----------------------------------------------------
+  document.addEventListener('contextmenu', function(e) {
+    e.preventDefault();
+  });
+
+  document.addEventListener('keydown', function(e) {
+    // 封鎖 F12
+    if (e.key === 'F12') {
+      e.preventDefault();
+      return false;
+    }
+    // 封鎖 Ctrl+Shift+I / J / C (開發者工具)
+    if (e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'i' || e.key === 'J' || e.key === 'j' || e.key === 'C' || e.key === 'c')) {
+      e.preventDefault();
+      return false;
+    }
+    // 封鎖 Ctrl+U (檢視網頁原始碼)
+    if (e.ctrlKey && (e.key === 'U' || e.key === 'u')) {
+      e.preventDefault();
+      return false;
+    }
+  });
+  // ----------------------------------------------------
+
   let ws = null;
   let myPlayerId = null;
   let currentUser = null;
